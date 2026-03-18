@@ -3,242 +3,241 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Floating Subtitle Player</title>
+    <title>字幕工作台</title>
     <script type="module" src="/src/main.ts" defer></script>
   </head>
 
   <body>
     <main class="app-shell">
-      <aside class="sidebar">
-        <div class="brand">
-          <p class="brand-kicker">Desktop Subtitle Studio</p>
-          <h1>字幕工作台</h1>
-          <p class="brand-copy">
-            本地素材、本地识别、本地悬浮字幕。
-          </p>
+      <aside class="sidebar" data-tauri-drag-region>
+        <div class="brand" data-tauri-drag-region>
+          <div class="brand-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+            </svg>
+          </div>
+          <div>
+            <h1>字幕工作台</h1>
+            <p class="brand-sub">本地识别 · 悬浮字幕</p>
+          </div>
         </div>
 
-        <nav class="menu">
-          <button class="menu-button" data-tab-trigger="library" data-active="true">
-            素材
+        <nav class="nav">
+          <button class="nav-item" data-tab-trigger="library" data-active="true">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+            <span>素材库</span>
           </button>
-          <button class="menu-button" data-tab-trigger="playlist">
-            播放列表
+          <button class="nav-item" data-tab-trigger="player">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            <span>播放器</span>
           </button>
-          <button class="menu-button" data-tab-trigger="settings">
-            设置
+          <button class="nav-item" data-tab-trigger="settings">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            <span>设置</span>
           </button>
         </nav>
 
-        <section class="sidebar-card">
-          <p class="sidebar-label">系统状态</p>
-          <div id="status-badge" class="status-badge" data-tone="neutral">就绪</div>
-          <p id="status-text" class="sidebar-copy">
-            导入媒体后会自动转存到本地，并立即开始离线生成字幕。
-          </p>
-        </section>
+        <div class="sidebar-status">
+          <div class="status-dot" id="status-badge" data-tone="neutral"></div>
+          <div class="status-body">
+            <span class="status-label" id="status-badge-label">就绪</span>
+            <p id="status-text" class="status-msg">导入媒体后自动生成字幕</p>
+          </div>
+        </div>
       </aside>
 
       <section class="content">
+        <!-- ===== 素材库 ===== -->
         <section class="page" data-tab-panel="library" data-active="true">
-          <header class="page-head">
-            <div>
-              <p class="page-kicker">素材</p>
-              <h2>本地素材库</h2>
+          <header class="page-header">
+            <h2>素材库</h2>
+            <div class="header-actions">
+              <button id="import-subtitle-button" class="btn btn-outline" type="button">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+                导入字幕
+              </button>
+              <button id="import-audio-button" class="btn btn-primary" type="button">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                导入媒体
+              </button>
             </div>
-            <button id="import-audio-button" class="button button-primary" type="button">
-              导入音频/视频
-            </button>
           </header>
 
-          <section class="hero-card">
-            <div>
-              <p class="hero-label">自动流程</p>
-              <strong>导入后自动本地转存，并立即生成字幕</strong>
-            </div>
-            <p class="hero-note">
-              视频导入后会自动导出音频资源，字幕生成完成后会绑定到对应素材。
-            </p>
-          </section>
+          <div class="card info-banner">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+            <span>导入音频或视频后，自动转存本地并离线生成字幕。</span>
+          </div>
 
-          <section class="panel">
-            <div class="panel-head">
-              <div>
-                <p class="panel-label">已导入素材</p>
-                <h3 id="library-count-label">0 条</h3>
-              </div>
+          <div class="section-bar">
+            <span class="section-title">已导入</span>
+            <span id="library-count-label" class="badge">0</span>
+          </div>
+          <div id="media-library-list" class="list empty-state">
+            <div class="empty-content">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.4"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+              <span>还没有导入任何素材</span>
             </div>
-            <div id="media-library-list" class="list-stack empty-state">
-              还没有导入任何素材
-            </div>
-          </section>
+          </div>
         </section>
 
-        <section class="page" data-tab-panel="playlist">
-          <header class="page-head">
-            <div>
-              <p class="page-kicker">播放列表</p>
-              <h2>播放与循环</h2>
-            </div>
+        <!-- ===== 播放器 ===== -->
+        <section class="page" data-tab-panel="player">
+          <header class="page-header">
+            <h2>播放器</h2>
           </header>
 
-          <section class="panel player-panel">
-            <div class="current-media-card">
-              <div>
-                <p class="panel-label">当前播放</p>
+          <div class="card player-card">
+            <div class="player-now">
+              <div class="player-now-info">
+                <span class="label-sm">当前播放</span>
                 <h3 id="audio-file-label">未选择素材</h3>
               </div>
-              <div class="current-media-meta">
-                <span id="subtitle-file-label">未生成字幕</span>
-                <span id="cue-timing" class="timing-chip">未命中字幕句</span>
+              <div class="player-now-meta">
+                <span id="subtitle-file-label" class="tag">未生成字幕</span>
+                <span id="cue-timing" class="tag tag-dim">--:-- ~ --:--</span>
               </div>
             </div>
 
-            <div class="transport-actions">
-              <button id="play-toggle-button" class="button button-primary" type="button" disabled>
-                播放
+            <div class="player-controls">
+              <button id="play-toggle-button" class="btn btn-icon btn-primary" type="button" disabled title="播放/暂停 (空格)">
+                <svg id="play-icon" width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                <svg id="pause-icon" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" style="display:none"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
               </button>
-              <label class="field">
-                <span>循环模式</span>
-                <select id="playlist-mode-select">
-                  <option value="sequential">顺序循环</option>
-                  <option value="single">单曲循环</option>
-                </select>
-              </label>
-              <label class="field">
-                <span>播放倍率</span>
+              <div class="progress-wrap">
+                <input id="progress-input" type="range" min="0" max="1" value="0" disabled />
+                <div class="progress-time">
+                  <span id="transport-time">00:00 / 00:00</span>
+                  <span id="duration-meta">等待导入媒体</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="player-options">
+              <label class="inline-field">
+                <span>倍率</span>
                 <select id="playback-rate-select">
+                  <option value="0.50">0.50x</option>
+                  <option value="0.75">0.75x</option>
                   <option value="0.80">0.80x</option>
                   <option value="1.00" selected>1.00x</option>
                   <option value="1.25">1.25x</option>
                   <option value="1.50">1.50x</option>
+                  <option value="2.00">2.00x</option>
                 </select>
               </label>
-            </div>
-
-            <div class="progress-card">
-              <input
-                id="progress-input"
-                type="range"
-                min="0"
-                max="1"
-                value="0"
-                disabled
-              />
-              <div class="progress-meta">
-                <span id="transport-time">00:00 / 00:00</span>
-                <span id="duration-meta">等待导入媒体</span>
-              </div>
+              <label class="inline-field">
+                <span>循环</span>
+                <select id="playlist-mode-select">
+                  <option value="sequential">顺序播放</option>
+                  <option value="single">单曲循环</option>
+                </select>
+              </label>
+              <button id="retry-asr-button" class="btn btn-outline btn-sm" type="button" style="display:none" title="重新生成字幕">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                重新识别
+              </button>
             </div>
 
             <div class="subtitle-preview">
-              <p class="panel-label">当前字幕</p>
-              <p id="current-text" class="current-subtitle">等待播放</p>
+              <span class="label-sm">当前字幕</span>
+              <p id="current-text" class="subtitle-text">等待播放</p>
             </div>
 
             <audio id="audio-element" preload="metadata"></audio>
-          </section>
+          </div>
 
-          <section class="panel">
-            <div class="panel-head">
-              <div>
-                <p class="panel-label">播放历史</p>
-                <h3 id="playlist-count-label">0 条</h3>
-              </div>
+          <div class="section-bar">
+            <span class="section-title">播放历史</span>
+            <span id="playlist-count-label" class="badge">0</span>
+          </div>
+          <div id="playback-history-list" class="list empty-state">
+            <div class="empty-content">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.4"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+              <span>还没有播放记录</span>
             </div>
-            <div id="playback-history-list" class="list-stack empty-state">
-              还没有播放记录
-            </div>
-          </section>
+          </div>
         </section>
 
+        <!-- ===== 设置 ===== -->
         <section class="page" data-tab-panel="settings">
-          <header class="page-head">
-            <div>
-              <p class="page-kicker">设置</p>
-              <h2>悬浮窗与数据管理</h2>
-            </div>
+          <header class="page-header">
+            <h2>设置</h2>
           </header>
 
-          <section class="settings-grid">
-            <article class="panel settings-panel">
-              <div class="panel-head">
-                <div>
-                  <p class="panel-label">悬浮窗</p>
-                  <h3>显示控制</h3>
-                </div>
-              </div>
-
-              <label class="toggle-card">
-                <span>开启悬浮窗</span>
-                <input id="overlay-visible-checkbox" type="checkbox" />
+          <div class="settings-layout">
+            <div class="card settings-card">
+              <h4>悬浮窗</h4>
+              <label class="toggle-row">
+                <span>开启悬浮字幕窗</span>
+                <input id="overlay-visible-checkbox" type="checkbox" class="toggle" />
               </label>
-
-              <label class="field">
-                <span>固定位置</span>
+              <div class="form-row">
+                <span>窗口交互</span>
+                <button id="overlay-lock-toggle" class="btn btn-sm btn-outline" type="button" data-locked="false">
+                  锁定窗口
+                </button>
+              </div>
+              <label class="form-row">
+                <span>位置</span>
                 <select id="overlay-position-select">
                   <option value="bottom">底部</option>
                   <option value="top">顶部</option>
                 </select>
               </label>
-
-              <label class="field">
+              <label class="form-row">
                 <span>字幕颜色</span>
-                <input id="overlay-color-input" type="color" value="#fff4d6" />
+                <input id="overlay-color-input" type="color" value="#ffffff" />
               </label>
-
-              <label class="field">
+              <label class="form-row">
                 <span>字体大小</span>
-                <input id="font-size-input" type="range" min="24" max="60" step="1" value="34" />
-                <strong id="font-size-value">34 px</strong>
+                <div class="range-group">
+                  <input id="font-size-input" type="range" min="24" max="60" step="1" value="34" />
+                  <strong id="font-size-value">34px</strong>
+                </div>
               </label>
-
-              <label class="field">
+              <label class="form-row">
                 <span>透明度</span>
-                <input id="opacity-input" type="range" min="60" max="100" step="1" value="92" />
-                <strong id="opacity-value">92%</strong>
+                <div class="range-group">
+                  <input id="opacity-input" type="range" min="60" max="100" step="1" value="92" />
+                  <strong id="opacity-value">92%</strong>
+                </div>
               </label>
-            </article>
+            </div>
 
-            <article class="panel settings-panel">
-              <div class="panel-head">
-                <div>
-                  <p class="panel-label">模型</p>
-                  <h3>默认离线模型</h3>
-                </div>
-                <button id="download-model-button" class="button button-ghost" type="button">
-                  下载模型
-                </button>
+            <div class="card settings-card">
+              <h4>离线模型</h4>
+              <div class="model-info">
+                <p id="model-status-label" class="text-dim">正在检查模型状态…</p>
+                <p id="model-path-label" class="text-dim text-xs">模型路径加载中</p>
               </div>
-              <p id="model-status-label" class="muted-text">正在检查模型状态</p>
-              <p id="model-path-label" class="muted-text">推荐路径：./models/ggml-base.bin</p>
-            </article>
+              <button id="download-model-button" class="btn btn-outline" type="button">下载模型</button>
+            </div>
 
-            <article class="panel settings-panel">
-              <div class="panel-head">
-                <div>
-                  <p class="panel-label">数据管理</p>
-                  <h3>清理入口</h3>
-                </div>
+            <div class="card settings-card">
+              <h4>数据管理</h4>
+              <p class="text-dim text-xs">以下操作不可逆，请谨慎执行。</p>
+              <div class="danger-grid">
+                <button id="clear-subtitles-button" class="btn btn-outline btn-danger" type="button">清理字幕缓存</button>
+                <button id="clear-audio-cache-button" class="btn btn-outline btn-danger" type="button">清理音频缓存</button>
+                <button id="delete-model-button" class="btn btn-outline btn-danger" type="button">删除离线模型</button>
+                <button id="reset-app-data-button" class="btn btn-danger-solid" type="button">重置全部数据</button>
               </div>
-              <div class="danger-actions">
-                <button id="clear-subtitles-button" class="button button-ghost" type="button">
-                  清理字幕缓存
-                </button>
-                <button id="clear-audio-cache-button" class="button button-ghost" type="button">
-                  清理音频缓存
-                </button>
-                <button id="delete-model-button" class="button button-ghost" type="button">
-                  删除默认模型
-                </button>
-                <button id="reset-app-data-button" class="button" type="button">
-                  重置应用数据
-                </button>
-              </div>
-            </article>
-          </section>
+            </div>
+          </div>
         </section>
       </section>
     </main>
+
+    <!-- Confirm dialog -->
+    <dialog id="confirm-dialog" class="confirm-dialog">
+      <div class="dialog-body">
+        <h3 id="confirm-title">确认操作</h3>
+        <p id="confirm-message">确定要执行此操作吗？</p>
+        <div class="dialog-actions">
+          <button id="confirm-cancel" class="btn btn-outline" type="button">取消</button>
+          <button id="confirm-ok" class="btn btn-danger-solid" type="button">确认</button>
+        </div>
+      </div>
+    </dialog>
   </body>
 </html>

@@ -3,6 +3,7 @@ mod commands;
 mod error;
 mod media;
 mod model;
+mod sidecar;
 mod state;
 mod storage;
 mod store;

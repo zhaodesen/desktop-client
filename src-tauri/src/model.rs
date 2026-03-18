@@ -243,6 +243,7 @@ fn generate_job_id() -> String {
     let millis = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
-        .as_millis();
-    format!("model-{millis}")
+        .as_millis() as u64;
+    let rand: u32 = (millis as u32).wrapping_mul(2654435761);
+    format!("model-{millis}-{rand:08x}")
 }

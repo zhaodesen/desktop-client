@@ -1,6 +1,7 @@
 export const OVERLAY_RENDER_EVENT = "subtitle://render";
 export const OVERLAY_CLEAR_EVENT = "subtitle://clear";
 export const OVERLAY_STYLE_EVENT = "style://update";
+export const OVERLAY_LOCK_EVENT = "overlay://lock";
 export const ASR_STARTED_EVENT = "asr://started";
 export const ASR_PROGRESS_EVENT = "asr://progress";
 export const ASR_COMPLETED_EVENT = "asr://completed";

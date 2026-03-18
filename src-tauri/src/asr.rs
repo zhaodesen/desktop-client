@@ -2,14 +2,14 @@ use serde::Serialize;
 use std::{
     env, fs,
     path::{Path, PathBuf},
-    process::Command,
     sync::{Arc, Mutex},
     thread,
     time::{SystemTime, UNIX_EPOCH},
 };
-use tauri::{path::BaseDirectory, AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 
 use crate::model;
+use crate::sidecar::{self, CommandTarget};
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -54,19 +54,6 @@ pub struct AsrFailedPayload {
     pub message: String,
 }
 
-enum CommandTarget {
-    Program(String),
-    File(PathBuf),
-}
-
-impl CommandTarget {
-    fn display(&self) -> String {
-        match self {
-            Self::Program(program) => program.clone(),
-            Self::File(path) => path.display().to_string(),
-        }
-    }
-}
 
 pub fn start_job(
     app: AppHandle,
@@ -213,7 +200,7 @@ fn emit_progress(
 }
 
 fn run_ffmpeg(target: &CommandTarget, input: &Path, output: &Path) -> Result<(), String> {
-    let output_result = build_command(target)
+    let output_result = sidecar::build_command(target)
         .args([
             "-y",
             "-i",
@@ -245,7 +232,7 @@ fn run_whisper(
     wav_path: &Path,
     subtitle_prefix: &Path,
 ) -> Result<(), String> {
-    let output_result = build_command(target)
+    let output_result = sidecar::build_command(target)
         .args([
             "-m",
             &model_path.display().to_string(),
@@ -268,86 +255,16 @@ fn run_whisper(
     }
 }
 
-fn build_command(target: &CommandTarget) -> Command {
-    match target {
-        CommandTarget::Program(program) => Command::new(program),
-        CommandTarget::File(path) => Command::new(path),
-    }
-}
-
 fn locate_ffmpeg(app: &AppHandle) -> Result<CommandTarget, String> {
-    locate_executable(app, "FFMPEG_BIN", &["ffmpeg"])
+    sidecar::locate_executable(app, "FFMPEG_BIN", &["ffmpeg"])
 }
 
 fn locate_whisper_cli(app: &AppHandle) -> Result<CommandTarget, String> {
-    locate_executable(
+    sidecar::locate_executable(
         app,
         "WHISPER_CLI_BIN",
         &["whisper-cli", "whisper_cpp", "whisper"],
     )
-}
-
-fn locate_executable(
-    app: &AppHandle,
-    env_key: &str,
-    file_candidates: &[&str],
-) -> Result<CommandTarget, String> {
-    if let Ok(value) = env::var(env_key) {
-        let path = PathBuf::from(&value);
-        if path.exists() {
-            return Ok(CommandTarget::File(path));
-        }
-        return Ok(CommandTarget::Program(value));
-    }
-
-    for candidate in resolve_local_candidates(app, file_candidates)? {
-        if candidate.exists() {
-            return Ok(CommandTarget::File(candidate));
-        }
-    }
-
-    Err(format!(
-        "未找到可用的可执行文件。请把二进制放到 src-tauri/binaries 并通过 externalBin 打包，或通过环境变量 {} 指定绝对路径。",
-        env_key
-    ))
-}
-
-fn resolve_local_candidates(app: &AppHandle, names: &[&str]) -> Result<Vec<PathBuf>, String> {
-    let mut candidates = Vec::new();
-    let current_dir = env::current_dir().map_err(|error| format!("读取当前目录失败: {error}"))?;
-
-    for name in names {
-        let binary_name = with_target_triple(name);
-        if let Ok(resource_path) = app
-            .path()
-            .resolve(format!("binaries/{binary_name}"), BaseDirectory::Resource)
-        {
-            candidates.push(resource_path);
-        }
-        if let Ok(resource_path) = app.path().resolve(
-            format!("binaries/{}", with_exe_suffix(name)),
-            BaseDirectory::Resource,
-        ) {
-            candidates.push(resource_path);
-        }
-        candidates.push(current_dir.join("src-tauri/binaries").join(&binary_name));
-        candidates.push(
-            current_dir
-                .join("src-tauri/binaries")
-                .join(with_exe_suffix(name)),
-        );
-        if let Some(parent_dir) = current_dir.parent() {
-            candidates.push(parent_dir.join("src-tauri/binaries").join(&binary_name));
-            candidates.push(
-                parent_dir
-                    .join("src-tauri/binaries")
-                    .join(with_exe_suffix(name)),
-            );
-        }
-        candidates.push(current_dir.join("bin").join(with_exe_suffix(name)));
-    }
-
-    Ok(candidates)
 }
 
 fn locate_whisper_model(app: &AppHandle) -> Result<PathBuf, String> {
@@ -396,35 +313,11 @@ fn file_stem(path: &Path) -> String {
         .to_string()
 }
 
-fn with_exe_suffix(name: &str) -> String {
-    if cfg!(windows) {
-        format!("{name}.exe")
-    } else {
-        name.to_string()
-    }
-}
-
-fn target_triple() -> &'static str {
-    option_env!("TAURI_ENV_TARGET_TRIPLE").unwrap_or("")
-}
-
-fn with_target_triple(name: &str) -> String {
-    let triple = target_triple();
-    if triple.is_empty() {
-        return with_exe_suffix(name);
-    }
-
-    if cfg!(windows) {
-        format!("{name}-{triple}.exe")
-    } else {
-        format!("{name}-{triple}")
-    }
-}
-
 fn generate_job_id() -> String {
     let millis = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
-        .as_millis();
-    format!("asr-{millis}")
+        .as_millis() as u64;
+    let rand: u32 = (millis as u32).wrapping_mul(2654435761);
+    format!("asr-{millis}-{rand:08x}")
 }

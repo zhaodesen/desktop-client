@@ -27,8 +27,8 @@ impl Default for OverlaySettings {
     fn default() -> Self {
         Self {
             font_size: 34.0,
-            opacity: 0.92,
-            color: "#FFF4D6".to_string(),
+            opacity: 1.0,
+            color: "#FFFFFF".to_string(),
             position: OverlayPosition::Bottom,
         }
     }
@@ -40,6 +40,7 @@ pub struct AppSettings {
     pub playback_rate: f64,
     pub overlay_visible: bool,
     pub overlay: OverlaySettings,
+    pub playlist_mode: String,
 }
 
 impl Default for AppSettings {
@@ -48,6 +49,7 @@ impl Default for AppSettings {
             playback_rate: 1.0,
             overlay_visible: false,
             overlay: OverlaySettings::default(),
+            playlist_mode: "sequential".to_string(),
         }
     }
 }

@@ -1,62 +1,114 @@
 :root {
-  font-family: "IBM Plex Sans", "PingFang SC", "Noto Sans SC", sans-serif;
-  color: #f5f2ea;
+  font-family: -apple-system, "SF Pro Text", "PingFang SC", "Noto Sans SC", sans-serif;
   background: transparent;
   --overlay-font-size: 34px;
-  --overlay-color: #fff4d6;
+  --overlay-color: #ffffff;
 }
 
-* {
-  box-sizing: border-box;
-}
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; min-height: 100%; background: transparent; }
+body { padding: 12px; }
 
-html,
-body {
-  margin: 0;
-  min-height: 100%;
-  background: transparent;
-}
+/* ─── 拖拽区域（仅解锁时） ─── */
+.overlay-shell[data-locked="false"] { -webkit-app-region: drag; }
+.overlay-shell[data-locked="true"]  { -webkit-app-region: no-drag; }
 
-body {
-  padding: 14px;
-}
-
-*[data-tauri-drag-region] {
-  app-region: drag;
-}
-
+/* ─── 整个 shell ─── */
 .overlay-shell {
   width: 100%;
-  min-height: calc(100vh - 28px);
+  min-height: calc(100vh - 24px);
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 18px 24px;
-  border-radius: 26px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background:
-    linear-gradient(180deg, rgba(10, 14, 21, 0.84), rgba(17, 23, 34, 0.74)),
-    radial-gradient(circle at top left, rgba(240, 154, 93, 0.18), transparent 36%);
-  backdrop-filter: blur(20px);
-  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.32);
+  gap: 6px;
   justify-content: flex-end;
+  align-items: center;
+  background: transparent;
+  position: relative;
+}
+.overlay-shell[data-position="top"] { justify-content: flex-start; }
+
+/* ─── 控制栏（右上角） ─── */
+.overlay-controls {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  -webkit-app-region: no-drag;
+  /* 默认隐藏；解锁时 hover 显示 */
+  opacity: 0;
+  transition: opacity 180ms ease;
+  pointer-events: none;
 }
 
-.overlay-shell[data-position="top"] {
-  justify-content: flex-start;
+/* 解锁 + hover → 控制栏出现 */
+.overlay-shell[data-locked="false"]:hover .overlay-controls {
+  opacity: 1;
+  pointer-events: auto;
 }
 
+/* 锁定时：控制栏完全隐藏（窗口已忽略鼠标，显示也无用） */
+.overlay-shell[data-locked="true"] .overlay-controls {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* ─── 控制按钮通用 ─── */
+.overlay-ctrl-btn {
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.5);
+  color: rgba(255, 255, 255, 0.75);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  transition: background 140ms, color 140ms;
+  -webkit-app-region: no-drag;
+  flex-shrink: 0;
+}
+.overlay-ctrl-btn:hover {
+  background: rgba(0, 0, 0, 0.8);
+  color: #fff;
+}
+.overlay-close-btn:hover {
+  background: rgba(220, 38, 38, 0.85);
+  color: #fff;
+}
+
+/* 锁定按钮图标切换 */
+.overlay-shell[data-locked="false"] .icon-locked   { display: none; }
+.overlay-shell[data-locked="false"] .icon-unlocked  { display: block; }
+.overlay-shell[data-locked="true"]  .icon-unlocked  { display: none; }
+.overlay-shell[data-locked="true"]  .icon-locked    { display: block; }
+
+/* ─── 状态行 ─── */
 .overlay-meta {
-  font-size: 12px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: rgba(245, 242, 234, 0.68);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  color: rgba(255, 255, 255, 0.55);
+  text-align: center;
+  text-shadow:
+    0 1px 4px rgba(0,0,0,0.9),
+    0 0 12px rgba(0,0,0,0.7);
+  -webkit-app-region: no-drag;
 }
 
+/* ─── 主字幕文字 ─── */
 .overlay-current {
   font-size: var(--overlay-font-size);
-  line-height: 1.32;
-  font-weight: 700;
+  line-height: 1.25;
+  font-weight: 800;
   color: var(--overlay-color);
-  text-shadow: 0 8px 24px rgba(0, 0, 0, 0.42);
+  letter-spacing: -0.01em;
+  text-align: center;
+  width: 100%;
+  text-shadow:
+    0 2px 8px  rgba(0, 0, 0, 0.95),
+    0 4px 20px rgba(0, 0, 0, 0.85),
+    0 0  40px  rgba(0, 0, 0, 0.6);
+  -webkit-app-region: no-drag;
 }

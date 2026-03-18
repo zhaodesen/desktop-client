@@ -68,7 +68,6 @@ export const backend = {
   },
   startAsrJob(input: StartAsrJobInput) {
     return callCommand<StartAsrJobOutput>("start_asr_job", {
-      audioPath: input.audioPath,
       audio_path: input.audioPath,
     });
   },
@@ -82,30 +81,19 @@ export const backend = {
     return callCommand<LibraryState>("get_library_state");
   },
   importMedia(sourcePath: string) {
-    return callCommand<MediaItem>("import_media", {
-      sourcePath,
-      source_path: sourcePath,
-    });
+    return callCommand<MediaItem>("import_media", { source_path: sourcePath });
   },
   deleteMedia(mediaId: string) {
-    return callCommand<boolean>("delete_media", {
-      mediaId,
-      media_id: mediaId,
-    });
+    return callCommand<boolean>("delete_media", { media_id: mediaId });
   },
   updateMediaSubtitle(mediaId: string, subtitlePath: string) {
     return callCommand<MediaItem>("update_media_subtitle", {
-      mediaId,
       media_id: mediaId,
-      subtitlePath,
       subtitle_path: subtitlePath,
     });
   },
   recordPlayback(mediaId: string) {
-    return callCommand<PlaybackHistoryItem>("record_playback", {
-      mediaId,
-      media_id: mediaId,
-    });
+    return callCommand<PlaybackHistoryItem>("record_playback", { media_id: mediaId });
   },
   clearSubtitles() {
     return callCommand<CleanupResult>("clear_subtitles");

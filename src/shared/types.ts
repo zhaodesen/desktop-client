@@ -47,10 +47,13 @@ export type OverlaySettings = {
   position: OverlayPosition;
 };
 
+export type PlaylistMode = "single" | "sequential";
+
 export type AppSettings = {
   playbackRate: number;
   overlayVisible: boolean;
   overlay: OverlaySettings;
+  playlistMode: PlaylistMode;
 };
 
 export type CommandError = {

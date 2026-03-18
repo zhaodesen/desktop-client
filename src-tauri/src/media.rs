@@ -1,11 +1,12 @@
 use serde::{Deserialize, Serialize};
 use std::{
-    env, fs,
+    fs,
     path::{Path, PathBuf},
-    process::Command,
     time::{SystemTime, UNIX_EPOCH},
 };
-use tauri::{path::BaseDirectory, AppHandle, Manager};
+use tauri::{AppHandle, Manager};
+
+use crate::sidecar::{self, CommandTarget};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -50,7 +51,6 @@ pub struct ImportMediaInput {
     pub source_path: String,
 }
 
-struct CommandTarget(PathBuf);
 
 pub fn get_library_state(app: &AppHandle) -> Result<LibraryState, String> {
     load_library_state(app)
@@ -94,7 +94,7 @@ pub fn import_media(app: &AppHandle, input: ImportMediaInput) -> Result<MediaIte
             target
         }
         MediaSourceKind::Video => {
-            let ffmpeg = locate_ffmpeg(app)?;
+            let ffmpeg = sidecar::locate_executable(app, "FFMPEG_BIN", &["ffmpeg"])?;
             let target = media_dir.join(format!("{id}.wav"));
             extract_audio_with_ffmpeg(&ffmpeg, &source_path, &target)?;
             target
@@ -258,41 +258,21 @@ fn is_video_file(path: &Path) -> bool {
     )
 }
 
-fn locate_ffmpeg(app: &AppHandle) -> Result<CommandTarget, String> {
-    if let Ok(value) = env::var("FFMPEG_BIN") {
-        let path = PathBuf::from(value);
-        if path.exists() {
-            return Ok(CommandTarget(path));
-        }
-    }
-
-    for candidate in resolve_local_candidates(app, &["ffmpeg"])? {
-        if candidate.exists() {
-            return Ok(CommandTarget(candidate));
-        }
-    }
-
-    Err(
-        "未找到 ffmpeg 可执行文件。请把二进制放到 src-tauri/binaries 并通过 externalBin 打包，或通过环境变量 FFMPEG_BIN 指定绝对路径。"
-            .to_string(),
-    )
-}
-
 fn extract_audio_with_ffmpeg(
     target: &CommandTarget,
     source_path: &Path,
     output_path: &Path,
 ) -> Result<(), String> {
-    let output = Command::new(&target.0)
+    let output = sidecar::build_command(target)
         .args([
             "-y",
             "-i",
             &source_path.display().to_string(),
             "-vn",
             "-ar",
-            "44100",
+            "16000",
             "-ac",
-            "2",
+            "1",
             "-c:a",
             "pcm_s16le",
             &output_path.display().to_string(),
@@ -310,59 +290,10 @@ fn extract_audio_with_ffmpeg(
     }
 }
 
-fn resolve_local_candidates(app: &AppHandle, names: &[&str]) -> Result<Vec<PathBuf>, String> {
-    let mut candidates = Vec::new();
-    let current_dir = env::current_dir().map_err(|error| format!("读取当前目录失败: {error}"))?;
-
-    for name in names {
-        let binary_name = with_target_triple(name);
-        if let Ok(resource_path) = app
-            .path()
-            .resolve(format!("binaries/{binary_name}"), BaseDirectory::Resource)
-        {
-            candidates.push(resource_path);
-        }
-        if let Ok(resource_path) = app.path().resolve(
-            format!("binaries/{}", with_exe_suffix(name)),
-            BaseDirectory::Resource,
-        ) {
-            candidates.push(resource_path);
-        }
-        candidates.push(current_dir.join("src-tauri/binaries").join(&binary_name));
-        candidates.push(
-            current_dir
-                .join("src-tauri/binaries")
-                .join(with_exe_suffix(name)),
-        );
-        candidates.push(current_dir.join("bin").join(with_exe_suffix(name)));
-    }
-
-    Ok(candidates)
-}
-
-fn with_exe_suffix(name: &str) -> String {
-    if cfg!(windows) {
-        format!("{name}.exe")
-    } else {
-        name.to_string()
-    }
-}
-
-fn with_target_triple(name: &str) -> String {
-    let triple = option_env!("TAURI_ENV_TARGET_TRIPLE").unwrap_or("");
-    if triple.is_empty() {
-        return with_exe_suffix(name);
-    }
-
-    if cfg!(windows) {
-        format!("{name}-{triple}.exe")
-    } else {
-        format!("{name}-{triple}")
-    }
-}
-
 fn generate_id(prefix: &str) -> String {
-    format!("{prefix}-{}", now_millis())
+    let millis = now_millis();
+    let rand: u32 = (millis as u32).wrapping_mul(2654435761);
+    format!("{prefix}-{millis}-{rand:08x}")
 }
 
 fn now_millis() -> u64 {
