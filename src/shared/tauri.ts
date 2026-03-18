@@ -1,0 +1,192 @@
+import { invoke } from "@tauri-apps/api/core";
+import { emitTo } from "@tauri-apps/api/event";
+import {
+  ASR_COMPLETED_EVENT,
+  ASR_FAILED_EVENT,
+  ASR_PROGRESS_EVENT,
+  ASR_STARTED_EVENT,
+  MODEL_DOWNLOAD_COMPLETED_EVENT,
+  MODEL_DOWNLOAD_FAILED_EVENT,
+  MODEL_DOWNLOAD_PROGRESS_EVENT,
+  MODEL_DOWNLOAD_STARTED_EVENT,
+  OVERLAY_CLEAR_EVENT,
+  OVERLAY_RENDER_EVENT,
+  OVERLAY_STYLE_EVENT,
+} from "./events";
+import type {
+  AsrCompletedPayload,
+  AsrFailedPayload,
+  AsrProgressPayload,
+  AsrStartedPayload,
+  AppSettings,
+  CleanupResult,
+  CommandResult,
+  DefaultModelStatus,
+  DownloadModelOutput,
+  LibraryState,
+  MediaItem,
+  ModelDownloadCompletedPayload,
+  ModelDownloadFailedPayload,
+  ModelDownloadProgressPayload,
+  ModelDownloadStartedPayload,
+  OverlayRenderPayload,
+  OverlayWindowState,
+  PlaybackHistoryItem,
+  StartAsrJobInput,
+  StartAsrJobOutput,
+} from "./types";
+import { listen } from "@tauri-apps/api/event";
+
+async function callCommand<T>(
+  command: string,
+  args: Record<string, unknown> = {},
+): Promise<T> {
+  const result = await invoke<CommandResult<T>>(command, args);
+
+  if (!result.ok || result.data === undefined) {
+    throw new Error(result.error?.message ?? `调用 ${command} 失败`);
+  }
+
+  return result.data;
+}
+
+export const backend = {
+  getSettings() {
+    return callCommand<AppSettings>("get_settings");
+  },
+  updateSettings(settings: AppSettings) {
+    return callCommand<AppSettings>("update_settings", { settings });
+  },
+  showOverlay() {
+    return callCommand<OverlayWindowState>("show_overlay");
+  },
+  hideOverlay() {
+    return callCommand<OverlayWindowState>("hide_overlay");
+  },
+  toggleOverlay() {
+    return callCommand<OverlayWindowState>("toggle_overlay");
+  },
+  startAsrJob(input: StartAsrJobInput) {
+    return callCommand<StartAsrJobOutput>("start_asr_job", {
+      audioPath: input.audioPath,
+      audio_path: input.audioPath,
+    });
+  },
+  getDefaultModelStatus() {
+    return callCommand<DefaultModelStatus>("get_default_model_status");
+  },
+  downloadDefaultModel() {
+    return callCommand<DownloadModelOutput>("download_default_model");
+  },
+  getLibraryState() {
+    return callCommand<LibraryState>("get_library_state");
+  },
+  importMedia(sourcePath: string) {
+    return callCommand<MediaItem>("import_media", {
+      sourcePath,
+      source_path: sourcePath,
+    });
+  },
+  deleteMedia(mediaId: string) {
+    return callCommand<boolean>("delete_media", {
+      mediaId,
+      media_id: mediaId,
+    });
+  },
+  updateMediaSubtitle(mediaId: string, subtitlePath: string) {
+    return callCommand<MediaItem>("update_media_subtitle", {
+      mediaId,
+      media_id: mediaId,
+      subtitlePath,
+      subtitle_path: subtitlePath,
+    });
+  },
+  recordPlayback(mediaId: string) {
+    return callCommand<PlaybackHistoryItem>("record_playback", {
+      mediaId,
+      media_id: mediaId,
+    });
+  },
+  clearSubtitles() {
+    return callCommand<CleanupResult>("clear_subtitles");
+  },
+  clearAudioCache() {
+    return callCommand<CleanupResult>("clear_audio_cache");
+  },
+  deleteDefaultModel() {
+    return callCommand<CleanupResult>("delete_default_model");
+  },
+  resetAppData() {
+    return callCommand<CleanupResult>("reset_app_data");
+  },
+};
+
+export const overlayBridge = {
+  render(payload: OverlayRenderPayload) {
+    return emitTo("overlay", OVERLAY_RENDER_EVENT, payload);
+  },
+  clear() {
+    return emitTo("overlay", OVERLAY_CLEAR_EVENT);
+  },
+  updateStyle(settings: AppSettings["overlay"]) {
+    return emitTo("overlay", OVERLAY_STYLE_EVENT, settings);
+  },
+};
+
+export const asrEvents = {
+  onStarted(handler: (payload: AsrStartedPayload) => void) {
+    return listen<AsrStartedPayload>(ASR_STARTED_EVENT, ({ payload }) => {
+      handler(payload);
+    });
+  },
+  onProgress(handler: (payload: AsrProgressPayload) => void) {
+    return listen<AsrProgressPayload>(ASR_PROGRESS_EVENT, ({ payload }) => {
+      handler(payload);
+    });
+  },
+  onCompleted(handler: (payload: AsrCompletedPayload) => void) {
+    return listen<AsrCompletedPayload>(ASR_COMPLETED_EVENT, ({ payload }) => {
+      handler(payload);
+    });
+  },
+  onFailed(handler: (payload: AsrFailedPayload) => void) {
+    return listen<AsrFailedPayload>(ASR_FAILED_EVENT, ({ payload }) => {
+      handler(payload);
+    });
+  },
+};
+
+export const modelEvents = {
+  onStarted(handler: (payload: ModelDownloadStartedPayload) => void) {
+    return listen<ModelDownloadStartedPayload>(
+      MODEL_DOWNLOAD_STARTED_EVENT,
+      ({ payload }) => {
+        handler(payload);
+      },
+    );
+  },
+  onProgress(handler: (payload: ModelDownloadProgressPayload) => void) {
+    return listen<ModelDownloadProgressPayload>(
+      MODEL_DOWNLOAD_PROGRESS_EVENT,
+      ({ payload }) => {
+        handler(payload);
+      },
+    );
+  },
+  onCompleted(handler: (payload: ModelDownloadCompletedPayload) => void) {
+    return listen<ModelDownloadCompletedPayload>(
+      MODEL_DOWNLOAD_COMPLETED_EVENT,
+      ({ payload }) => {
+        handler(payload);
+      },
+    );
+  },
+  onFailed(handler: (payload: ModelDownloadFailedPayload) => void) {
+    return listen<ModelDownloadFailedPayload>(
+      MODEL_DOWNLOAD_FAILED_EVENT,
+      ({ payload }) => {
+        handler(payload);
+      },
+    );
+  },
+};

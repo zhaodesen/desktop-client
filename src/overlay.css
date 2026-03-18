@@ -1,0 +1,62 @@
+:root {
+  font-family: "IBM Plex Sans", "PingFang SC", "Noto Sans SC", sans-serif;
+  color: #f5f2ea;
+  background: transparent;
+  --overlay-font-size: 34px;
+  --overlay-color: #fff4d6;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  background: transparent;
+}
+
+body {
+  padding: 14px;
+}
+
+*[data-tauri-drag-region] {
+  app-region: drag;
+}
+
+.overlay-shell {
+  width: 100%;
+  min-height: calc(100vh - 28px);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 18px 24px;
+  border-radius: 26px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background:
+    linear-gradient(180deg, rgba(10, 14, 21, 0.84), rgba(17, 23, 34, 0.74)),
+    radial-gradient(circle at top left, rgba(240, 154, 93, 0.18), transparent 36%);
+  backdrop-filter: blur(20px);
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.32);
+  justify-content: flex-end;
+}
+
+.overlay-shell[data-position="top"] {
+  justify-content: flex-start;
+}
+
+.overlay-meta {
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(245, 242, 234, 0.68);
+}
+
+.overlay-current {
+  font-size: var(--overlay-font-size);
+  line-height: 1.32;
+  font-weight: 700;
+  color: var(--overlay-color);
+  text-shadow: 0 8px 24px rgba(0, 0, 0, 0.42);
+}

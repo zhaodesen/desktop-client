@@ -1,0 +1,11 @@
+export const OVERLAY_RENDER_EVENT = "subtitle://render";
+export const OVERLAY_CLEAR_EVENT = "subtitle://clear";
+export const OVERLAY_STYLE_EVENT = "style://update";
+export const ASR_STARTED_EVENT = "asr://started";
+export const ASR_PROGRESS_EVENT = "asr://progress";
+export const ASR_COMPLETED_EVENT = "asr://completed";
+export const ASR_FAILED_EVENT = "asr://failed";
+export const MODEL_DOWNLOAD_STARTED_EVENT = "model://download-started";
+export const MODEL_DOWNLOAD_PROGRESS_EVENT = "model://download-progress";
+export const MODEL_DOWNLOAD_COMPLETED_EVENT = "model://download-completed";
+export const MODEL_DOWNLOAD_FAILED_EVENT = "model://download-failed";
