@@ -21,21 +21,18 @@ pub fn clear_audio_cache(app: &AppHandle) -> Result<CleanupResult, String> {
 }
 
 pub fn delete_default_model(app: &AppHandle) -> Result<CleanupResult, String> {
-    let path = model::resolve_default_model_path(app)?;
-    if !path.exists() {
-        return Ok(CleanupResult {
-            deleted_files: 0,
-            deleted_dirs: 0,
-        });
-    }
-
-    fs::remove_file(&path).map_err(|error| format!("删除默认模型失败: {error}"))?;
-    prune_empty_parent_dirs(&path, app)?;
-
-    Ok(CleanupResult {
-        deleted_files: 1,
+    // Delete all installed models
+    let available = model::get_available_models();
+    let mut total = CleanupResult {
+        deleted_files: 0,
         deleted_dirs: 0,
-    })
+    };
+    for m in &available {
+        let r = model::delete_model(app, &m.id)?;
+        total.deleted_files += r.deleted_files;
+        total.deleted_dirs += r.deleted_dirs;
+    }
+    Ok(total)
 }
 
 pub fn reset_app_data(app: &AppHandle) -> Result<CleanupResult, String> {
@@ -108,32 +105,6 @@ fn clear_dir_contents(dir: &PathBuf, result: &mut CleanupResult) -> Result<(), S
             fs::remove_file(&path).map_err(|error| format!("删除文件失败: {error}"))?;
             result.deleted_files += 1;
         }
-    }
-
-    Ok(())
-}
-
-fn prune_empty_parent_dirs(path: &PathBuf, app: &AppHandle) -> Result<(), String> {
-    let app_data_dir = app_data_dir(app)?;
-    let mut current = path.parent();
-
-    while let Some(dir) = current {
-        if dir == app_data_dir {
-            break;
-        }
-
-        let is_empty = fs::read_dir(dir)
-            .map_err(|error| format!("读取目录失败: {error}"))?
-            .next()
-            .is_none();
-
-        if is_empty {
-            fs::remove_dir(dir).map_err(|error| format!("删除空目录失败: {error}"))?;
-        } else {
-            break;
-        }
-
-        current = dir.parent();
     }
 
     Ok(())

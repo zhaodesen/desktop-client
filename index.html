@@ -41,7 +41,7 @@
           <div class="status-dot" id="status-badge" data-tone="neutral"></div>
           <div class="status-body">
             <span class="status-label" id="status-badge-label">就绪</span>
-            <p id="status-text" class="status-msg">导入媒体后自动生成字幕</p>
+            <p id="status-text" class="status-msg">导入媒体后自动生成双语字幕</p>
           </div>
         </div>
       </aside>
@@ -65,7 +65,7 @@
 
           <div class="card info-banner">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-            <span>导入音频或视频后，自动转存本地并离线生成字幕。</span>
+            <span>导入音频或视频后，自动转存本地、离线生成字幕，并补全中文字幕。</span>
           </div>
 
           <div class="section-bar">
@@ -141,6 +141,7 @@
             <div class="subtitle-preview">
               <span class="label-sm">当前字幕</span>
               <p id="current-text" class="subtitle-text">等待播放</p>
+              <p id="current-secondary-text" class="subtitle-secondary-text">中文字幕会显示在这里</p>
             </div>
 
             <audio id="audio-element" preload="metadata"></audio>
@@ -154,6 +155,32 @@
             <div class="empty-content">
               <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.4"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
               <span>还没有播放记录</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="page" data-tab-panel="subtitle-editor">
+          <header class="page-header page-header-editor">
+            <div>
+              <h2>字幕详情</h2>
+              <p id="subtitle-editor-title" class="text-dim text-xs">选择素材后可在这里校对原文和中文字幕</p>
+            </div>
+            <div class="header-actions">
+              <button id="subtitle-editor-back-button" class="btn btn-outline" type="button">返回</button>
+              <button id="subtitle-editor-save-button" class="btn btn-primary" type="button">保存</button>
+            </div>
+          </header>
+
+          <div class="card subtitle-editor-card">
+            <div class="subtitle-editor-head">
+              <span class="subtitle-editor-col">原文</span>
+              <span class="subtitle-editor-col">中文字幕</span>
+            </div>
+            <div id="subtitle-editor-list" class="subtitle-editor-list empty-state">
+              <div class="empty-content">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.4"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+                <span>字幕详情会显示在这里</span>
+              </div>
             </div>
           </div>
         </section>
@@ -210,7 +237,9 @@
                 <p id="model-status-label" class="text-dim">正在检查模型状态…</p>
                 <p id="model-path-label" class="text-dim text-xs">模型路径加载中</p>
               </div>
-              <button id="download-model-button" class="btn btn-outline" type="button">下载模型</button>
+              <div id="model-list" class="model-list">
+                <!-- Model items will be rendered dynamically -->
+              </div>
             </div>
 
             <div class="card settings-card">
@@ -219,7 +248,7 @@
               <div class="danger-grid">
                 <button id="clear-subtitles-button" class="btn btn-outline btn-danger" type="button">清理字幕缓存</button>
                 <button id="clear-audio-cache-button" class="btn btn-outline btn-danger" type="button">清理音频缓存</button>
-                <button id="delete-model-button" class="btn btn-outline btn-danger" type="button">删除离线模型</button>
+                <button id="delete-model-button" class="btn btn-outline btn-danger" type="button">删除所有模型</button>
                 <button id="reset-app-data-button" class="btn btn-danger-solid" type="button">重置全部数据</button>
               </div>
             </div>

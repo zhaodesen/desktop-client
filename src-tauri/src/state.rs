@@ -41,6 +41,8 @@ pub struct AppSettings {
     pub overlay_visible: bool,
     pub overlay: OverlaySettings,
     pub playlist_mode: String,
+    /// The ID of the currently selected whisper model (e.g. "tiny", "base", "small", "medium", "large-v3-turbo").
+    pub selected_model: String,
 }
 
 impl Default for AppSettings {
@@ -50,6 +52,7 @@ impl Default for AppSettings {
             overlay_visible: false,
             overlay: OverlaySettings::default(),
             playlist_mode: "sequential".to_string(),
+            selected_model: "base".to_string(),
         }
     }
 }

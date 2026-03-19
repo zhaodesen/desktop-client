@@ -47,11 +47,8 @@ window.addEventListener("DOMContentLoaded", () => {
    *   - 显示拖拽、关闭、锁定按钮
    * ─────────────────────────────────────────────────────── */
 
-  let isLocked = false;
-
   /** 仅更新 UI / CSS 状态，不触发事件（防循环） */
   const applyLockState = async (locked: boolean) => {
-    isLocked = locked;
     shell.dataset.locked = String(locked);
 
     if (locked) {
@@ -112,7 +109,7 @@ window.addEventListener("DOMContentLoaded", () => {
   void applyLockState(false); // 默认解锁，让用户先拖动定位
 
   // 强制将 WKWebView 自身背景设为透明（仅靠窗口层透明有时不够）
-  void getCurrentWebview().setBackgroundColor({ r: 0, g: 0, b: 0, a: 0 });
+  void getCurrentWebview().setBackgroundColor({ red: 0, green: 0, blue: 0, alpha: 0 });
 
   /* ── 后端 / 跨窗口事件 ───────────────────────────────── */
 

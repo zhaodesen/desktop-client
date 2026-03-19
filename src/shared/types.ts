@@ -6,6 +6,13 @@ export type SubtitleCue = {
   secondaryText?: string;
 };
 
+export type SubtitleDocument = {
+  mediaId: string;
+  title: string;
+  subtitlePath: string;
+  cues: SubtitleCue[];
+};
+
 export type MediaSourceKind = "audio" | "video";
 
 export type MediaItem = {
@@ -54,6 +61,7 @@ export type AppSettings = {
   overlayVisible: boolean;
   overlay: OverlaySettings;
   playlistMode: PlaylistMode;
+  selectedModel: string;
 };
 
 export type CommandError = {
@@ -114,16 +122,34 @@ export type AsrCompletedPayload = {
 
 export type AsrFailedPayload = {
   jobId: string;
+  code: string;
   message: string;
 };
 
-export type DefaultModelStatus = {
+export type ModelInfo = {
+  id: string;
+  label: string;
+  description: string;
+  fileName: string;
+  downloadUrl: string;
+  sizeMb: number;
+};
+
+export type ModelStatus = {
+  modelId: string;
   installed: boolean;
   path?: string;
-  source: "env" | "appData" | "project" | "missing";
+  source: string;
   sizeBytes?: number;
   downloadUrl: string;
 };
+
+export type AllModelsStatus = {
+  models: ModelStatus[];
+};
+
+/** @deprecated Use ModelStatus instead */
+export type DefaultModelStatus = ModelStatus;
 
 export type DownloadModelOutput = {
   jobId: string;
@@ -153,7 +179,7 @@ export type RecordPlaybackInput = {
 
 export type ModelDownloadStartedPayload = {
   jobId: string;
-  modelId: "base";
+  modelId: string;
 };
 
 export type ModelDownloadProgressPayload = {
@@ -163,10 +189,11 @@ export type ModelDownloadProgressPayload = {
 
 export type ModelDownloadCompletedPayload = {
   jobId: string;
-  status: DefaultModelStatus;
+  status: ModelStatus;
 };
 
 export type ModelDownloadFailedPayload = {
   jobId: string;
+  code: string;
   message: string;
 };

@@ -51,6 +51,7 @@ pub struct AsrCompletedPayload {
 #[serde(rename_all = "camelCase")]
 pub struct AsrFailedPayload {
     pub job_id: String,
+    pub code: &'static str,
     pub message: String,
 }
 
@@ -99,6 +100,7 @@ fn run_pipeline(
             "asr://failed",
             AsrFailedPayload {
                 job_id: job_id.clone(),
+                code: "asr_pipeline_failed",
                 message,
             },
         );

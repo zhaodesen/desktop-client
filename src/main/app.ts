@@ -9,10 +9,14 @@ import type {
   DefaultModelStatus,
   LibraryState,
   MediaItem,
+  ModelInfo,
+  ModelStatus,
   OverlaySettings,
   PlaybackSnapshot,
   PlaylistMode,
+  SubtitleCue,
   SubtitleContext,
+  SubtitleDocument,
 } from "../shared/types";
 import { PlayerController } from "./player-controller";
 import { parseSubtitleText } from "./subtitle-parser";
@@ -27,6 +31,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   overlayVisible: false,
   overlay: { fontSize: 34, opacity: 1.0, color: "#ffffff", position: "bottom" },
   playlistMode: "sequential",
+  selectedModel: "base",
 };
 
 function queryElement<T extends Element>(selector: string): T {
@@ -108,9 +113,14 @@ type DomRefs = {
   transportTime: HTMLElement;
   durationMeta: HTMLElement;
   currentText: HTMLElement;
+  currentSecondaryText: HTMLElement;
   playbackRateSelect: HTMLSelectElement;
   playlistModeSelect: HTMLSelectElement;
   retryAsrButton: HTMLButtonElement;
+  subtitleEditorTitle: HTMLElement;
+  subtitleEditorList: HTMLElement;
+  subtitleEditorBackButton: HTMLButtonElement;
+  subtitleEditorSaveButton: HTMLButtonElement;
   overlayVisibleCheckbox: HTMLInputElement;
   overlayPositionSelect: HTMLSelectElement;
   overlayColorInput: HTMLInputElement;
@@ -118,7 +128,7 @@ type DomRefs = {
   opacityInput: HTMLInputElement;
   fontSizeValue: HTMLElement;
   opacityValue: HTMLElement;
-  downloadModelButton: HTMLButtonElement;
+  modelList: HTMLElement;
   modelStatusLabel: HTMLElement;
   modelPathLabel: HTMLElement;
   clearSubtitlesButton: HTMLButtonElement;
@@ -152,9 +162,14 @@ function getDomRefs(): DomRefs {
     transportTime: queryElement("#transport-time"),
     durationMeta: queryElement("#duration-meta"),
     currentText: queryElement("#current-text"),
+    currentSecondaryText: queryElement("#current-secondary-text"),
     playbackRateSelect: queryElement("#playback-rate-select"),
     playlistModeSelect: queryElement("#playlist-mode-select"),
     retryAsrButton: queryElement("#retry-asr-button"),
+    subtitleEditorTitle: queryElement("#subtitle-editor-title"),
+    subtitleEditorList: queryElement("#subtitle-editor-list"),
+    subtitleEditorBackButton: queryElement("#subtitle-editor-back-button"),
+    subtitleEditorSaveButton: queryElement("#subtitle-editor-save-button"),
     overlayVisibleCheckbox: queryElement("#overlay-visible-checkbox"),
     overlayPositionSelect: queryElement("#overlay-position-select"),
     overlayColorInput: queryElement("#overlay-color-input"),
@@ -162,7 +177,7 @@ function getDomRefs(): DomRefs {
     opacityInput: queryElement("#opacity-input"),
     fontSizeValue: queryElement("#font-size-value"),
     opacityValue: queryElement("#opacity-value"),
-    downloadModelButton: queryElement("#download-model-button"),
+    modelList: queryElement("#model-list"),
     modelStatusLabel: queryElement("#model-status-label"),
     modelPathLabel: queryElement("#model-path-label"),
     clearSubtitlesButton: queryElement("#clear-subtitles-button"),
@@ -190,6 +205,10 @@ export async function bootstrapMainApp(): Promise<void> {
   let activeModelDownloadJobId: string | undefined;
   let pendingSubtitleMediaId: string | undefined;
   let modelStatus: DefaultModelStatus | undefined;
+  let availableModels: ModelInfo[] = [];
+  let modelsStatusMap: Map<string, ModelStatus> = new Map();
+  let activeSubtitleDocument: SubtitleDocument | undefined;
+  let lastMainPage: "library" | "player" | "settings" = "library";
   let overlayLocked = false; // tracks overlay window lock state
 
   // Store unlisten handles for cleanup
@@ -206,6 +225,12 @@ export async function bootstrapMainApp(): Promise<void> {
       : tone === "success" ? "完成" : tone === "warning" ? "注意" : "就绪";
   };
 
+  const formatErrorMessage = (err: unknown) => {
+    if (err instanceof Error) return err.message;
+    if (typeof err === "string") return err;
+    return "未知错误";
+  };
+
   // ---- Getters ----
   const getCurrentMedia = (): MediaItem | undefined =>
     libraryState.mediaItems.find((item) => item.id === currentMediaId);
@@ -215,6 +240,22 @@ export async function bootstrapMainApp(): Promise<void> {
 
   const fmtCleanup = (r: CleanupResult) =>
     `已删除 ${r.deletedFiles} 个文件，${r.deletedDirs} 个目录`;
+
+  const setActivePage = (page: string) => {
+    if (page === "library" || page === "player" || page === "settings") {
+      lastMainPage = page;
+    }
+
+    dom.tabTriggers.forEach((trigger) => {
+      trigger.dataset.active = String(trigger.dataset.tabTrigger === page);
+    });
+    dom.tabPanels.forEach((panel) => {
+      panel.dataset.active = String(panel.dataset.tabPanel === page);
+    });
+  };
+
+  const formatCueEditorTime = (cue: SubtitleCue) =>
+    `${formatDuration(cue.startMs)} - ${formatDuration(cue.endMs)}`;
 
   // ---- Overlay ----
   const applyOverlayPreview = (ov: OverlaySettings) => {
@@ -247,18 +288,99 @@ export async function bootstrapMainApp(): Promise<void> {
 
   // ---- Model UI ----
   const updateModelUi = () => {
-    if (!modelStatus) {
+    const selected = settings.selectedModel || "base";
+
+    // Update top-level status label
+    const selectedStatus = modelsStatusMap.get(selected);
+    if (selectedStatus) {
+      dom.modelStatusLabel.textContent = selectedStatus.installed
+        ? `当前选用: ${availableModels.find((m) => m.id === selected)?.label ?? selected} · 已就绪`
+        : `当前选用: ${availableModels.find((m) => m.id === selected)?.label ?? selected} · 未安装`;
+      dom.modelPathLabel.textContent = selectedStatus.path ?? "模型未下载";
+    } else {
       dom.modelStatusLabel.textContent = "正在检查模型状态…";
-      dom.modelPathLabel.textContent = "推荐路径：appData/models/ggml-base.bin";
-      dom.downloadModelButton.disabled = Boolean(activeModelDownloadJobId);
-      return;
+      dom.modelPathLabel.textContent = "";
     }
-    dom.modelStatusLabel.textContent = modelStatus.installed
-      ? `已就绪 · 来源 ${modelStatus.source}`
-      : "未安装默认模型";
-    dom.modelPathLabel.textContent = modelStatus.path ?? "模型会下载到 appData/models/ggml-base.bin";
-    dom.downloadModelButton.disabled = modelStatus.installed || Boolean(activeModelDownloadJobId);
+
+    // Render model list
+    dom.modelList.innerHTML = availableModels
+      .map((info) => {
+        const status = modelsStatusMap.get(info.id);
+        const installed = status?.installed ?? false;
+        const isSelected = info.id === selected;
+        const isDownloading = Boolean(activeModelDownloadJobId);
+        return `<div class="model-item" data-model-id="${info.id}" data-selected="${isSelected}">
+          <div class="model-item-info">
+            <div class="model-item-title">
+              ${escapeHtml(info.label)}
+              ${isSelected ? '<span class="badge">当前</span>' : ""}
+              ${installed ? '<span class="badge badge-installed">已安装</span>' : ""}
+            </div>
+            <div class="model-item-desc">${escapeHtml(info.description)}</div>
+          </div>
+          <div class="model-item-actions">
+            ${
+              !installed
+                ? `<button class="btn btn-sm btn-outline" data-action="download-model" ${isDownloading ? "disabled" : ""}>下载</button>`
+                : !isSelected
+                  ? `<button class="btn btn-sm" data-action="select-model">选用</button>`
+                  : ""
+            }
+            ${installed ? `<button class="btn btn-sm btn-danger" data-action="delete-model">删除</button>` : ""}
+          </div>
+        </div>`;
+      })
+      .join("");
   };
+
+  // Event delegation for model list actions
+  dom.modelList.addEventListener("click", async (e) => {
+    const btn = (e.target as HTMLElement).closest<HTMLButtonElement>("button[data-action]");
+    if (!btn) return;
+    const item = btn.closest<HTMLElement>(".model-item");
+    const modelId = item?.dataset.modelId;
+    if (!modelId) return;
+    const action = btn.dataset.action;
+
+    if (action === "download-model") {
+      try {
+        const { jobId } = await backend.downloadModel(modelId);
+        activeModelDownloadJobId = jobId;
+        updateModelUi();
+        const label = availableModels.find((m) => m.id === modelId)?.label ?? modelId;
+        setStatus(`模型 ${label} 开始下载`, "neutral");
+      } catch (err) {
+        console.error(err);
+        setStatus("启动模型下载失败", "warning");
+      }
+    } else if (action === "select-model") {
+      settings.selectedModel = modelId;
+      await persistSettings();
+      // Refresh status for the selected model
+      try {
+        modelStatus = await backend.getModelStatus(modelId);
+        modelsStatusMap.set(modelId, modelStatus);
+      } catch { /* ignore */ }
+      updateModelUi();
+      const label = availableModels.find((m) => m.id === modelId)?.label ?? modelId;
+      setStatus(`已切换为 ${label} 模型`, "success");
+    } else if (action === "delete-model") {
+      const label = availableModels.find((m) => m.id === modelId)?.label ?? modelId;
+      if (!await showConfirm("删除模型", `确定删除模型 ${label} 吗？删除后需要重新下载。`)) return;
+      try {
+        const r = await backend.deleteModel(modelId);
+        // Refresh status
+        const s = await backend.getModelStatus(modelId);
+        modelsStatusMap.set(modelId, s);
+        if (modelId === settings.selectedModel) modelStatus = s;
+        updateModelUi();
+        setStatus(`模型 ${label} 已删除，${fmtCleanup(r)}`, "success");
+      } catch (err) {
+        console.error(err);
+        setStatus(`删除模型 ${label} 失败`, "warning");
+      }
+    }
+  });
 
   // ---- Transport ----
   const renderTransport = (snap: PlaybackSnapshot) => {
@@ -280,6 +402,7 @@ export async function bootstrapMainApp(): Promise<void> {
   const renderSubtitle = (snap: PlaybackSnapshot) => {
     const { current } = getSubtitleContext(snap);
     dom.currentText.textContent = current?.text ?? "当前时间点暂无字幕";
+    dom.currentSecondaryText.textContent = current?.secondaryText ?? "";
     dom.cueTiming.textContent = current
       ? `${formatDuration(current.startMs)} ~ ${formatDuration(current.endMs)}`
       : "--:-- ~ --:--";
@@ -311,6 +434,7 @@ export async function bootstrapMainApp(): Promise<void> {
           </div>
           <div class="list-item-actions">
             <button class="btn btn-sm" data-action="play-media">播放</button>
+            <button class="btn btn-sm" data-action="edit-subtitle" ${item.subtitlePath ? "" : "disabled"}>编辑字幕</button>
             <button class="btn btn-sm btn-danger" data-action="delete-media">删除</button>
           </div>
         </div>`;
@@ -361,6 +485,7 @@ export async function bootstrapMainApp(): Promise<void> {
     dom.audioFileLabel.textContent = "未选择素材";
     dom.subtitleFileLabel.textContent = "未生成字幕";
     dom.currentText.textContent = "等待播放";
+    dom.currentSecondaryText.textContent = "";
     dom.cueTiming.textContent = "--:-- ~ --:--";
     dom.retryAsrButton.style.display = "none";
     renderTransport(player.getSnapshot());
@@ -373,6 +498,70 @@ export async function bootstrapMainApp(): Promise<void> {
     if (cues.length === 0) throw new Error("未解析出有效字幕");
     subtitleEngine.load(cues);
     dom.subtitleFileLabel.textContent = `${path.split(/[\\/]/).pop() ?? "字幕"} · ${cues.length} 句`;
+  };
+
+  const renderSubtitleEditor = () => {
+    const document = activeSubtitleDocument;
+    if (!document) {
+      dom.subtitleEditorTitle.textContent = "选择素材后可在这里校对原文和中文字幕";
+      dom.subtitleEditorList.className = "subtitle-editor-list empty-state";
+      dom.subtitleEditorList.innerHTML = `<div class="empty-content">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.4"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+        <span>字幕详情会显示在这里</span>
+      </div>`;
+      return;
+    }
+
+    dom.subtitleEditorTitle.textContent = `${document.title} · ${document.cues.length} 条字幕`;
+    dom.subtitleEditorList.className = "subtitle-editor-list";
+    dom.subtitleEditorList.innerHTML = document.cues
+      .map((cue, index) => `<div class="subtitle-editor-row" data-cue-index="${index}">
+        <div class="subtitle-editor-time">${formatCueEditorTime(cue)}</div>
+        <div class="subtitle-editor-field">
+          <label>原文</label>
+          <textarea data-field="text">${escapeHtml(cue.text)}</textarea>
+        </div>
+        <div class="subtitle-editor-field">
+          <label>中文字幕</label>
+          <textarea data-field="secondaryText">${escapeHtml(cue.secondaryText ?? "")}</textarea>
+        </div>
+      </div>`)
+      .join("");
+  };
+
+  const openSubtitleEditor = async (mediaId: string) => {
+    try {
+      activeSubtitleDocument = await backend.getSubtitleDocument(mediaId);
+      renderSubtitleEditor();
+      setActivePage("subtitle-editor");
+    } catch (err) {
+      console.error(err);
+      setStatus(formatErrorMessage(err), "warning");
+    }
+  };
+
+  const syncEditedSubtitleIfNeeded = async (document: SubtitleDocument) => {
+    if (currentMediaId !== document.mediaId) return;
+    await loadSubtitleFromPath(document.subtitlePath);
+    renderSubtitle(player.getSnapshot());
+    await syncOverlay(player.getSnapshot());
+  };
+
+  const saveSubtitleEditor = async () => {
+    if (!activeSubtitleDocument) {
+      setStatus("没有可保存的字幕内容", "warning");
+      return;
+    }
+
+    const saved = await backend.saveSubtitleDocument(
+      activeSubtitleDocument.mediaId,
+      activeSubtitleDocument.cues,
+    );
+    activeSubtitleDocument = saved;
+    renderSubtitleEditor();
+    await refreshLibrary();
+    await syncEditedSubtitleIfNeeded(saved);
+    setStatus("字幕校对已保存", "success");
   };
 
   const loadMediaById = async (mediaId: string, record: boolean) => {
@@ -428,7 +617,7 @@ export async function bootstrapMainApp(): Promise<void> {
       setStatus("素材已导入，正在离线生成字幕…", "neutral");
     } catch (err) {
       console.error(err);
-      setStatus(err instanceof Error ? err.message : "自动生成字幕失败", "warning");
+      setStatus(formatErrorMessage(err), "warning");
     }
   };
 
@@ -439,8 +628,7 @@ export async function bootstrapMainApp(): Promise<void> {
   dom.tabTriggers.forEach((trigger) => {
     trigger.addEventListener("click", () => {
       const tab = trigger.dataset.tabTrigger;
-      dom.tabTriggers.forEach((t) => { t.dataset.active = String(t === trigger); });
-      dom.tabPanels.forEach((p) => { p.dataset.active = String(p.dataset.tabPanel === tab); });
+      if (tab) setActivePage(tab);
     });
   });
 
@@ -456,6 +644,7 @@ export async function bootstrapMainApp(): Promise<void> {
     if (!mediaId) return;
 
     if (btn.dataset.action === "play-media") void loadMediaById(mediaId, true);
+    if (btn.dataset.action === "edit-subtitle") void openSubtitleEditor(mediaId);
     if (btn.dataset.action === "delete-media") void deleteMediaById(mediaId);
   });
 
@@ -488,10 +677,10 @@ export async function bootstrapMainApp(): Promise<void> {
       await refreshLibrary();
       await loadMediaById(media.id, true);
       await startAutoAsr(media);
-      dom.tabTriggers[0]?.click();
+      setActivePage("library");
     } catch (err) {
       console.error(err);
-      setStatus(err instanceof Error ? err.message : "导入媒体失败", "warning");
+      setStatus(formatErrorMessage(err), "warning");
     }
   });
 
@@ -516,7 +705,7 @@ export async function bootstrapMainApp(): Promise<void> {
       setStatus("手动字幕已导入并绑定", "success");
     } catch (err) {
       console.error(err);
-      setStatus(err instanceof Error ? err.message : "导入字幕失败", "warning");
+      setStatus(formatErrorMessage(err), "warning");
     }
   });
 
@@ -525,6 +714,36 @@ export async function bootstrapMainApp(): Promise<void> {
     const media = getCurrentMedia();
     if (!media) return;
     await startAutoAsr(media);
+  });
+
+  dom.subtitleEditorList.addEventListener("input", (event) => {
+    if (!activeSubtitleDocument) return;
+    const target = event.target;
+    if (!(target instanceof HTMLTextAreaElement)) return;
+
+    const row = target.closest<HTMLElement>("[data-cue-index]");
+    const cueIndex = Number(row?.dataset.cueIndex);
+    if (!Number.isFinite(cueIndex)) return;
+
+    const cue = activeSubtitleDocument.cues[cueIndex];
+    if (!cue) return;
+
+    if (target.dataset.field === "text") {
+      cue.text = target.value;
+      return;
+    }
+
+    if (target.dataset.field === "secondaryText") {
+      cue.secondaryText = target.value;
+    }
+  });
+
+  dom.subtitleEditorBackButton.addEventListener("click", () => {
+    setActivePage(lastMainPage);
+  });
+
+  dom.subtitleEditorSaveButton.addEventListener("click", () => {
+    void saveSubtitleEditor();
   });
 
   /* ===========================================================
@@ -604,22 +823,6 @@ export async function bootstrapMainApp(): Promise<void> {
   dom.opacityInput.addEventListener("change", () => { void persistSettings(); });
 
   /* ===========================================================
-     Event bindings — Settings: Model
-     =========================================================== */
-
-  dom.downloadModelButton.addEventListener("click", async () => {
-    try {
-      const { jobId } = await backend.downloadDefaultModel();
-      activeModelDownloadJobId = jobId;
-      updateModelUi();
-      setStatus("默认模型开始下载", "neutral");
-    } catch (err) {
-      console.error(err);
-      setStatus("启动模型下载失败", "warning");
-    }
-  });
-
-  /* ===========================================================
      Event bindings — Settings: Danger zone (all with confirm)
      =========================================================== */
 
@@ -641,13 +844,17 @@ export async function bootstrapMainApp(): Promise<void> {
   });
 
   dom.deleteModelButton.addEventListener("click", async () => {
-    if (!await showConfirm("删除离线模型", "删除后需要重新下载才能离线识别。")) return;
+    if (!await showConfirm("删除所有离线模型", "所有已下载的模型将被删除，需要重新下载才能离线识别。")) return;
     try {
       const r = await backend.deleteDefaultModel();
-      modelStatus = await backend.getDefaultModelStatus();
+      // Refresh all model statuses
+      const allStatus = await backend.getAllModelsStatus();
+      modelsStatusMap.clear();
+      for (const s of allStatus.models) modelsStatusMap.set(s.modelId, s);
+      modelStatus = modelsStatusMap.get(settings.selectedModel);
       updateModelUi();
-      setStatus(`默认模型已删除，${fmtCleanup(r)}`, "success");
-    } catch (err) { console.error(err); setStatus("删除默认模型失败", "warning"); }
+      setStatus(`所有模型已删除，${fmtCleanup(r)}`, "success");
+    } catch (err) { console.error(err); setStatus("删除模型失败", "warning"); }
   });
 
   dom.resetAppDataButton.addEventListener("click", async () => {
@@ -655,7 +862,11 @@ export async function bootstrapMainApp(): Promise<void> {
     try {
       const r = await backend.resetAppData();
       settings = { ...DEFAULT_SETTINGS };
-      modelStatus = await backend.getDefaultModelStatus();
+      // Refresh all model statuses after reset
+      const allStatus = await backend.getAllModelsStatus();
+      modelsStatusMap.clear();
+      for (const s of allStatus.models) modelsStatusMap.set(s.modelId, s);
+      modelStatus = modelsStatusMap.get(settings.selectedModel);
       applyOverlayPreview(settings.overlay);
       await backend.hideOverlay();
       await resetPlaybackUi();
@@ -742,15 +953,29 @@ export async function bootstrapMainApp(): Promise<void> {
     activeAsrJobId = undefined;
 
     try {
+      let finalSubtitlePath = subtitlePath;
+      let translationError: string | undefined;
       if (pendingSubtitleMediaId) {
         await backend.updateMediaSubtitle(pendingSubtitleMediaId, subtitlePath);
+        try {
+          const translated = await backend.translateMediaSubtitle(pendingSubtitleMediaId);
+          finalSubtitlePath = translated.subtitlePath;
+        } catch (err) {
+          console.error(err);
+          translationError = formatErrorMessage(err);
+        }
       }
       await refreshLibrary();
       if (pendingSubtitleMediaId && currentMediaId === pendingSubtitleMediaId) {
-        await loadSubtitleFromPath(subtitlePath);
+        await loadSubtitleFromPath(finalSubtitlePath);
         dom.retryAsrButton.style.display = "none";
       }
-      setStatus("离线识别完成，字幕已绑定", "success");
+      setStatus(
+        translationError
+          ? `离线识别完成，但中文字幕生成失败：${translationError}`
+          : "离线识别完成，双语字幕已绑定",
+        translationError ? "warning" : "success",
+      );
     } catch (err) {
       console.error(err);
       setStatus("识别完成，但字幕绑定失败", "warning");
@@ -760,12 +985,12 @@ export async function bootstrapMainApp(): Promise<void> {
   });
   unlisteners.push(unAsrCompleted);
 
-  const unAsrFailed = await asrEvents.onFailed(({ jobId, message }) => {
+  const unAsrFailed = await asrEvents.onFailed(({ jobId, code, message }) => {
     if (activeAsrJobId && activeAsrJobId !== jobId) return;
     activeAsrJobId = undefined;
     pendingSubtitleMediaId = undefined;
     dom.retryAsrButton.style.display = "";
-    setStatus(message, "warning");
+    setStatus(`[${code}] ${message}`, "warning");
   });
   unlisteners.push(unAsrFailed);
 
@@ -788,17 +1013,19 @@ export async function bootstrapMainApp(): Promise<void> {
   const unModelCompleted = await modelEvents.onCompleted(({ jobId, status }) => {
     if (activeModelDownloadJobId && activeModelDownloadJobId !== jobId) return;
     activeModelDownloadJobId = undefined;
-    modelStatus = status;
+    modelsStatusMap.set(status.modelId, status);
+    if (status.modelId === settings.selectedModel) modelStatus = status;
     updateModelUi();
-    setStatus("默认模型下载完成", "success");
+    const label = availableModels.find((m) => m.id === status.modelId)?.label ?? status.modelId;
+    setStatus(`模型 ${label} 下载完成`, "success");
   });
   unlisteners.push(unModelCompleted);
 
-  const unModelFailed = await modelEvents.onFailed(({ jobId, message }) => {
+  const unModelFailed = await modelEvents.onFailed(({ jobId, code, message }) => {
     if (activeModelDownloadJobId && activeModelDownloadJobId !== jobId) return;
     activeModelDownloadJobId = undefined;
     updateModelUi();
-    setStatus(message, "warning");
+    setStatus(`[${code}] ${message}`, "warning");
   });
   unlisteners.push(unModelFailed);
 
@@ -830,7 +1057,11 @@ export async function bootstrapMainApp(): Promise<void> {
   }
 
   try {
-    modelStatus = await backend.getDefaultModelStatus();
+    availableModels = await backend.getAvailableModels();
+    const allStatus = await backend.getAllModelsStatus();
+    modelsStatusMap.clear();
+    for (const s of allStatus.models) modelsStatusMap.set(s.modelId, s);
+    modelStatus = modelsStatusMap.get(settings.selectedModel);
     updateModelUi();
   } catch (err) {
     console.error(err);

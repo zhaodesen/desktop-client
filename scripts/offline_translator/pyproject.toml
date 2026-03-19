@@ -1,0 +1,8 @@
+[project]
+name = "offline-subtitle-translator"
+version = "0.1.0"
+description = "本地离线字幕翻译脚本"
+requires-python = ">=3.10"
+dependencies = [
+  "argostranslate",
+]

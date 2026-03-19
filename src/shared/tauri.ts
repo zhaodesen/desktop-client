@@ -14,6 +14,7 @@ import {
   OVERLAY_STYLE_EVENT,
 } from "./events";
 import type {
+  AllModelsStatus,
   AsrCompletedPayload,
   AsrFailedPayload,
   AsrProgressPayload,
@@ -29,11 +30,15 @@ import type {
   ModelDownloadFailedPayload,
   ModelDownloadProgressPayload,
   ModelDownloadStartedPayload,
+  ModelInfo,
+  ModelStatus,
   OverlayRenderPayload,
   OverlayWindowState,
   PlaybackHistoryItem,
   StartAsrJobInput,
   StartAsrJobOutput,
+  SubtitleCue,
+  SubtitleDocument,
 } from "./types";
 import { listen } from "@tauri-apps/api/event";
 
@@ -44,7 +49,9 @@ async function callCommand<T>(
   const result = await invoke<CommandResult<T>>(command, args);
 
   if (!result.ok || result.data === undefined) {
-    throw new Error(result.error?.message ?? `调用 ${command} 失败`);
+    const code = result.error?.code;
+    const message = result.error?.message ?? `调用 ${command} 失败`;
+    throw new Error(code ? `[${code}] ${message}` : message);
   }
 
   return result.data;
@@ -68,7 +75,7 @@ export const backend = {
   },
   startAsrJob(input: StartAsrJobInput) {
     return callCommand<StartAsrJobOutput>("start_asr_job", {
-      audio_path: input.audioPath,
+      audioPath: input.audioPath,
     });
   },
   getDefaultModelStatus() {
@@ -77,23 +84,47 @@ export const backend = {
   downloadDefaultModel() {
     return callCommand<DownloadModelOutput>("download_default_model");
   },
+  getAvailableModels() {
+    return callCommand<ModelInfo[]>("get_available_models");
+  },
+  getAllModelsStatus() {
+    return callCommand<AllModelsStatus>("get_all_models_status");
+  },
+  getModelStatus(modelId: string) {
+    return callCommand<ModelStatus>("get_model_status", { modelId });
+  },
+  downloadModel(modelId: string) {
+    return callCommand<DownloadModelOutput>("download_model", { modelId });
+  },
+  deleteModel(modelId: string) {
+    return callCommand<CleanupResult>("delete_model", { modelId });
+  },
   getLibraryState() {
     return callCommand<LibraryState>("get_library_state");
   },
   importMedia(sourcePath: string) {
-    return callCommand<MediaItem>("import_media", { source_path: sourcePath });
+    return callCommand<MediaItem>("import_media", { sourcePath });
   },
   deleteMedia(mediaId: string) {
-    return callCommand<boolean>("delete_media", { media_id: mediaId });
+    return callCommand<boolean>("delete_media", { mediaId });
   },
   updateMediaSubtitle(mediaId: string, subtitlePath: string) {
     return callCommand<MediaItem>("update_media_subtitle", {
-      media_id: mediaId,
-      subtitle_path: subtitlePath,
+      mediaId,
+      subtitlePath,
     });
   },
+  getSubtitleDocument(mediaId: string) {
+    return callCommand<SubtitleDocument>("get_subtitle_document", { mediaId });
+  },
+  saveSubtitleDocument(mediaId: string, cues: SubtitleCue[]) {
+    return callCommand<SubtitleDocument>("save_subtitle_document", { mediaId, cues });
+  },
+  translateMediaSubtitle(mediaId: string) {
+    return callCommand<SubtitleDocument>("translate_media_subtitle", { mediaId });
+  },
   recordPlayback(mediaId: string) {
-    return callCommand<PlaybackHistoryItem>("record_playback", { media_id: mediaId });
+    return callCommand<PlaybackHistoryItem>("record_playback", { mediaId });
   },
   clearSubtitles() {
     return callCommand<CleanupResult>("clear_subtitles");

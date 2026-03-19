@@ -2,9 +2,10 @@ use crate::{
     asr::{self, StartAsrJobInput, StartAsrJobOutput},
     error::CommandResponse,
     media::{self, ImportMediaInput, LibraryState, MediaItem, PlaybackHistoryItem},
-    model::{self, DefaultModelStatus, DownloadModelOutput},
+    model::{self, AllModelsStatus, DefaultModelStatus, DownloadModelOutput, ModelInfo, ModelStatus},
     state::{AppSettings, AppState, OverlayWindowState},
     storage::{self, CleanupResult},
+    subtitle::{self, SubtitleCue, SubtitleDocument},
     store, window,
 };
 use tauri::{AppHandle, State};
@@ -171,6 +172,47 @@ pub fn download_default_model(
 }
 
 #[tauri::command]
+pub fn get_available_models() -> CommandResponse<Vec<ModelInfo>> {
+    CommandResponse::ok(model::get_available_models())
+}
+
+#[tauri::command]
+pub fn get_all_models_status(app: AppHandle) -> CommandResponse<AllModelsStatus> {
+    match model::get_all_models_status(&app) {
+        Ok(status) => CommandResponse::ok(status),
+        Err(error) => CommandResponse::err("all_models_status_failed", error),
+    }
+}
+
+#[tauri::command]
+pub fn get_model_status(app: AppHandle, model_id: String) -> CommandResponse<ModelStatus> {
+    match model::get_model_status(&app, &model_id) {
+        Ok(status) => CommandResponse::ok(status),
+        Err(error) => CommandResponse::err("model_status_failed", error),
+    }
+}
+
+#[tauri::command]
+pub fn download_model(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    model_id: String,
+) -> CommandResponse<DownloadModelOutput> {
+    match model::download_model(app, model_id, state.active_model_download.clone()) {
+        Ok(output) => CommandResponse::ok(output),
+        Err(error) => CommandResponse::err("model_download_failed", error),
+    }
+}
+
+#[tauri::command]
+pub fn delete_model(app: AppHandle, model_id: String) -> CommandResponse<CleanupResult> {
+    match model::delete_model(&app, &model_id) {
+        Ok(result) => CommandResponse::ok(result),
+        Err(error) => CommandResponse::err("delete_model_failed", error),
+    }
+}
+
+#[tauri::command]
 pub fn get_library_state(app: AppHandle) -> CommandResponse<LibraryState> {
     match media::get_library_state(&app) {
         Ok(state) => CommandResponse::ok(state),
@@ -203,6 +245,40 @@ pub fn update_media_subtitle(
     match media::update_media_subtitle(&app, &media_id, &subtitle_path) {
         Ok(item) => CommandResponse::ok(item),
         Err(error) => CommandResponse::err("update_media_subtitle_failed", error),
+    }
+}
+
+#[tauri::command]
+pub fn get_subtitle_document(
+    app: AppHandle,
+    media_id: String,
+) -> CommandResponse<SubtitleDocument> {
+    match subtitle::get_subtitle_document(&app, &media_id) {
+        Ok(document) => CommandResponse::ok(document),
+        Err(error) => CommandResponse::err("get_subtitle_document_failed", error),
+    }
+}
+
+#[tauri::command]
+pub fn save_subtitle_document(
+    app: AppHandle,
+    media_id: String,
+    cues: Vec<SubtitleCue>,
+) -> CommandResponse<SubtitleDocument> {
+    match subtitle::save_subtitle_document(&app, &media_id, cues) {
+        Ok(document) => CommandResponse::ok(document),
+        Err(error) => CommandResponse::err("save_subtitle_document_failed", error),
+    }
+}
+
+#[tauri::command]
+pub fn translate_media_subtitle(
+    app: AppHandle,
+    media_id: String,
+) -> CommandResponse<SubtitleDocument> {
+    match subtitle::translate_media_subtitle(&app, &media_id) {
+        Ok(document) => CommandResponse::ok(document),
+        Err(error) => CommandResponse::err("translate_media_subtitle_failed", error),
     }
 }
 

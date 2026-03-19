@@ -1,5 +1,9 @@
 import type { SubtitleCue } from "../shared/types";
 
+type JsonSubtitleDocument = {
+  cues?: SubtitleCue[];
+};
+
 function parseTimestamp(token: string): number {
   const normalized = token.trim().replace(",", ".");
   const parts = normalized.split(":");
@@ -57,21 +61,61 @@ function parseCue(block: string, fallbackId: number): SubtitleCue | null {
 
   const startMs = parseTimestamp(rawStart);
   const endMs = parseTimestamp(rawEndWithSettings.trim().split(/\s+/)[0]);
-  const text = lines.slice(timelineIndex + 1).join("\n").trim();
-
-  if (!text) {
+  const contentLines = lines
+    .slice(timelineIndex + 1)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+  if (contentLines.length === 0) {
     return null;
   }
+
+  const lastLine = contentLines[contentLines.length - 1];
+  const hasSecondaryText = contentLines.length > 1 && containsChinese(lastLine);
+  const text = hasSecondaryText
+    ? contentLines.slice(0, -1).join("\n").trim()
+    : contentLines.join("\n").trim();
+  const secondaryText = hasSecondaryText ? lastLine.trim() : undefined;
+
+  if (!text) return null;
 
   return {
     id: fallbackId,
     startMs,
     endMs,
     text,
+    secondaryText,
   };
 }
 
+function containsChinese(value: string): boolean {
+  return /[\u4e00-\u9fff]/.test(value);
+}
+
+function parseJsonSubtitle(content: string): SubtitleCue[] | null {
+  try {
+    const parsed = JSON.parse(content) as JsonSubtitleDocument | SubtitleCue[];
+    const cues = Array.isArray(parsed) ? parsed : parsed.cues;
+    if (!Array.isArray(cues)) return null;
+    return cues
+      .filter((cue) => cue && typeof cue.text === "string")
+      .map((cue, index) => ({
+        id: cue.id ?? index + 1,
+        startMs: cue.startMs,
+        endMs: cue.endMs,
+        text: cue.text,
+        secondaryText: cue.secondaryText,
+      }));
+  } catch {
+    return null;
+  }
+}
+
 export function parseSubtitleText(content: string): SubtitleCue[] {
+  const jsonCues = parseJsonSubtitle(content);
+  if (jsonCues) {
+    return jsonCues;
+  }
+
   const normalized = content
     .replace(/^\uFEFF/, "")
     .replace(/\r/g, "")

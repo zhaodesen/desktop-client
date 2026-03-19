@@ -7,6 +7,7 @@ mod sidecar;
 mod state;
 mod storage;
 mod store;
+mod subtitle;
 mod window;
 
 use state::{AppSettings, AppState};
@@ -43,10 +44,18 @@ pub fn run() {
             commands::start_asr_job,
             commands::get_default_model_status,
             commands::download_default_model,
+            commands::get_available_models,
+            commands::get_all_models_status,
+            commands::get_model_status,
+            commands::download_model,
+            commands::delete_model,
             commands::get_library_state,
             commands::import_media,
             commands::delete_media,
             commands::update_media_subtitle,
+            commands::get_subtitle_document,
+            commands::save_subtitle_document,
+            commands::translate_media_subtitle,
             commands::record_playback,
             commands::clear_subtitles,
             commands::clear_audio_cache,
