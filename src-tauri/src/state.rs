@@ -20,6 +20,9 @@ pub struct OverlaySettings {
     pub font_size: f64,
     pub opacity: f64,
     pub color: String,
+    pub stroke_color: String,
+    pub secondary_color: String,
+    pub secondary_stroke_color: String,
     pub position: OverlayPosition,
 }
 
@@ -29,6 +32,9 @@ impl Default for OverlaySettings {
             font_size: 34.0,
             opacity: 1.0,
             color: "#FFFFFF".to_string(),
+            stroke_color: "#000000".to_string(),
+            secondary_color: "#FFFFFF".to_string(),
+            secondary_stroke_color: "#000000".to_string(),
             position: OverlayPosition::Bottom,
         }
     }

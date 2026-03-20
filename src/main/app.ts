@@ -1,7 +1,7 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { emitTo, listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
-import { OVERLAY_LOCK_EVENT } from "../shared/events";
+import { OVERLAY_CLOSE_EVENT, OVERLAY_LOCK_EVENT } from "../shared/events";
 import { asrEvents, backend, modelEvents, overlayBridge } from "../shared/tauri";
 import type {
   AppSettings,
@@ -29,7 +29,15 @@ import { SubtitleEngine } from "./subtitle-engine";
 const DEFAULT_SETTINGS: AppSettings = {
   playbackRate: 1,
   overlayVisible: false,
-  overlay: { fontSize: 34, opacity: 1.0, color: "#ffffff", position: "bottom" },
+  overlay: {
+    fontSize: 34,
+    opacity: 1.0,
+    color: "#ffffff",
+    strokeColor: "#000000",
+    secondaryColor: "#ffffff",
+    secondaryStrokeColor: "#000000",
+    position: "bottom",
+  },
   playlistMode: "sequential",
   selectedModel: "base",
 };
@@ -124,6 +132,9 @@ type DomRefs = {
   overlayVisibleCheckbox: HTMLInputElement;
   overlayPositionSelect: HTMLSelectElement;
   overlayColorInput: HTMLInputElement;
+  strokeColorInput: HTMLInputElement;
+  secondaryColorInput: HTMLInputElement;
+  secondaryStrokeColorInput: HTMLInputElement;
   fontSizeInput: HTMLInputElement;
   opacityInput: HTMLInputElement;
   fontSizeValue: HTMLElement;
@@ -173,6 +184,9 @@ function getDomRefs(): DomRefs {
     overlayVisibleCheckbox: queryElement("#overlay-visible-checkbox"),
     overlayPositionSelect: queryElement("#overlay-position-select"),
     overlayColorInput: queryElement("#overlay-color-input"),
+    strokeColorInput: queryElement("#stroke-color-input"),
+    secondaryColorInput: queryElement("#secondary-color-input"),
+    secondaryStrokeColorInput: queryElement("#secondary-stroke-color-input"),
     fontSizeInput: queryElement("#font-size-input"),
     opacityInput: queryElement("#opacity-input"),
     fontSizeValue: queryElement("#font-size-value"),
@@ -262,6 +276,9 @@ export async function bootstrapMainApp(): Promise<void> {
     dom.overlayVisibleCheckbox.checked = settings.overlayVisible;
     dom.overlayPositionSelect.value = ov.position;
     dom.overlayColorInput.value = ov.color;
+    dom.strokeColorInput.value = ov.strokeColor;
+    dom.secondaryColorInput.value = ov.secondaryColor;
+    dom.secondaryStrokeColorInput.value = ov.secondaryStrokeColor;
     dom.fontSizeInput.value = String(ov.fontSize);
     dom.opacityInput.value = String(Math.round(ov.opacity * 100));
     dom.fontSizeValue.textContent = `${Math.round(ov.fontSize)}px`;
@@ -797,6 +814,14 @@ export async function bootstrapMainApp(): Promise<void> {
   });
   unlisteners.push(unlistenOverlayLock);
 
+  // 当悬浮窗点击关闭按钮时，同步关闭设置中的「开启悬浮字幕窗」
+  const unlistenOverlayClose = await listen(OVERLAY_CLOSE_EVENT, async () => {
+    settings.overlayVisible = false;
+    dom.overlayVisibleCheckbox.checked = false;
+    await persistSettings();
+  });
+  unlisteners.push(unlistenOverlayClose);
+
   dom.overlayPositionSelect.addEventListener("change", async () => {
     settings.overlay.position = dom.overlayPositionSelect.value as OverlaySettings["position"];
     await persistSettings();
@@ -807,6 +832,24 @@ export async function bootstrapMainApp(): Promise<void> {
     await overlayBridge.updateStyle(settings.overlay);
   });
   dom.overlayColorInput.addEventListener("change", () => { void persistSettings(); });
+
+  dom.strokeColorInput.addEventListener("input", async () => {
+    settings.overlay.strokeColor = dom.strokeColorInput.value;
+    await overlayBridge.updateStyle(settings.overlay);
+  });
+  dom.strokeColorInput.addEventListener("change", () => { void persistSettings(); });
+
+  dom.secondaryColorInput.addEventListener("input", async () => {
+    settings.overlay.secondaryColor = dom.secondaryColorInput.value;
+    await overlayBridge.updateStyle(settings.overlay);
+  });
+  dom.secondaryColorInput.addEventListener("change", () => { void persistSettings(); });
+
+  dom.secondaryStrokeColorInput.addEventListener("input", async () => {
+    settings.overlay.secondaryStrokeColor = dom.secondaryStrokeColorInput.value;
+    await overlayBridge.updateStyle(settings.overlay);
+  });
+  dom.secondaryStrokeColorInput.addEventListener("change", () => { void persistSettings(); });
 
   dom.fontSizeInput.addEventListener("input", async () => {
     settings.overlay.fontSize = Number(dom.fontSizeInput.value);

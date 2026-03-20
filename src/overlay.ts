@@ -5,6 +5,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import "./overlay.css";
 import {
   OVERLAY_CLEAR_EVENT,
+  OVERLAY_CLOSE_EVENT,
   OVERLAY_LOCK_EVENT,
   OVERLAY_RENDER_EVENT,
   OVERLAY_STYLE_EVENT,
@@ -25,12 +26,13 @@ function formatDuration(ms: number): string {
 }
 
 window.addEventListener("DOMContentLoaded", () => {
-  const tauriWindow = getCurrentWindow();
-  const shell       = queryElement<HTMLElement>("#overlay-shell");
-  const currentText = queryElement<HTMLElement>("#overlay-current");
-  const metaText    = queryElement<HTMLElement>("#overlay-meta");
-  const lockBtn     = queryElement<HTMLButtonElement>("#overlay-lock");
-  const closeBtn    = queryElement<HTMLButtonElement>("#overlay-close");
+  const tauriWindow   = getCurrentWindow();
+  const shell         = queryElement<HTMLElement>("#overlay-shell");
+  const currentText   = queryElement<HTMLElement>("#overlay-current");
+  const secondaryText = queryElement<HTMLElement>("#overlay-secondary");
+  const metaText      = queryElement<HTMLElement>("#overlay-meta");
+  const lockBtn       = queryElement<HTMLButtonElement>("#overlay-lock");
+  const closeBtn      = queryElement<HTMLButtonElement>("#overlay-close");
 
   let locked = false;
 
@@ -69,8 +71,11 @@ window.addEventListener("DOMContentLoaded", () => {
     void lockFromOverlay();
   });
 
-  closeBtn.addEventListener("click", () => {
-    void invoke("hide_overlay");
+  closeBtn.addEventListener("click", async () => {
+    // 先通知主窗口同步设置，再直接隐藏自身
+    // 用 tauriWindow.hide() 而非 invoke("hide_overlay")，避免 macOS 将焦点切换到主窗口
+    await emitTo("main", OVERLAY_CLOSE_EVENT, {});
+    await tauriWindow.hide();
   });
 
   /* ── 手动拖拽 ─────────────────────────────────────────
@@ -113,22 +118,29 @@ window.addEventListener("DOMContentLoaded", () => {
   /* ── 样式 ────────────────────────────────────────────── */
 
   const applyStyle = (settings: OverlaySettings) => {
-    document.documentElement.style.setProperty("--overlay-font-size", `${settings.fontSize}px`);
-    document.documentElement.style.setProperty("--overlay-color", settings.color);
-    currentText.style.opacity = String(settings.opacity);
-    metaText.style.opacity = String(Math.max(0, settings.opacity * 0.7));
+    const root = document.documentElement;
+    root.style.setProperty("--overlay-font-size",            `${settings.fontSize}px`);
+    root.style.setProperty("--overlay-color",                settings.color);
+    root.style.setProperty("--overlay-stroke-color",         settings.strokeColor);
+    root.style.setProperty("--overlay-secondary-color",      settings.secondaryColor);
+    root.style.setProperty("--overlay-secondary-stroke",     settings.secondaryStrokeColor);
+    currentText.style.opacity   = String(settings.opacity);
+    secondaryText.style.opacity = String(Math.max(0, settings.opacity * 0.85));
+    metaText.style.opacity      = String(Math.max(0, settings.opacity * 0.7));
     shell.dataset.position = settings.position;
   };
 
   /* ── 内容渲染 ─────────────────────────────────────────── */
 
   const clear = () => {
-    currentText.textContent = "等待字幕内容";
-    metaText.textContent = "等待播放";
+    currentText.textContent   = "等待字幕内容";
+    secondaryText.textContent = "";
+    metaText.textContent      = "等待播放";
   };
 
   const render = (payload: OverlayRenderPayload) => {
-    currentText.textContent = payload.current?.text ?? "当前时间点暂无字幕";
+    currentText.textContent   = payload.current?.text ?? "当前时间点暂无字幕";
+    secondaryText.textContent = payload.current?.secondaryText ?? "";
     metaText.textContent = [
       payload.fileLabel ?? "未选择素材",
       payload.playback.playing ? "播放中" : "已暂停",

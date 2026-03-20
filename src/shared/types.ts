@@ -51,6 +51,9 @@ export type OverlaySettings = {
   fontSize: number;
   opacity: number;
   color: string;
+  strokeColor: string;
+  secondaryColor: string;
+  secondaryStrokeColor: string;
   position: OverlayPosition;
 };
 

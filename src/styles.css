@@ -69,7 +69,8 @@ h4 { font-size: 0.85rem; font-weight: 600; letter-spacing: 0.02em; text-transfor
 /* ---- Sidebar ---- */
 
 .sidebar {
-  padding: 16px 14px;
+  /* padding-top 为 macOS overlay 红绿灯按钮留出空间（约 52px），其余三边保持 14/16px */
+  padding: 52px 14px 16px;
   background: var(--bg-raised);
   border-right: 1px solid var(--border);
   display: flex;
@@ -616,6 +617,18 @@ input[type="range"]:disabled::-webkit-slider-thumb { cursor: not-allowed; transf
 }
 
 .model-info { display: flex; flex-direction: column; gap: 2px; padding: 8px 0; }
+
+/* 设置项分组标签（如「原文字幕」「中文字幕」） */
+.settings-group-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+  margin-top: 2px;
+}
 
 .model-list {
   display: flex;
