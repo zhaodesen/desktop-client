@@ -9,10 +9,6 @@
 html, body { margin: 0; min-height: 100%; background: transparent; }
 body { padding: 12px; }
 
-/* ─── 拖拽区域（仅解锁时） ─── */
-.overlay-shell[data-locked="false"] { -webkit-app-region: drag; }
-.overlay-shell[data-locked="true"]  { -webkit-app-region: no-drag; }
-
 /* ─── 整个 shell ─── */
 .overlay-shell {
   width: 100%;
@@ -24,8 +20,15 @@ body { padding: 12px; }
   align-items: center;
   background: transparent;
   position: relative;
+  /* 解锁时通过 JS startDragging() 拖拽，禁止文字选中避免干扰 */
+  -webkit-user-select: none;
+  user-select: none;
 }
 .overlay-shell[data-position="top"] { justify-content: flex-start; }
+
+/* 解锁时显示拖拽手型光标 */
+.overlay-shell[data-locked="false"] { cursor: grab; }
+.overlay-shell[data-locked="false"]:active { cursor: grabbing; }
 
 /* ─── 控制栏（右上角） ─── */
 .overlay-controls {
@@ -35,7 +38,6 @@ body { padding: 12px; }
   display: flex;
   gap: 4px;
   align-items: center;
-  -webkit-app-region: no-drag;
   /* 默认隐藏；解锁时 hover 显示 */
   opacity: 0;
   transition: opacity 180ms ease;
@@ -66,7 +68,6 @@ body { padding: 12px; }
   display: grid;
   place-items: center;
   transition: background 140ms, color 140ms;
-  -webkit-app-region: no-drag;
   flex-shrink: 0;
 }
 .overlay-ctrl-btn:hover {
@@ -94,7 +95,6 @@ body { padding: 12px; }
   text-shadow:
     0 1px 4px rgba(0,0,0,0.9),
     0 0 12px rgba(0,0,0,0.7);
-  -webkit-app-region: no-drag;
 }
 
 /* ─── 主字幕文字 ─── */
@@ -110,5 +110,4 @@ body { padding: 12px; }
     0 2px 8px  rgba(0, 0, 0, 0.95),
     0 4px 20px rgba(0, 0, 0, 0.85),
     0 0  40px  rgba(0, 0, 0, 0.6);
-  -webkit-app-region: no-drag;
 }

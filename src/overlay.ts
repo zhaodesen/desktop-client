@@ -32,6 +32,8 @@ window.addEventListener("DOMContentLoaded", () => {
   const lockBtn     = queryElement<HTMLButtonElement>("#overlay-lock");
   const closeBtn    = queryElement<HTMLButtonElement>("#overlay-close");
 
+  let locked = false;
+
   /* ── 锁定 / 解锁 ───────────────────────────────────────
    *
    * 锁定 (data-locked="true"):
@@ -48,14 +50,9 @@ window.addEventListener("DOMContentLoaded", () => {
    * ─────────────────────────────────────────────────────── */
 
   /** 仅更新 UI / CSS 状态，不触发事件（防循环） */
-  const applyLockState = async (locked: boolean) => {
+  const applyLockState = async (newLocked: boolean) => {
+    locked = newLocked;
     shell.dataset.locked = String(locked);
-
-    if (locked) {
-      shell.removeAttribute("data-tauri-drag-region");
-    } else {
-      shell.setAttribute("data-tauri-drag-region", "");
-    }
 
     // 核心：让整个窗口对鼠标事件透明（或恢复）
     await tauriWindow.setIgnoreCursorEvents(locked);
@@ -74,6 +71,43 @@ window.addEventListener("DOMContentLoaded", () => {
 
   closeBtn.addEventListener("click", () => {
     void invoke("hide_overlay");
+  });
+
+  /* ── 手动拖拽 ─────────────────────────────────────────
+   *
+   * 不依赖 -webkit-app-region: drag 或 data-tauri-drag-region，
+   * 因为在 Tauri 2 + macOS + transparent + decorations:false 的
+   * 窗口上这些方式经常失效。
+   *
+   * 改用 Tauri 的 window.startDragging() API：
+   * 在 mousedown 时手动触发原生拖拽。
+   * ─────────────────────────────────────────────────────── */
+
+  shell.addEventListener("mousedown", (e) => {
+    // 仅在解锁状态下允许拖拽
+    if (locked) return;
+
+    // 如果点击的是控制按钮，不拦截
+    const target = e.target as HTMLElement;
+    if (target.closest(".overlay-controls")) return;
+
+    // 仅响应左键
+    if (e.button !== 0) return;
+
+    e.preventDefault();
+    void tauriWindow.startDragging();
+  });
+
+  /* ── 阻止双击放大 ──────────────────────────────────────
+   *
+   * macOS 双击标题栏/拖拽区会触发窗口 zoom（最大化/还原）。
+   * 在 overlay 这种无装饰的透明窗口上，这会导致窗口意外放大。
+   * 通过拦截 dblclick 来阻止此行为。
+   * ─────────────────────────────────────────────────────── */
+
+  shell.addEventListener("dblclick", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
   });
 
   /* ── 样式 ────────────────────────────────────────────── */

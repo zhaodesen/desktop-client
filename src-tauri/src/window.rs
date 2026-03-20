@@ -13,6 +13,7 @@ pub fn ensure_overlay_window(app: &AppHandle, settings: &AppSettings) -> Result<
         .decorations(false)
         .skip_taskbar(true)
         .resizable(true)
+        .maximizable(false)
         .transparent(true)
         .inner_size(760.0, 190.0)
         .min_inner_size(420.0, 120.0);
