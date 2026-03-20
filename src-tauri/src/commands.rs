@@ -307,6 +307,14 @@ pub fn clear_audio_cache(app: AppHandle) -> CommandResponse<CleanupResult> {
 }
 
 #[tauri::command]
+pub fn clear_media_library(app: AppHandle) -> CommandResponse<CleanupResult> {
+    match storage::clear_media_library(&app) {
+        Ok(result) => CommandResponse::ok(result),
+        Err(error) => CommandResponse::err("clear_media_library_failed", error),
+    }
+}
+
+#[tauri::command]
 pub fn delete_default_model(app: AppHandle) -> CommandResponse<CleanupResult> {
     match storage::delete_default_model(&app) {
         Ok(result) => CommandResponse::ok(result),

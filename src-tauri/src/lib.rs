@@ -59,6 +59,7 @@ pub fn run() {
             commands::record_playback,
             commands::clear_subtitles,
             commands::clear_audio_cache,
+            commands::clear_media_library,
             commands::delete_default_model,
             commands::reset_app_data
         ])

@@ -263,9 +263,13 @@ fn extract_audio_with_ffmpeg(
     source_path: &Path,
     output_path: &Path,
 ) -> Result<(), String> {
-    let output = sidecar::build_command(target)
+    // 限制 ffmpeg 线程数：视频提取音频是 IO 密集型，2 线程已足够
+    // 使用 nice -n 15 降低 CPU 调度优先级，确保 UI 流畅
+    let output = sidecar::build_nice_command(target)
         .args([
             "-y",
+            "-threads",
+            "2",
             "-i",
             &source_path.display().to_string(),
             "-vn",

@@ -17,8 +17,7 @@
     onDownloadModel: (id: string) => void;
     onSelectModel: (id: string) => void;
     onDeleteModel: (id: string) => void;
-    onClearSubtitles: () => void;
-    onClearAudioCache: () => void;
+    onClearAllCache: () => void;
     onDeleteAllModels: () => void;
     onResetAppData: () => void;
   }
@@ -28,7 +27,7 @@
     modelStatusLabel, modelPathLabel, overlayLocked,
     onOverlayVisibleChange, onOverlayLockToggle, onOverlayStyleChange, onOverlayStyleCommit,
     onDownloadModel, onSelectModel, onDeleteModel,
-    onClearSubtitles, onClearAudioCache, onDeleteAllModels, onResetAppData,
+    onClearAllCache, onDeleteAllModels, onResetAppData,
   }: Props = $props();
 
   const fontSizeDisplay = $derived(`${Math.round(settings.overlay.fontSize)}px`);
@@ -171,12 +170,29 @@
     <!-- 数据管理 -->
     <div class="card settings-card">
       <h4>数据管理</h4>
-      <p class="text-dim text-xs">以下操作不可逆，请谨慎执行。</p>
-      <div class="danger-grid">
-        <button class="btn btn-outline btn-danger" type="button" onclick={onClearSubtitles}>清理字幕缓存</button>
-        <button class="btn btn-outline btn-danger" type="button" onclick={onClearAudioCache}>清理音频缓存</button>
-        <button class="btn btn-outline btn-danger" type="button" onclick={onDeleteAllModels}>删除所有模型</button>
-        <button class="btn btn-danger-solid" type="button" onclick={onResetAppData}>重置全部数据</button>
+      <p class="text-dim text-xs">以下操作均不可逆，请谨慎执行。</p>
+      <div class="danger-list">
+        <div class="danger-item">
+          <div class="danger-item-text">
+            <span class="danger-item-label">删除所有模型</span>
+            <span class="danger-item-desc">删除已下载的所有离线识别模型，需重新下载才能使用</span>
+          </div>
+          <button class="btn btn-sm btn-outline btn-danger" type="button" onclick={onDeleteAllModels}>删除</button>
+        </div>
+        <div class="danger-item">
+          <div class="danger-item-text">
+            <span class="danger-item-label">删除所有缓存</span>
+            <span class="danger-item-desc">删除全部已生成的字幕文件与提取的音频缓存，不影响模型</span>
+          </div>
+          <button class="btn btn-sm btn-outline btn-danger" type="button" onclick={onClearAllCache}>删除</button>
+        </div>
+        <div class="danger-item danger-item-solid">
+          <div class="danger-item-text">
+            <span class="danger-item-label">删除全部数据</span>
+            <span class="danger-item-desc">删除所有模型 + 音频字幕缓存，并重置全部设置，彻底清空</span>
+          </div>
+          <button class="btn btn-sm btn-danger-solid" type="button" onclick={onResetAppData}>删除</button>
+        </div>
       </div>
     </div>
   </div>

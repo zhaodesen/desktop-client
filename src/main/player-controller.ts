@@ -26,7 +26,12 @@ export class PlayerController {
     this.audio.addEventListener("loadedmetadata", () => this.publish());
     this.audio.addEventListener("ratechange", () => this.publish());
     this.audio.addEventListener("seeked", () => this.publish());
-    this.audio.addEventListener("timeupdate", () => this.publish());
+    // timeupdate 仅在 ticker 未运行时触发（暂停 seek 等场景）
+    // 播放期间由 ticker(80ms) 负责 publish，避免双重触发叠加 IPC
+    this.audio.addEventListener("timeupdate", () => {
+      if (this.tickerId !== undefined) return;
+      this.publish();
+    });
     this.audio.addEventListener("ended", () => {
       this.stopTicker();
       this.publish();

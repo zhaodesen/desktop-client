@@ -132,6 +132,9 @@ export const backend = {
   clearAudioCache() {
     return callCommand<CleanupResult>("clear_audio_cache");
   },
+  clearMediaLibrary() {
+    return callCommand<CleanupResult>("clear_media_library");
+  },
   deleteDefaultModel() {
     return callCommand<CleanupResult>("delete_default_model");
   },

@@ -8,6 +8,7 @@
   import type {
     AppSettings,
     CleanupResult,
+    ImportProgress,
     LibraryState,
     MediaItem,
     ModelInfo,
@@ -22,7 +23,8 @@
   import { SubtitleEngine } from "./main/subtitle-engine";
 
   import Sidebar from "./lib/Sidebar.svelte";
-  import LibraryPage from "./lib/LibraryPage.svelte";
+  import ImportPage from "./lib/ImportPage.svelte";
+  import ResourceListPage from "./lib/ResourceListPage.svelte";
   import PlayerPage from "./lib/PlayerPage.svelte";
   import SettingsPage from "./lib/SettingsPage.svelte";
   import SubtitleEditor from "./lib/SubtitleEditor.svelte";
@@ -52,14 +54,21 @@
 
   let settings = $state<AppSettings>({ ...DEFAULT_SETTINGS, overlay: { ...DEFAULT_SETTINGS.overlay } });
   let libraryState = $state<LibraryState>({ mediaItems: [], playbackHistory: [] });
-  let activePage = $state("library");
-  let lastMainPage = $state<"library" | "player" | "settings">("library");
+  let activePage = $state("import");
+  let lastMainPage = $state<"import" | "resources" | "playlist" | "settings">("import");
 
   let currentMediaId = $state<string | undefined>(undefined);
   let activeAsrJobId = $state<string | undefined>(undefined);
   let activeModelDownloadJobId = $state<string | undefined>(undefined);
   let pendingSubtitleMediaId = $state<string | undefined>(undefined);
   let overlayLocked = $state(false);
+
+  // Import UI state: progress tracks the entire pipeline
+  const IMPORT_IDLE: ImportProgress = { active: false, stage: "done", message: "", percent: 0 };
+  let importProgress = $state<ImportProgress>({ ...IMPORT_IDLE });
+  let importError = $state<string | undefined>(undefined);
+  let importSuccessName = $state<string | undefined>(undefined);
+  let showImportSuccess = $state(false);
 
   let availableModels = $state<ModelInfo[]>([]);
   let modelsStatusMap = $state<Map<string, ModelStatus>>(new Map());
@@ -84,6 +93,9 @@
   // Model status labels
   let modelStatusLabel = $state("正在检查模型状态…");
   let modelPathLabel = $state("模型路径加载中");
+
+  // syncOverlay 节流：记录上次 IPC 时间，避免高频调用
+  let lastOverlaySyncAt = 0;
 
   // Internal services (created in onMount)
   let player: PlayerController;
@@ -128,7 +140,7 @@
   }
 
   function setActivePage(page: string) {
-    if (page === "library" || page === "player" || page === "settings") {
+    if (page === "import" || page === "resources" || page === "playlist" || page === "settings") {
       lastMainPage = page;
     }
     activePage = page;
@@ -170,6 +182,13 @@
   }
 
   async function syncOverlay(s: PlaybackSnapshot) {
+    // 守卫1：悬浮窗隐藏时跳过，避免无效 IPC
+    if (!settings.overlayVisible) return;
+    // 守卫2：100ms 节流，播放时最多 10fps IPC，避免 ticker+timeupdate 双重触发叠加
+    const now = Date.now();
+    if (now - lastOverlaySyncAt < 100) return;
+    lastOverlaySyncAt = now;
+
     const media = getCurrentMedia();
     const ctx = subtitleEngine.getContext(s.currentTimeMs);
     await overlayBridge.render({
@@ -237,7 +256,7 @@
   }
 
   async function deleteMediaById(mediaId: string) {
-    const ok = await confirmDialog.show("删除素材", "确定要删除该素材及其字幕吗？此操作不可逆。");
+    const ok = await confirmDialog.show("删除素材", "确定要删除该素材吗？将同时删除字幕及音频文件，此操作不可逆。");
     if (!ok) return;
     await backend.deleteMedia(mediaId);
     if (currentMediaId === mediaId) await resetPlaybackUi();
@@ -308,15 +327,29 @@
       }],
     });
     if (!selected || Array.isArray(selected)) return;
+
+    importError = undefined;
+    importProgress = {
+      active: true,
+      stage: "importing",
+      message: "正在导入媒体文件…",
+      percent: 5,
+    };
     try {
       const media = await backend.importMedia(selected);
+      importProgress = { active: true, stage: "importing", message: "媒体导入成功，准备生成字幕…", percent: 15 };
+      importSuccessName = media.title;
       await refreshLibrary();
-      await loadMediaById(media.id, true);
+      // 不在导入时预加载音频到播放器：
+      // 1. 避免与正在进行的 ASR 进程竞争 CPU/IO
+      // 2. 避免触发 syncOverlay IPC 链
+      // 用户点击播放列表中的具体条目时再按需加载
+      // 注意：成功弹框会在 ASR 完成 + 翻译之后才显示
       await startAutoAsr(media);
-      setActivePage("library");
     } catch (err) {
       console.error(err);
-      setStatus(formatError(err), "warning");
+      importError = formatError(err);
+      importProgress = { ...IMPORT_IDLE };
     }
   }
 
@@ -337,6 +370,14 @@
       console.error(err);
       setStatus(formatError(err), "warning");
     }
+  }
+
+  /* ── Add to playlist ──────────────────────────────────── */
+
+  async function handleAddToPlaylist(mediaId: string) {
+    await backend.recordPlayback(mediaId);
+    await refreshLibrary();
+    setStatus("已加入播放列表", "success");
   }
 
   /* ── Overlay event handlers ────────────────────────────── */
@@ -402,21 +443,18 @@
 
   /* ── Danger zone ───────────────────────────────────────── */
 
-  async function handleClearSubtitles() {
-    if (!await confirmDialog.show("清理字幕缓存", "所有已生成的字幕文件将被删除，素材不受影响。")) return;
+  async function handleClearAllCache() {
+    if (!await confirmDialog.show(
+      "删除所有缓存",
+      "全部已导入的素材、音频文件及字幕将被删除，资源列表与播放列表将被清空。离线模型与应用设置不受影响。",
+    )) return;
     try {
-      const r = await backend.clearSubtitles();
+      const r = await backend.clearMediaLibrary();
+      // 重置播放器与前端状态
+      await resetPlaybackUi();
       await refreshLibrary();
-      setStatus(`字幕缓存已清理，${fmtCleanup(r)}`, "success");
-    } catch (err) { console.error(err); setStatus("清理字幕缓存失败", "warning"); }
-  }
-
-  async function handleClearAudioCache() {
-    if (!await confirmDialog.show("清理音频缓存", "识别过程的中间音频文件将被删除。")) return;
-    try {
-      const r = await backend.clearAudioCache();
-      setStatus(`音频缓存已清理，${fmtCleanup(r)}`, "success");
-    } catch (err) { console.error(err); setStatus("清理音频缓存失败", "warning"); }
+      setStatus(`缓存已清理，${fmtCleanup(r)}`, "success");
+    } catch (err) { console.error(err); setStatus("清理缓存失败", "warning"); }
   }
 
   async function handleDeleteAllModels() {
@@ -433,7 +471,7 @@
   }
 
   async function handleResetAppData() {
-    if (!await confirmDialog.show("重置全部数据", "所有素材、字幕、模型、设置都将被清空！此操作不可逆。")) return;
+    if (!await confirmDialog.show("删除全部数据", "所有离线模型、音频字幕缓存及应用设置都将被彻底清空，此操作不可逆！")) return;
     try {
       const r = await backend.resetAppData();
       settings = { ...DEFAULT_SETTINGS, overlay: { ...DEFAULT_SETTINGS.overlay } };
@@ -519,12 +557,29 @@
     // ASR events
     const unAsrStarted = await asrEvents.onStarted(({ jobId }) => {
       activeAsrJobId = jobId;
-      statusBadgeLabel = "运行中";
+      // 不再更新已移除的侧边栏状态，只记录 jobId
     });
 
-    const unAsrProgress = await asrEvents.onProgress(({ jobId, message }) => {
+    const unAsrProgress = await asrEvents.onProgress(({ jobId, stage, message }) => {
       if (activeAsrJobId && activeAsrJobId !== jobId) return;
-      setStatus(message, "neutral");
+      console.debug("[ASR]", stage, message);
+      // 仅在导入流程进行中时更新进度条（低频事件，不会造成卡顿）
+      if (importProgress.active) {
+        const stageMap: Record<string, { label: string; percent: number }> = {
+          preparing: { label: "正在检查依赖和模型…", percent: 18 },
+          recognizing: { label: "正在离线识别字幕…", percent: 40 },
+          writing: { label: "识别完成，正在写入字幕…", percent: 80 },
+        };
+        const info = stageMap[stage];
+        if (info) {
+          importProgress = {
+            active: true,
+            stage: stage as "preparing" | "recognizing",
+            message: info.label,
+            percent: info.percent,
+          };
+        }
+      }
     });
 
     const unAsrCompleted = await asrEvents.onCompleted(async ({ jobId, subtitlePath }) => {
@@ -535,6 +590,10 @@
         let translationError: string | undefined;
         if (pendingSubtitleMediaId) {
           await backend.updateMediaSubtitle(pendingSubtitleMediaId, subtitlePath);
+          // 进入翻译阶段
+          if (importProgress.active) {
+            importProgress = { active: true, stage: "translating", message: "正在生成中文翻译…", percent: 85 };
+          }
           try {
             const translated = await backend.translateMediaSubtitle(pendingSubtitleMediaId);
             finalSubtitlePath = translated.subtitlePath;
@@ -554,9 +613,19 @@
             : "离线识别完成，双语字幕已绑定",
           translationError ? "warning" : "success",
         );
+        // 整个流水线结束 → 显示成功弹框
+        if (importProgress.active) {
+          importProgress = { active: true, stage: "done", message: "全部完成！", percent: 100 };
+          // 短暂显示 100% 后弹出成功提示
+          setTimeout(() => {
+            showImportSuccess = true;
+            importProgress = { ...IMPORT_IDLE };
+          }, 600);
+        }
       } catch (err) {
         console.error(err);
         setStatus("识别完成，但字幕绑定失败", "warning");
+        importProgress = { ...IMPORT_IDLE };
       } finally {
         pendingSubtitleMediaId = undefined;
       }
@@ -568,6 +637,11 @@
       pendingSubtitleMediaId = undefined;
       showRetryAsr = true;
       setStatus(`[${code}] ${message}`, "warning");
+      // 识别失败时重置进度条并显示错误
+      if (importProgress.active) {
+        importProgress = { ...IMPORT_IDLE };
+        importError = `字幕生成失败: [${code}] ${message}`;
+      }
     });
 
     // Model download events
@@ -577,7 +651,7 @@
 
     const unModelProgress = await modelEvents.onProgress(({ jobId, message }) => {
       if (activeModelDownloadJobId && activeModelDownloadJobId !== jobId) return;
-      setStatus(message, "neutral");
+      console.debug("[Model Download]", message);
     });
 
     const unModelCompleted = await modelEvents.onCompleted(({ jobId, status }) => {
@@ -651,25 +725,35 @@
 <audio bind:this={audioEl} preload="metadata" style="display:none"></audio>
 
 <main class="app-shell">
+  <!-- 专用拖拽条：横跨两列，data-tauri-drag-region 是 Tauri 2 官方机制 -->
+  <div class="window-drag-bar" data-tauri-drag-region></div>
+
   <Sidebar
     {activePage}
-    {statusText}
-    {statusTone}
-    {statusBadgeLabel}
     onNavigate={setActivePage}
   />
 
   <section class="content">
-    {#if activePage === "library"}
-      <LibraryPage
-        items={libraryState.mediaItems}
+    {#if activePage === "import"}
+      <ImportPage
+        progress={importProgress}
+        {importError}
+        {importSuccessName}
+        showSuccess={showImportSuccess}
         onImportMedia={handleImportMedia}
-        onImportSubtitle={handleImportSubtitle}
-        onPlayMedia={(id) => { void loadMediaById(id, true); setActivePage("player"); }}
+        onDismissError={() => { importError = undefined; }}
+        onImportSuccessClose={() => { showImportSuccess = false; importSuccessName = undefined; }}
+        onGoToResources={() => setActivePage("resources")}
+      />
+    {:else if activePage === "resources"}
+      <ResourceListPage
+        items={libraryState.mediaItems}
         onEditSubtitle={(id) => void openSubtitleEditor(id)}
         onDeleteMedia={(id) => void deleteMediaById(id)}
+        onAddToPlaylist={(id) => void handleAddToPlaylist(id)}
+        onImportMedia={handleImportMedia}
       />
-    {:else if activePage === "player"}
+    {:else if activePage === "playlist"}
       <PlayerPage
         {snap}
         {hasMedia}
@@ -681,7 +765,8 @@
         playbackRate={settings.playbackRate}
         playlistMode={settings.playlistMode}
         {showRetryAsr}
-        history={libraryState.playbackHistory}
+        playlist={libraryState.playbackHistory}
+        {currentMediaId}
         onTogglePlayback={() => void player.togglePlayback()}
         onSeek={(ms) => player.seek(ms)}
         onRateChange={async (rate) => {
@@ -696,7 +781,7 @@
           setStatus(mode === "single" ? "已切换为单曲循环" : "已切换为顺序播放", "success");
         }}
         onRetryAsr={() => { const m = getCurrentMedia(); if (m) void startAutoAsr(m); }}
-        onPlayHistory={(id) => { void loadMediaById(id, true); }}
+        onPlayItem={(id) => { void loadMediaById(id, true); }}
       />
     {:else if activePage === "settings"}
       <SettingsPage
@@ -714,8 +799,7 @@
         onDownloadModel={handleDownloadModel}
         onSelectModel={handleSelectModel}
         onDeleteModel={handleDeleteModel}
-        onClearSubtitles={handleClearSubtitles}
-        onClearAudioCache={handleClearAudioCache}
+        onClearAllCache={handleClearAllCache}
         onDeleteAllModels={handleDeleteAllModels}
         onResetAppData={handleResetAppData}
       />

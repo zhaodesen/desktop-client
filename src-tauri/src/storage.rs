@@ -20,6 +20,31 @@ pub fn clear_audio_cache(app: &AppHandle) -> Result<CleanupResult, String> {
     clear_relative_dir(app, "cache/audio")
 }
 
+/// 删除所有缓存：字幕 + 中间音频 + 导入媒体文件，并清空素材库记录。
+/// 离线模型与应用设置不受影响。
+pub fn clear_media_library(app: &AppHandle) -> Result<CleanupResult, String> {
+    let app_data_dir = app_data_dir(app)?;
+    let mut result = CleanupResult {
+        deleted_files: 0,
+        deleted_dirs: 0,
+    };
+
+    for relative in ["subtitles", "cache/audio", "media"] {
+        let cleanup = clear_relative_dir(app, relative)?;
+        result.deleted_files += cleanup.deleted_files;
+        result.deleted_dirs += cleanup.deleted_dirs;
+    }
+
+    // 清空素材库记录（media items + playback history）
+    let library_path = app_data_dir.join("library.json");
+    if library_path.exists() {
+        fs::remove_file(&library_path).map_err(|error| format!("删除素材库失败: {error}"))?;
+        result.deleted_files += 1;
+    }
+
+    Ok(result)
+}
+
 pub fn delete_default_model(app: &AppHandle) -> Result<CleanupResult, String> {
     // Delete all installed models
     let available = model::get_available_models();

@@ -104,9 +104,30 @@ pub fn with_exe_suffix(name: &str) -> String {
     }
 }
 
+#[allow(dead_code)]
 pub fn build_command(target: &CommandTarget) -> Command {
     match target {
         CommandTarget::Program(program) => Command::new(program),
         CommandTarget::File(path) => Command::new(path),
+    }
+}
+
+/// 构建低优先级命令：在 Unix 上使用 nice -n 15 降低调度优先级，
+/// 避免 ffmpeg / whisper-cli 等 CPU 密集型子进程抢占 UI 线程。
+/// Windows 上退化为普通 `build_command`（Windows 进程优先级需要另外处理）。
+pub fn build_nice_command(target: &CommandTarget) -> Command {
+    #[cfg(unix)]
+    {
+        let mut cmd = Command::new("nice");
+        cmd.args(["-n", "15"]);
+        match target {
+            CommandTarget::Program(program) => { cmd.arg(program); }
+            CommandTarget::File(path) => { cmd.arg(path); }
+        }
+        cmd
+    }
+    #[cfg(not(unix))]
+    {
+        build_command(target)
     }
 }

@@ -63,14 +63,26 @@ h4 { font-size: 0.85rem; font-weight: 600; letter-spacing: 0.02em; text-transfor
 .app-shell {
   min-height: 100vh;
   display: grid;
+  /* 第一行：专用拖拽条（macOS 红绿灯高度）；第二行：主内容 */
+  grid-template-rows: 52px 1fr;
   grid-template-columns: var(--sidebar-w) 1fr;
+}
+
+/* 顶部拖拽条：横跨两列，data-tauri-drag-region 由 Tauri 注入的 JS 处理 mousedown */
+.window-drag-bar {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  cursor: default;
+  user-select: none;
+  -webkit-app-region: drag; /* 兼容备用，主要靠 data-tauri-drag-region */
 }
 
 /* ---- Sidebar ---- */
 
 .sidebar {
-  /* padding-top 为 macOS overlay 红绿灯按钮留出空间（约 52px），其余三边保持 14/16px */
-  padding: 52px 14px 16px;
+  grid-row: 2;
+  /* 拖拽条已占 52px，sidebar 只需正常内边距 */
+  padding: 12px 14px 16px;
   background: var(--bg-raised);
   border-right: 1px solid var(--border);
   display: flex;
@@ -167,9 +179,10 @@ h4 { font-size: 0.85rem; font-weight: 600; letter-spacing: 0.02em; text-transfor
 /* ---- Content ---- */
 
 .content {
+  grid-row: 2;
   padding: 24px 28px;
   overflow-y: auto;
-  max-height: 100vh;
+  max-height: calc(100vh - 52px);
 }
 
 .page { display: none; flex-direction: column; gap: 16px; }
@@ -703,6 +716,57 @@ input[type="range"]:disabled::-webkit-slider-thumb { cursor: not-allowed; transf
   grid-template-columns: 1fr 1fr;
   gap: 8px;
   margin-top: 4px;
+}
+
+/* ── Danger list (数据管理) ── */
+.danger-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 6px;
+}
+
+.danger-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  transition: background 150ms;
+}
+
+.danger-item:hover {
+  background: var(--bg-inset);
+}
+
+.danger-item-solid {
+  border-color: color-mix(in srgb, var(--danger) 30%, transparent);
+  background: color-mix(in srgb, var(--danger) 6%, transparent);
+}
+
+.danger-item-solid:hover {
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+}
+
+.danger-item-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.danger-item-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.danger-item-desc {
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  line-height: 1.4;
 }
 
 .text-dim { color: var(--text-dim); }

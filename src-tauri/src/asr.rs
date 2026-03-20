@@ -202,9 +202,13 @@ fn emit_progress(
 }
 
 fn run_ffmpeg(target: &CommandTarget, input: &Path, output: &Path) -> Result<(), String> {
-    let output_result = sidecar::build_command(target)
+    // 限制 ffmpeg 线程：音频标准化是 IO 密集型，2 线程已足够，避免抢占 WebView CPU
+    // 使用 nice -n 15 降低 CPU 调度优先级，确保 UI 流畅
+    let output_result = sidecar::build_nice_command(target)
         .args([
             "-y",
+            "-threads",
+            "2",
             "-i",
             &input.display().to_string(),
             "-ar",
@@ -234,12 +238,22 @@ fn run_whisper(
     wav_path: &Path,
     subtitle_prefix: &Path,
 ) -> Result<(), String> {
-    let output_result = sidecar::build_command(target)
+    // 限制 whisper-cli 线程数：默认会占满所有 CPU 核心导致 UI 卡顿
+    // 策略：最多使用 CPU 核心数的一半，上限 4，最少 1
+    let cpu_count = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4);
+    let whisper_threads = (cpu_count / 2).max(1).min(4);
+
+    // 使用 nice -n 15 降低 CPU 调度优先级，确保 UI 流畅
+    let output_result = sidecar::build_nice_command(target)
         .args([
             "-m",
             &model_path.display().to_string(),
             "-f",
             &wav_path.display().to_string(),
+            "-t",
+            &whisper_threads.to_string(),
             "-osrt",
             "-of",
             &subtitle_prefix.display().to_string(),

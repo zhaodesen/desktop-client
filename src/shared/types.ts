@@ -180,6 +180,20 @@ export type RecordPlaybackInput = {
   mediaId: string;
 };
 
+export type ImportProgressStage =
+  | "importing"
+  | "preparing"
+  | "recognizing"
+  | "translating"
+  | "done";
+
+export type ImportProgress = {
+  active: boolean;
+  stage: ImportProgressStage;
+  message: string;
+  percent: number;
+};
+
 export type ModelDownloadStartedPayload = {
   jobId: string;
   modelId: string;
