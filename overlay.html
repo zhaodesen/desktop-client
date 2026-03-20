@@ -4,43 +4,9 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>悬浮字幕</title>
-    <script type="module" src="/src/overlay.ts" defer></script>
+    <script type="module" src="/src/overlay.ts"></script>
   </head>
-
   <body>
-    <section id="overlay-shell" class="overlay-shell" data-position="bottom" data-locked="false">
-
-      <!-- 控制栏：hover 时出现（仅解锁状态下） -->
-      <div class="overlay-controls">
-        <!-- 锁定按钮 -->
-        <button id="overlay-lock" class="overlay-ctrl-btn" title="锁定窗口">
-          <!-- 解锁图标 (data-locked="false" 时显示) -->
-          <svg class="icon-unlocked" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
-            <path d="M7 11V7a5 5 0 0 1 9.9-1"/>
-          </svg>
-          <!-- 锁定图标 (data-locked="true" 时显示，实际锁定时按钮不可见，仅展示) -->
-          <svg class="icon-locked" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
-            <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
-          </svg>
-        </button>
-
-        <!-- 关闭按钮 -->
-        <button id="overlay-close" class="overlay-ctrl-btn overlay-close-btn" title="隐藏悬浮窗">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
-            <line x1="18" y1="6" x2="6" y2="18"/>
-            <line x1="6" y1="6" x2="18" y2="18"/>
-          </svg>
-        </button>
-      </div>
-
-      <!-- 状态信息行 -->
-      <div id="overlay-meta" class="overlay-meta">等待播放</div>
-      <!-- 主字幕文字（原文） -->
-      <div id="overlay-current" class="overlay-current">等待字幕内容</div>
-      <!-- 中文译文 -->
-      <div id="overlay-secondary" class="overlay-secondary"></div>
-    </section>
+    <div id="overlay-app"></div>
   </body>
 </html>

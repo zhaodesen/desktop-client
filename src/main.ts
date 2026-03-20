@@ -1,6 +1,4 @@
-import "./styles.css";
-import { bootstrapMainApp } from "./main/app";
+import { mount } from "svelte";
+import App from "./App.svelte";
 
-window.addEventListener("DOMContentLoaded", () => {
-  void bootstrapMainApp();
-});
+mount(App, { target: document.getElementById("app")! });
