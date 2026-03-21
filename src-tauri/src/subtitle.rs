@@ -4,11 +4,12 @@ use std::{
     env, fs,
     io::Write,
     path::{Path, PathBuf},
-    process::{Command, Stdio},
+    process::Stdio,
 };
 use tauri::{path::BaseDirectory, AppHandle, Manager};
 
 use crate::media::{self, MediaItem};
+use crate::sidecar;
 
 const TRANSLATION_TARGET_LANGUAGE: &str = "zh";
 const TRANSLATION_SCRIPT_NAME: &str = "translate.py";
@@ -360,7 +361,10 @@ fn request_offline_translation(
     .to_string();
 
     let uv_bin = env::var(UV_BIN_ENV).unwrap_or_else(|_| "uv".to_string());
-    let mut child = Command::new(&uv_bin)
+    let uv_target = sidecar::CommandTarget::Program(uv_bin);
+    // 使用 build_nice_command 降低翻译进程 CPU 优先级，避免 UI 卡顿
+    // macOS: taskpolicy -b，Linux: nice -n 19
+    let mut child = sidecar::build_nice_command(&uv_target)
         .args([
             "run",
             "--project",

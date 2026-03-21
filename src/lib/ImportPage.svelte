@@ -7,7 +7,10 @@
     importError: string | undefined;
     importSuccessName: string | undefined;
     showSuccess: boolean;
+    canCancel: boolean;
+    isCancellingAsr: boolean;
     onImportMedia: () => void;
+    onCancel: () => void;
     onDismissError: () => void;
     onImportSuccessClose: () => void;
     onGoToResources: () => void;
@@ -18,7 +21,10 @@
     importError,
     importSuccessName,
     showSuccess,
+    canCancel,
+    isCancellingAsr,
     onImportMedia,
+    onCancel,
     onDismissError,
     onImportSuccessClose,
     onGoToResources,
@@ -123,6 +129,7 @@
           <div
             class="progress-bar-fill"
             class:progress-done={progress.stage === "done"}
+            class:progress-active={progress.stage !== "done"}
             style="width: {progress.percent}%"
           ></div>
         </div>
@@ -141,6 +148,11 @@
         <span class="stage-line"></span>
         <span class="stage-dot" class:stage-active={progress.stage === "done"} class:stage-done={false}>完成</span>
       </div>
+      {#if canCancel}
+        <button class="btn btn-ghost btn-sm import-cancel-btn" type="button" onclick={onCancel} disabled={isCancellingAsr}>
+          {#if isCancellingAsr}正在取消…{:else}取消识别{/if}
+        </button>
+      {/if}
     </div>
   {:else}
     <!-- 默认状态 -->
@@ -358,6 +370,23 @@
     background: var(--success, #4ade80);
   }
 
+  /* 活跃状态：流光动画，让用户知道进程仍在运行 */
+  .progress-bar-fill.progress-active {
+    background-image: linear-gradient(
+      90deg,
+      var(--accent) 0%,
+      color-mix(in srgb, var(--accent) 70%, white) 50%,
+      var(--accent) 100%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.8s ease-in-out infinite;
+  }
+
+  @keyframes shimmer {
+    0%   { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+
   .progress-percent {
     font-size: 0.8rem;
     font-weight: 600;
@@ -373,6 +402,11 @@
     align-items: center;
     gap: 0;
     margin-top: 12px;
+  }
+
+  .import-cancel-btn {
+    margin-top: 14px;
+    min-width: 112px;
   }
 
   .stage-dot {

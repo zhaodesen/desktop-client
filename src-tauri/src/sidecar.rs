@@ -112,14 +112,28 @@ pub fn build_command(target: &CommandTarget) -> Command {
     }
 }
 
-/// 构建低优先级命令：在 Unix 上使用 nice -n 15 降低调度优先级，
-/// 避免 ffmpeg / whisper-cli 等 CPU 密集型子进程抢占 UI 线程。
-/// Windows 上退化为普通 `build_command`（Windows 进程优先级需要另外处理）。
+/// 构建低优先级命令，避免 ffmpeg / whisper-cli 等 CPU 密集型子进程抢占 UI 线程。
+///
+/// - **macOS**: 使用 `taskpolicy -b` 设置 TASK_BACKGROUND_APPLICATION QoS。
+///   这是 XNU 内核级别的调度限制，比 `nice` 有效得多——macOS 几乎忽略 nice 值，
+///   但 `taskpolicy -b` 会让进程真正退让 CPU 给前台应用（WKWebView）。
+/// - **Linux**: 使用 `nice -n 19`（最低优先级），CFS 调度器会正确遵守。
+/// - **Windows**: 退化为普通命令（未来可用 `START /LOW`）。
 pub fn build_nice_command(target: &CommandTarget) -> Command {
-    #[cfg(unix)]
+    #[cfg(target_os = "macos")]
+    {
+        let mut cmd = Command::new("taskpolicy");
+        cmd.arg("-b");
+        match target {
+            CommandTarget::Program(program) => { cmd.arg(program); }
+            CommandTarget::File(path) => { cmd.arg(path); }
+        }
+        cmd
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
     {
         let mut cmd = Command::new("nice");
-        cmd.args(["-n", "15"]);
+        cmd.args(["-n", "19"]);
         match target {
             CommandTarget::Program(program) => { cmd.arg(program); }
             CommandTarget::File(path) => { cmd.arg(path); }

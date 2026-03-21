@@ -1,5 +1,5 @@
 use crate::{
-    asr::{self, StartAsrJobInput, StartAsrJobOutput},
+    asr::{self, CancelAsrJobOutput, StartAsrJobInput, StartAsrJobOutput},
     error::CommandResponse,
     media::{self, ImportMediaInput, LibraryState, MediaItem, PlaybackHistoryItem},
     model::{self, AllModelsStatus, DefaultModelStatus, DownloadModelOutput, ModelInfo, ModelStatus},
@@ -8,7 +8,17 @@ use crate::{
     subtitle::{self, SubtitleCue, SubtitleDocument},
     store, window,
 };
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, State, async_runtime};
+
+async fn run_blocking_task<T, F>(task: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+{
+    async_runtime::spawn_blocking(task)
+        .await
+        .map_err(|error| format!("后台任务执行失败: {error}"))?
+}
 
 fn update_settings_in_state(
     app: &AppHandle,
@@ -153,6 +163,14 @@ pub fn start_asr_job(
 }
 
 #[tauri::command]
+pub fn cancel_asr_job(state: State<'_, AppState>) -> CommandResponse<CancelAsrJobOutput> {
+    match asr::cancel_job(state.active_asr_job.clone()) {
+        Ok(output) => CommandResponse::ok(output),
+        Err(error) => CommandResponse::err("asr_cancel_failed", error),
+    }
+}
+
+#[tauri::command]
 pub fn get_default_model_status(app: AppHandle) -> CommandResponse<DefaultModelStatus> {
     match model::get_default_model_status(&app) {
         Ok(status) => CommandResponse::ok(status),
@@ -221,8 +239,14 @@ pub fn get_library_state(app: AppHandle) -> CommandResponse<LibraryState> {
 }
 
 #[tauri::command]
-pub fn import_media(app: AppHandle, source_path: String) -> CommandResponse<MediaItem> {
-    match media::import_media(&app, ImportMediaInput { source_path }) {
+pub async fn import_media(app: AppHandle, source_path: String) -> CommandResponse<MediaItem> {
+    let app_handle = app.clone();
+
+    match run_blocking_task(move || {
+        media::import_media(&app_handle, ImportMediaInput { source_path })
+    })
+    .await
+    {
         Ok(item) => CommandResponse::ok(item),
         Err(error) => CommandResponse::err("import_media_failed", error),
     }
@@ -272,11 +296,17 @@ pub fn save_subtitle_document(
 }
 
 #[tauri::command]
-pub fn translate_media_subtitle(
+pub async fn translate_media_subtitle(
     app: AppHandle,
     media_id: String,
 ) -> CommandResponse<SubtitleDocument> {
-    match subtitle::translate_media_subtitle(&app, &media_id) {
+    let app_handle = app.clone();
+
+    match run_blocking_task(move || {
+        subtitle::translate_media_subtitle(&app_handle, &media_id)
+    })
+    .await
+    {
         Ok(document) => CommandResponse::ok(document),
         Err(error) => CommandResponse::err("translate_media_subtitle_failed", error),
     }

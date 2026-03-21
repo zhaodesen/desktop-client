@@ -1,5 +1,11 @@
 use serde::{Deserialize, Serialize};
-use std::sync::{Arc, Mutex};
+use std::{
+    process::Child,
+    sync::{
+        Arc, Mutex,
+        atomic::AtomicBool,
+    },
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -65,7 +71,7 @@ impl Default for AppSettings {
 
 pub struct AppState {
     pub settings: Arc<Mutex<AppSettings>>,
-    pub active_asr_job: Arc<Mutex<Option<String>>>,
+    pub active_asr_job: Arc<Mutex<Option<AsrJobState>>>,
     pub active_model_download: Arc<Mutex<Option<String>>>,
 }
 
@@ -75,6 +81,23 @@ impl AppState {
             settings: Arc::new(Mutex::new(settings)),
             active_asr_job: Arc::new(Mutex::new(None)),
             active_model_download: Arc::new(Mutex::new(None)),
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct AsrJobState {
+    pub job_id: String,
+    pub cancel_requested: Arc<AtomicBool>,
+    pub active_child: Arc<Mutex<Option<Child>>>,
+}
+
+impl AsrJobState {
+    pub fn new(job_id: String) -> Self {
+        Self {
+            job_id,
+            cancel_requested: Arc::new(AtomicBool::new(false)),
+            active_child: Arc::new(Mutex::new(None)),
         }
     }
 }

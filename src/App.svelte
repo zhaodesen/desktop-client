@@ -4,7 +4,7 @@
   import { emitTo, listen } from "@tauri-apps/api/event";
   import { open } from "@tauri-apps/plugin-dialog";
   import { OVERLAY_CLOSE_EVENT, OVERLAY_LOCK_EVENT } from "./shared/events";
-  import { asrEvents, backend, modelEvents, overlayBridge } from "./shared/tauri";
+  import { asrEvents, backend, importEvents, modelEvents, overlayBridge } from "./shared/tauri";
   import type {
     AppSettings,
     CleanupResult,
@@ -69,6 +69,8 @@
   let importError = $state<string | undefined>(undefined);
   let importSuccessName = $state<string | undefined>(undefined);
   let showImportSuccess = $state(false);
+  let importSuccessTimer: ReturnType<typeof setTimeout> | undefined;
+  let isCancellingAsr = $state(false);
 
   let availableModels = $state<ModelInfo[]>([]);
   let modelsStatusMap = $state<Map<string, ModelStatus>>(new Map());
@@ -96,6 +98,33 @@
 
   // syncOverlay 节流：记录上次 IPC 时间，避免高频调用
   let lastOverlaySyncAt = 0;
+
+  // ASR 进度更新 requestAnimationFrame 节流：
+  // 即使 Rust 侧已节流到 1 秒 1 次，Svelte 的同步 DOM diff 仍可能导致掉帧。
+  // 用 rAF 将状态更新推迟到下一个渲染帧，避免在高频事件回调中直接触发重排。
+  let pendingProgressUpdate: ImportProgress | null = null;
+  let progressRafId = 0;
+
+  function scheduleProgressUpdate(next: ImportProgress) {
+    pendingProgressUpdate = next;
+    if (!progressRafId) {
+      progressRafId = requestAnimationFrame(() => {
+        progressRafId = 0;
+        if (pendingProgressUpdate) {
+          importProgress = pendingProgressUpdate;
+          pendingProgressUpdate = null;
+        }
+      });
+    }
+  }
+
+  function resetScheduledProgressUpdate() {
+    pendingProgressUpdate = null;
+    if (progressRafId) {
+      cancelAnimationFrame(progressRafId);
+      progressRafId = 0;
+    }
+  }
 
   // Internal services (created in onMount)
   let player: PlayerController;
@@ -133,6 +162,12 @@
 
   function fmtCleanup(r: CleanupResult): string {
     return `已删除 ${r.deletedFiles} 个文件，${r.deletedDirs} 个目录`;
+  }
+
+  function waitForNextPaint() {
+    return new Promise<void>((resolve) => {
+      requestAnimationFrame(() => resolve());
+    });
   }
 
   function getCurrentMedia(): MediaItem | undefined {
@@ -269,13 +304,28 @@
   }
 
   async function startAutoAsr(media: MediaItem) {
+    pendingSubtitleMediaId = media.id;
+    isCancellingAsr = false;
     try {
       const { jobId } = await backend.startAsrJob({ audioPath: media.audioPath });
       activeAsrJobId = jobId;
-      pendingSubtitleMediaId = media.id;
       setStatus("素材已导入，正在离线生成字幕…", "neutral");
     } catch (err) {
       console.error(err);
+      pendingSubtitleMediaId = undefined;
+      setStatus(formatError(err), "warning");
+    }
+  }
+
+  async function handleCancelAsr() {
+    if (!activeAsrJobId || isCancellingAsr) return;
+    isCancellingAsr = true;
+    setStatus("正在取消当前识别任务…", "warning");
+    try {
+      await backend.cancelAsrJob();
+    } catch (err) {
+      console.error(err);
+      isCancellingAsr = false;
       setStatus(formatError(err), "warning");
     }
   }
@@ -329,6 +379,10 @@
     if (!selected || Array.isArray(selected)) return;
 
     importError = undefined;
+    showImportSuccess = false;
+    clearTimeout(importSuccessTimer);
+    isCancellingAsr = false;
+    resetScheduledProgressUpdate();
     importProgress = {
       active: true,
       stage: "importing",
@@ -336,6 +390,7 @@
       percent: 5,
     };
     try {
+      await waitForNextPaint();
       const media = await backend.importMedia(selected);
       importProgress = { active: true, stage: "importing", message: "媒体导入成功，准备生成字幕…", percent: 15 };
       importSuccessName = media.title;
@@ -554,77 +609,118 @@
       await persistSettings();
     });
 
+    const unImportProgress = await importEvents.onProgress(({ stage, message, percent }) => {
+      if (!importProgress.active || importProgress.stage !== "importing") return;
+      const fallbackPercent: Record<"copying" | "extracting" | "registering", number> = {
+        copying: 8,
+        extracting: 10,
+        registering: 15,
+      };
+      const overall = percent != null
+        ? 5 + (percent / 100) * 10
+        : fallbackPercent[stage];
+      scheduleProgressUpdate({
+        active: true,
+        stage: "importing",
+        message,
+        percent: Math.round(overall),
+      });
+    });
+
     // ASR events
     const unAsrStarted = await asrEvents.onStarted(({ jobId }) => {
       activeAsrJobId = jobId;
       // 不再更新已移除的侧边栏状态，只记录 jobId
     });
 
-    const unAsrProgress = await asrEvents.onProgress(({ jobId, stage, message }) => {
+    const unAsrProgress = await asrEvents.onProgress(({ jobId, stage, message, percent }) => {
       if (activeAsrJobId && activeAsrJobId !== jobId) return;
-      console.debug("[ASR]", stage, message);
-      // 仅在导入流程进行中时更新进度条（低频事件，不会造成卡顿）
-      if (importProgress.active) {
-        const stageMap: Record<string, { label: string; percent: number }> = {
-          preparing: { label: "正在检查依赖和模型…", percent: 18 },
-          recognizing: { label: "正在离线识别字幕…", percent: 40 },
-          writing: { label: "识别完成，正在写入字幕…", percent: 80 },
-        };
-        const info = stageMap[stage];
-        if (info) {
-          importProgress = {
+      console.debug("[ASR]", stage, message, percent);
+      // 仅在导入流程进行中时更新进度条
+      if (!importProgress.active) return;
+
+      // 使用 requestAnimationFrame 批量更新，避免高频状态变更导致掉帧
+      if (stage === "preparing") {
+        scheduleProgressUpdate({ active: true, stage: "preparing", message: "正在检查依赖和模型…", percent: 18 });
+      } else if (stage === "recognizing") {
+        // whisper 实时回报了识别进度 → 映射到总进度 25%–85%
+        if (percent != null && percent > 0) {
+          const overall = 25 + (percent / 100) * 60; // 25% ~ 85%
+          scheduleProgressUpdate({
             active: true,
-            stage: stage as "preparing" | "recognizing",
-            message: info.label,
-            percent: info.percent,
-          };
+            stage: "recognizing",
+            message: `正在离线识别字幕… ${Math.round(percent)}%`,
+            percent: Math.round(overall),
+          });
+        } else {
+          scheduleProgressUpdate({ active: true, stage: "recognizing", message: "正在离线识别字幕…", percent: 25 });
         }
+      } else if (stage === "writing") {
+        scheduleProgressUpdate({ active: true, stage: "recognizing", message: "识别完成，正在写入字幕…", percent: 85 });
       }
     });
 
     const unAsrCompleted = await asrEvents.onCompleted(async ({ jobId, subtitlePath }) => {
       if (activeAsrJobId !== jobId) return;
       activeAsrJobId = undefined;
+      isCancellingAsr = false;
       try {
         let finalSubtitlePath = subtitlePath;
         let translationError: string | undefined;
-        if (pendingSubtitleMediaId) {
-          await backend.updateMediaSubtitle(pendingSubtitleMediaId, subtitlePath);
+        const mediaIdForSubtitle = pendingSubtitleMediaId;
+        if (mediaIdForSubtitle) {
+          await backend.updateMediaSubtitle(mediaIdForSubtitle, subtitlePath);
           // 进入翻译阶段
           if (importProgress.active) {
+            resetScheduledProgressUpdate();
             importProgress = { active: true, stage: "translating", message: "正在生成中文翻译…", percent: 85 };
           }
           try {
-            const translated = await backend.translateMediaSubtitle(pendingSubtitleMediaId);
+            await waitForNextPaint();
+            const translated = await backend.translateMediaSubtitle(mediaIdForSubtitle);
             finalSubtitlePath = translated.subtitlePath;
           } catch (err) {
             console.error(err);
             translationError = formatError(err);
           }
         }
-        await refreshLibrary();
-        if (pendingSubtitleMediaId && currentMediaId === pendingSubtitleMediaId) {
-          await loadSubtitleFromPath(finalSubtitlePath);
-          showRetryAsr = false;
-        }
+
+        // 先更新状态文字（轻量操作），再延迟执行重量级 IPC + 渲染
         setStatus(
           translationError
             ? `离线识别完成，但中文字幕生成失败：${translationError}`
             : "离线识别完成，双语字幕已绑定",
           translationError ? "warning" : "success",
         );
+
         // 整个流水线结束 → 显示成功弹框
         if (importProgress.active) {
+          resetScheduledProgressUpdate();
           importProgress = { active: true, stage: "done", message: "全部完成！", percent: 100 };
+        }
+
+        // 延迟执行 refreshLibrary + loadSubtitle，让 UI 先完成 100% 进度渲染
+        // 避免完成瞬间大量 IPC + DOM 更新挤占渲染帧
+        await new Promise((r) => setTimeout(r, 50));
+
+        await refreshLibrary();
+        if (mediaIdForSubtitle && currentMediaId === mediaIdForSubtitle) {
+          await loadSubtitleFromPath(finalSubtitlePath);
+          showRetryAsr = false;
+        }
+
+        if (importProgress.active) {
           // 短暂显示 100% 后弹出成功提示
-          setTimeout(() => {
+          clearTimeout(importSuccessTimer);
+          importSuccessTimer = setTimeout(() => {
             showImportSuccess = true;
             importProgress = { ...IMPORT_IDLE };
-          }, 600);
+          }, 550);
         }
       } catch (err) {
         console.error(err);
         setStatus("识别完成，但字幕绑定失败", "warning");
+        resetScheduledProgressUpdate();
         importProgress = { ...IMPORT_IDLE };
       } finally {
         pendingSubtitleMediaId = undefined;
@@ -634,11 +730,20 @@
     const unAsrFailed = await asrEvents.onFailed(({ jobId, code, message }) => {
       if (activeAsrJobId && activeAsrJobId !== jobId) return;
       activeAsrJobId = undefined;
+      isCancellingAsr = false;
       pendingSubtitleMediaId = undefined;
       showRetryAsr = true;
+      if (code === "asr_cancelled") {
+        setStatus("已取消当前识别任务", "warning");
+        resetScheduledProgressUpdate();
+        importProgress = { ...IMPORT_IDLE };
+        importError = undefined;
+        return;
+      }
+
       setStatus(`[${code}] ${message}`, "warning");
-      // 识别失败时重置进度条并显示错误
       if (importProgress.active) {
+        resetScheduledProgressUpdate();
         importProgress = { ...IMPORT_IDLE };
         importError = `字幕生成失败: [${code}] ${message}`;
       }
@@ -706,6 +811,7 @@
     return () => {
       unlistenLock();
       unlistenClose();
+      unImportProgress();
       unAsrStarted();
       unAsrProgress();
       unAsrCompleted();
@@ -714,6 +820,8 @@
       unModelProgress();
       unModelCompleted();
       unModelFailed();
+      clearTimeout(importSuccessTimer);
+      resetScheduledProgressUpdate();
     };
   });
 </script>
@@ -740,7 +848,10 @@
         {importError}
         {importSuccessName}
         showSuccess={showImportSuccess}
+        canCancel={Boolean(activeAsrJobId) && importProgress.stage !== "done"}
+        {isCancellingAsr}
         onImportMedia={handleImportMedia}
+        onCancel={() => { void handleCancelAsr(); }}
         onDismissError={() => { importError = undefined; }}
         onImportSuccessClose={() => { showImportSuccess = false; importSuccessName = undefined; }}
         onGoToResources={() => setActivePage("resources")}

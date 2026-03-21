@@ -42,6 +42,7 @@ pub fn run() {
             commands::hide_overlay,
             commands::toggle_overlay,
             commands::start_asr_job,
+            commands::cancel_asr_job,
             commands::get_default_model_status,
             commands::download_default_model,
             commands::get_available_models,

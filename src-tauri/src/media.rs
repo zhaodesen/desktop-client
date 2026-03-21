@@ -1,10 +1,13 @@
 use serde::{Deserialize, Serialize};
 use std::{
+    fs::File,
     fs,
+    io::{BufRead, BufReader, Read, Write},
     path::{Path, PathBuf},
+    process::Stdio,
     time::{SystemTime, UNIX_EPOCH},
 };
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 
 use crate::sidecar::{self, CommandTarget};
 
@@ -51,6 +54,14 @@ pub struct ImportMediaInput {
     pub source_path: String,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportMediaProgressPayload {
+    pub stage: &'static str,
+    pub message: String,
+    pub percent: Option<f32>,
+}
+
 
 pub fn get_library_state(app: &AppHandle) -> Result<LibraryState, String> {
     load_library_state(app)
@@ -90,13 +101,15 @@ pub fn import_media(app: &AppHandle, input: ImportMediaInput) -> Result<MediaIte
                 .filter(|value| !value.is_empty())
                 .unwrap_or("mp3");
             let target = media_dir.join(format!("{id}.{extension}"));
-            fs::copy(&source_path, &target).map_err(|error| format!("复制音频文件失败: {error}"))?;
+            emit_import_progress(app, "copying", "正在复制音频文件…", Some(0.0))?;
+            copy_file_with_progress(app, &source_path, &target)?;
             target
         }
         MediaSourceKind::Video => {
             let ffmpeg = sidecar::locate_executable(app, "FFMPEG_BIN", &["ffmpeg"])?;
             let target = media_dir.join(format!("{id}.wav"));
-            extract_audio_with_ffmpeg(&ffmpeg, &source_path, &target)?;
+            emit_import_progress(app, "extracting", "正在从视频提取音频…", Some(0.0))?;
+            extract_audio_with_ffmpeg(app, &ffmpeg, &source_path, &target)?;
             target
         }
     };
@@ -111,6 +124,7 @@ pub fn import_media(app: &AppHandle, input: ImportMediaInput) -> Result<MediaIte
         imported_at: now_millis(),
     };
 
+    emit_import_progress(app, "registering", "正在写入素材索引…", Some(100.0))?;
     state.media_items.insert(0, item.clone());
     save_library_state(app, &state)?;
     Ok(item)
@@ -258,18 +272,86 @@ fn is_video_file(path: &Path) -> bool {
     )
 }
 
+fn emit_import_progress(
+    app: &AppHandle,
+    stage: &'static str,
+    message: &str,
+    percent: Option<f32>,
+) -> Result<(), String> {
+    app.emit_to(
+        "main",
+        "import://progress",
+        ImportMediaProgressPayload {
+            stage,
+            message: message.to_string(),
+            percent,
+        },
+    )
+    .map_err(|error| format!("发送导入进度事件失败: {error}"))
+}
+
+fn copy_file_with_progress(app: &AppHandle, source_path: &Path, target_path: &Path) -> Result<(), String> {
+    let total_bytes = fs::metadata(source_path)
+        .map_err(|error| format!("读取源文件信息失败: {error}"))?
+        .len();
+    let mut source =
+        File::open(source_path).map_err(|error| format!("打开源文件失败: {error}"))?;
+    let mut target =
+        File::create(target_path).map_err(|error| format!("创建目标文件失败: {error}"))?;
+
+    let mut copied_bytes = 0u64;
+    let mut last_emitted = 0f32;
+    let mut buffer = vec![0u8; 1024 * 512];
+
+    loop {
+        let read = source
+            .read(&mut buffer)
+            .map_err(|error| format!("读取源文件失败: {error}"))?;
+        if read == 0 {
+            break;
+        }
+
+        target
+            .write_all(&buffer[..read])
+            .map_err(|error| format!("写入目标文件失败: {error}"))?;
+        copied_bytes += read as u64;
+
+        if total_bytes > 0 {
+            let percent = ((copied_bytes as f64 / total_bytes as f64) * 100.0).min(100.0) as f32;
+            if percent >= last_emitted + 5.0 || percent >= 100.0 {
+                emit_import_progress(
+                    app,
+                    "copying",
+                    &format!("正在复制音频文件… {:.0}%", percent),
+                    Some(percent),
+                )?;
+                last_emitted = percent;
+            }
+        }
+    }
+
+    if total_bytes == 0 {
+        emit_import_progress(app, "copying", "正在复制音频文件…", None)?;
+    } else if last_emitted < 100.0 {
+        emit_import_progress(app, "copying", "正在复制音频文件… 100%", Some(100.0))?;
+    }
+
+    Ok(())
+}
+
 fn extract_audio_with_ffmpeg(
+    app: &AppHandle,
     target: &CommandTarget,
     source_path: &Path,
     output_path: &Path,
 ) -> Result<(), String> {
-    // 限制 ffmpeg 线程数：视频提取音频是 IO 密集型，2 线程已足够
-    // 使用 nice -n 15 降低 CPU 调度优先级，确保 UI 流畅
-    let output = sidecar::build_nice_command(target)
+    // 限制 ffmpeg 为 1 线程 + taskpolicy -b (macOS) / nice -n 19 (Linux)
+    // 确保视频提取音频时 UI 不卡
+    let mut child = sidecar::build_nice_command(target)
         .args([
             "-y",
             "-threads",
-            "2",
+            "1",
             "-i",
             &source_path.display().to_string(),
             "-vn",
@@ -279,19 +361,140 @@ fn extract_audio_with_ffmpeg(
             "1",
             "-c:a",
             "pcm_s16le",
+            "-progress",
+            "pipe:2",
+            "-nostats",
             &output_path.display().to_string(),
         ])
-        .output()
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
         .map_err(|error| format!("执行 ffmpeg 失败: {error}"))?;
 
-    if output.status.success() {
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| "未获取到 ffmpeg 进度输出".to_string())?;
+    let reader = BufReader::new(stderr);
+    let mut duration_ms = 0u64;
+    let mut last_emitted = 0f32;
+    let mut last_error_lines: Vec<String> = Vec::new();
+
+    for line in reader.lines() {
+        let line = match line {
+            Ok(line) => line,
+            Err(_) => continue,
+        };
+
+        if duration_ms == 0 {
+            if let Some(parsed_duration) = parse_ffmpeg_duration_ms(&line) {
+                duration_ms = parsed_duration;
+            }
+        }
+
+        if let Some(current_ms) = parse_ffmpeg_progress_ms(&line) {
+            if duration_ms > 0 {
+                let percent = ((current_ms as f64 / duration_ms as f64) * 100.0).min(100.0) as f32;
+                if percent >= last_emitted + 5.0 || percent >= 100.0 {
+                    emit_import_progress(
+                        app,
+                        "extracting",
+                        &format!("正在从视频提取音频… {:.0}%", percent),
+                        Some(percent),
+                    )?;
+                    last_emitted = percent;
+                }
+            } else if last_emitted == 0.0 {
+                emit_import_progress(app, "extracting", "正在从视频提取音频…", None)?;
+                last_emitted = 1.0;
+            }
+            continue;
+        }
+
+        let trimmed = line.trim();
+        if trimmed.is_empty()
+            || trimmed.starts_with("ffmpeg version")
+            || trimmed.starts_with("Input #")
+            || trimmed.starts_with("Stream #")
+            || trimmed.starts_with("Metadata:")
+        {
+            continue;
+        }
+        if last_error_lines.len() >= 6 {
+            last_error_lines.remove(0);
+        }
+        last_error_lines.push(trimmed.to_string());
+    }
+
+    let status = child
+        .wait()
+        .map_err(|error| format!("等待 ffmpeg 结束失败: {error}"))?;
+
+    if status.success() {
+        if last_emitted < 100.0 {
+            emit_import_progress(app, "extracting", "正在从视频提取音频… 100%", Some(100.0))?;
+        }
         Ok(())
     } else {
+        let detail = if last_error_lines.is_empty() {
+            format!("exit code: {:?}", status.code())
+        } else {
+            last_error_lines.join("\n")
+        };
         Err(format!(
             "视频转音频失败: {}",
-            String::from_utf8_lossy(&output.stderr).trim()
+            detail.trim()
         ))
     }
+}
+
+fn parse_ffmpeg_duration_ms(line: &str) -> Option<u64> {
+    let start = line.find("Duration: ")? + "Duration: ".len();
+    let end = line[start..]
+        .find(',')
+        .map(|index| start + index)
+        .unwrap_or(line.len());
+    parse_media_timestamp_ms(&line[start..end])
+}
+
+fn parse_ffmpeg_progress_ms(line: &str) -> Option<u64> {
+    let trimmed = line.trim();
+    if let Some(value) = trimmed.strip_prefix("out_time_ms=") {
+        return value.parse::<u64>().ok().map(|micros| micros / 1000);
+    }
+    if let Some(value) = trimmed.strip_prefix("out_time_us=") {
+        return value.parse::<u64>().ok().map(|micros| micros / 1000);
+    }
+    if let Some(value) = trimmed.strip_prefix("out_time=") {
+        return parse_media_timestamp_ms(value);
+    }
+    None
+}
+
+fn parse_media_timestamp_ms(value: &str) -> Option<u64> {
+    let parts: Vec<&str> = value.trim().split(':').collect();
+    if parts.len() != 3 {
+        return None;
+    }
+
+    let hours: u64 = parts[0].parse().ok()?;
+    let minutes: u64 = parts[1].parse().ok()?;
+    let seconds_part = parts[2];
+    let (seconds_text, fraction_text) = seconds_part
+        .split_once('.')
+        .or_else(|| seconds_part.split_once(','))
+        .unwrap_or((seconds_part, "0"));
+    let seconds: u64 = seconds_text.parse().ok()?;
+
+    let normalized_fraction = match fraction_text.len() {
+        0 => "000".to_string(),
+        1 => format!("{fraction_text}00"),
+        2 => format!("{fraction_text}0"),
+        _ => fraction_text[..3].to_string(),
+    };
+    let millis: u64 = normalized_fraction.parse().ok()?;
+
+    Some(hours * 3600_000 + minutes * 60_000 + seconds * 1000 + millis)
 }
 
 fn generate_id(prefix: &str) -> String {

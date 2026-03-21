@@ -105,15 +105,27 @@ export type StartAsrJobOutput = {
   jobId: string;
 };
 
+export type CancelAsrJobOutput = {
+  jobId: string;
+};
+
 export type AsrStartedPayload = {
   jobId: string;
   audioPath: string;
+};
+
+export type ImportMediaProgressPayload = {
+  stage: "copying" | "extracting" | "registering";
+  message: string;
+  percent: number | null;
 };
 
 export type AsrProgressPayload = {
   jobId: string;
   stage: "preparing" | "recognizing" | "writing";
   message: string;
+  /** 当前阶段内的进度百分比 (0–100)，null 表示不确定 */
+  percent: number | null;
 };
 
 export type AsrCompletedPayload = {

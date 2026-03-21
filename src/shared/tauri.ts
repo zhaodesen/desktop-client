@@ -5,6 +5,7 @@ import {
   ASR_FAILED_EVENT,
   ASR_PROGRESS_EVENT,
   ASR_STARTED_EVENT,
+  IMPORT_PROGRESS_EVENT,
   MODEL_DOWNLOAD_COMPLETED_EVENT,
   MODEL_DOWNLOAD_FAILED_EVENT,
   MODEL_DOWNLOAD_PROGRESS_EVENT,
@@ -16,6 +17,7 @@ import {
 import type {
   AllModelsStatus,
   AsrCompletedPayload,
+  CancelAsrJobOutput,
   AsrFailedPayload,
   AsrProgressPayload,
   AsrStartedPayload,
@@ -24,6 +26,7 @@ import type {
   CommandResult,
   DefaultModelStatus,
   DownloadModelOutput,
+  ImportMediaProgressPayload,
   LibraryState,
   MediaItem,
   ModelDownloadCompletedPayload,
@@ -77,6 +80,9 @@ export const backend = {
     return callCommand<StartAsrJobOutput>("start_asr_job", {
       audioPath: input.audioPath,
     });
+  },
+  cancelAsrJob() {
+    return callCommand<CancelAsrJobOutput>("cancel_asr_job");
   },
   getDefaultModelStatus() {
     return callCommand<DefaultModelStatus>("get_default_model_status");
@@ -173,6 +179,14 @@ export const asrEvents = {
   },
   onFailed(handler: (payload: AsrFailedPayload) => void) {
     return listen<AsrFailedPayload>(ASR_FAILED_EVENT, ({ payload }) => {
+      handler(payload);
+    });
+  },
+};
+
+export const importEvents = {
+  onProgress(handler: (payload: ImportMediaProgressPayload) => void) {
+    return listen<ImportMediaProgressPayload>(IMPORT_PROGRESS_EVENT, ({ payload }) => {
       handler(payload);
     });
   },

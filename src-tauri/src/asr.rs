@@ -1,15 +1,18 @@
 use serde::Serialize;
 use std::{
     env, fs,
+    io::{self, BufRead, BufReader, Read},
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    process::Stdio,
+    sync::{Arc, Mutex, atomic::Ordering},
     thread,
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::model;
 use crate::sidecar::{self, CommandTarget};
+use crate::state::AsrJobState;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -20,6 +23,12 @@ pub struct StartAsrJobInput {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StartAsrJobOutput {
+    pub job_id: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CancelAsrJobOutput {
     pub job_id: String,
 }
 
@@ -36,6 +45,8 @@ pub struct AsrProgressPayload {
     pub job_id: String,
     pub stage: &'static str,
     pub message: String,
+    /// 当前阶段内的进度百分比 (0.0–100.0)，None 表示不确定
+    pub percent: Option<f32>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -58,7 +69,7 @@ pub struct AsrFailedPayload {
 
 pub fn start_job(
     app: AppHandle,
-    active_job: Arc<Mutex<Option<String>>>,
+    active_job: Arc<Mutex<Option<AsrJobState>>>,
     input: StartAsrJobInput,
 ) -> Result<StartAsrJobOutput, String> {
     let audio_path = PathBuf::from(&input.audio_path);
@@ -75,23 +86,46 @@ pub fn start_job(
         }
 
         let job_id = generate_job_id();
-        let spawned_job_id = job_id.clone();
-        *guard = Some(job_id.clone());
+        let job_state = AsrJobState::new(job_id.clone());
+        let spawned_job = job_state.clone();
+        *guard = Some(job_state);
 
         let app_handle = app.clone();
         let active_job_ref = active_job.clone();
         thread::spawn(move || {
-            run_pipeline(app_handle, active_job_ref, spawned_job_id, audio_path);
+            run_pipeline(app_handle, active_job_ref, spawned_job, audio_path);
         });
 
         return Ok(StartAsrJobOutput { job_id });
     }
 }
 
+pub fn cancel_job(active_job: Arc<Mutex<Option<AsrJobState>>>) -> Result<CancelAsrJobOutput, String> {
+    let job = {
+        let guard = active_job
+            .lock()
+            .map_err(|_| "识别任务状态锁已损坏".to_string())?;
+        guard
+            .as_ref()
+            .cloned()
+            .ok_or_else(|| "当前没有正在运行的识别任务".to_string())?
+    };
+
+    job.cancel_requested.store(true, Ordering::SeqCst);
+
+    if let Ok(mut child_guard) = job.active_child.lock() {
+        if let Some(child) = child_guard.as_mut() {
+            let _ = child.kill();
+        }
+    }
+
+    Ok(CancelAsrJobOutput { job_id: job.job_id })
+}
+
 fn run_pipeline(
     app: AppHandle,
-    active_job: Arc<Mutex<Option<String>>>,
-    job_id: String,
+    active_job: Arc<Mutex<Option<AsrJobState>>>,
+    job: AsrJobState,
     audio_path: PathBuf,
 ) {
     let emit_failed = |message: String| {
@@ -99,8 +133,12 @@ fn run_pipeline(
             "main",
             "asr://failed",
             AsrFailedPayload {
-                job_id: job_id.clone(),
-                code: "asr_pipeline_failed",
+                job_id: job.job_id.clone(),
+                code: if job.cancel_requested.load(Ordering::SeqCst) {
+                    "asr_cancelled"
+                } else {
+                    "asr_pipeline_failed"
+                },
                 message,
             },
         );
@@ -111,40 +149,52 @@ fn run_pipeline(
             "main",
             "asr://started",
             AsrStartedPayload {
-                job_id: job_id.clone(),
+                job_id: job.job_id.clone(),
                 audio_path: audio_path.display().to_string(),
             },
         )
         .map_err(|error| format!("发送任务开始事件失败: {error}"))?;
 
+        ensure_not_cancelled(&job)?;
         emit_progress(
             &app,
-            &job_id,
+            &job.job_id,
             "preparing",
             "正在检查 ffmpeg、whisper-cli 和模型文件",
         )?;
 
-        let ffmpeg = locate_ffmpeg(&app)?;
         let whisper = locate_whisper_cli(&app)?;
         let model_path = locate_whisper_model(&app)?;
-
-        let cache_audio_dir = ensure_dir(&app, "cache/audio")?;
         let subtitle_dir = ensure_dir(&app, "subtitles")?;
-        let wav_path = cache_audio_dir.join(format!("{job_id}.wav"));
-        let subtitle_prefix = subtitle_dir.join(format!("{}-{job_id}", file_stem(&audio_path)));
+        let subtitle_prefix = subtitle_dir.join(format!("{}-{}", file_stem(&audio_path), job.job_id));
         let subtitle_path = subtitle_prefix.with_extension("srt");
+        let wav_path = if is_whisper_ready_wav(&audio_path)? {
+            emit_progress(
+                &app,
+                &job.job_id,
+                "preparing",
+                "检测到已标准化的 WAV 音频，跳过转码",
+            )?;
+            audio_path.clone()
+        } else {
+            let ffmpeg = locate_ffmpeg(&app)?;
+            let cache_audio_dir = ensure_dir(&app, "cache/audio")?;
+            let wav_path = cache_audio_dir.join(format!("{}.wav", job.job_id));
 
+            emit_progress(
+                &app,
+                &job.job_id,
+                "preparing",
+                &format!("正在使用 {} 进行音频标准化", ffmpeg.display()),
+            )?;
+            run_ffmpeg(&job, &ffmpeg, &audio_path, &wav_path)?;
+            wav_path
+        };
+
+        ensure_not_cancelled(&job)?;
         emit_progress(
             &app,
-            &job_id,
-            "preparing",
-            &format!("正在使用 {} 进行音频标准化", ffmpeg.display()),
-        )?;
-        run_ffmpeg(&ffmpeg, &audio_path, &wav_path)?;
-
-        emit_progress(
-            &app,
-            &job_id,
+            &job.job_id,
             "recognizing",
             &format!(
                 "正在使用 {} 和模型 {} 进行离线识别",
@@ -152,18 +202,19 @@ fn run_pipeline(
                 model_path.display()
             ),
         )?;
-        run_whisper(&whisper, &model_path, &wav_path, &subtitle_prefix)?;
+        run_whisper(&app, &job, &whisper, &model_path, &wav_path, &subtitle_prefix)?;
 
         if !subtitle_path.exists() {
             return Err("whisper-cli 执行完成，但没有生成 .srt 文件".to_string());
         }
 
-        emit_progress(&app, &job_id, "writing", "识别完成，正在写入字幕文件")?;
+        ensure_not_cancelled(&job)?;
+        emit_progress(&app, &job.job_id, "writing", "识别完成，正在写入字幕文件")?;
         app.emit_to(
             "main",
             "asr://completed",
             AsrCompletedPayload {
-                job_id: job_id.clone(),
+                job_id: job.job_id.clone(),
                 subtitle_path: subtitle_path.display().to_string(),
                 wav_path: wav_path.display().to_string(),
                 model_path: model_path.display().to_string(),
@@ -175,11 +226,22 @@ fn run_pipeline(
     })();
 
     if let Err(error) = result {
-        emit_failed(error);
+        let message = if job.cancel_requested.load(Ordering::SeqCst) {
+            "当前识别任务已取消".to_string()
+        } else {
+            error
+        };
+        emit_failed(message);
     }
 
     if let Ok(mut guard) = active_job.lock() {
-        *guard = None;
+        if guard
+            .as_ref()
+            .map(|current| current.job_id == job.job_id)
+            .unwrap_or(false)
+        {
+            *guard = None;
+        }
     }
 }
 
@@ -196,19 +258,77 @@ fn emit_progress(
             job_id: job_id.to_string(),
             stage,
             message: message.to_string(),
+            percent: None,
         },
     )
     .map_err(|error| format!("发送进度事件失败: {error}"))
 }
 
-fn run_ffmpeg(target: &CommandTarget, input: &Path, output: &Path) -> Result<(), String> {
-    // 限制 ffmpeg 线程：音频标准化是 IO 密集型，2 线程已足够，避免抢占 WebView CPU
-    // 使用 nice -n 15 降低 CPU 调度优先级，确保 UI 流畅
-    let output_result = sidecar::build_nice_command(target)
+fn emit_progress_with_percent(
+    app: &AppHandle,
+    job_id: &str,
+    stage: &'static str,
+    message: &str,
+    percent: f32,
+) -> Result<(), String> {
+    app.emit_to(
+        "main",
+        "asr://progress",
+        AsrProgressPayload {
+            job_id: job_id.to_string(),
+            stage,
+            message: message.to_string(),
+            percent: Some(percent),
+        },
+    )
+    .map_err(|error| format!("发送进度事件失败: {error}"))
+}
+
+fn ensure_not_cancelled(job: &AsrJobState) -> Result<(), String> {
+    if job.cancel_requested.load(Ordering::SeqCst) {
+        Err("当前识别任务已取消".to_string())
+    } else {
+        Ok(())
+    }
+}
+
+fn wait_for_active_child(job: &AsrJobState, label: &str) -> Result<std::process::ExitStatus, String> {
+    loop {
+        let status = {
+            let mut child_guard = job
+                .active_child
+                .lock()
+                .map_err(|_| "识别进程句柄锁已损坏".to_string())?;
+            let child = child_guard
+                .as_mut()
+                .ok_or_else(|| format!("未找到 {label} 进程句柄"))?;
+            child
+                .try_wait()
+                .map_err(|error| format!("轮询 {label} 进程状态失败: {error}"))?
+        };
+
+        if let Some(status) = status {
+            return Ok(status);
+        }
+
+        thread::sleep(Duration::from_millis(120));
+    }
+}
+
+fn run_ffmpeg(
+    job: &AsrJobState,
+    target: &CommandTarget,
+    input: &Path,
+    output: &Path,
+) -> Result<(), String> {
+    // 限制 ffmpeg 为 1 线程 + taskpolicy -b / nice -n 19，与 whisper 策略一致
+    let mut child = sidecar::build_nice_command(target)
         .args([
             "-y",
             "-threads",
-            "2",
+            "1",
+            "-v",
+            "error",
             "-i",
             &input.display().to_string(),
             "-ar",
@@ -219,34 +339,67 @@ fn run_ffmpeg(target: &CommandTarget, input: &Path, output: &Path) -> Result<(),
             "pcm_s16le",
             &output.display().to_string(),
         ])
-        .output()
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
         .map_err(|error| format!("执行 ffmpeg 失败: {error}"))?;
 
-    if output_result.status.success() {
+    let mut stderr = child.stderr.take();
+    {
+        let mut child_guard = job
+            .active_child
+            .lock()
+            .map_err(|_| "识别进程句柄锁已损坏".to_string())?;
+        *child_guard = Some(child);
+    }
+
+    let status = wait_for_active_child(job, "ffmpeg")?;
+
+    {
+        let mut child_guard = job
+            .active_child
+            .lock()
+            .map_err(|_| "识别进程句柄锁已损坏".to_string())?;
+        child_guard.take();
+    }
+
+    if status.success() {
         Ok(())
     } else {
+        if job.cancel_requested.load(Ordering::SeqCst) {
+            return Err("当前识别任务已取消".to_string());
+        }
+
+        let mut detail = String::new();
+        if let Some(stderr_reader) = stderr.as_mut() {
+            let _ = stderr_reader.read_to_string(&mut detail);
+        }
         Err(format!(
             "ffmpeg 转码失败: {}",
-            String::from_utf8_lossy(&output_result.stderr).trim()
+            detail.trim()
         ))
     }
 }
 
 fn run_whisper(
+    app: &AppHandle,
+    job: &AsrJobState,
     target: &CommandTarget,
     model_path: &Path,
     wav_path: &Path,
     subtitle_prefix: &Path,
 ) -> Result<(), String> {
-    // 限制 whisper-cli 线程数：默认会占满所有 CPU 核心导致 UI 卡顿
-    // 策略：最多使用 CPU 核心数的一半，上限 4，最少 1
-    let cpu_count = std::thread::available_parallelism()
-        .map(|n| n.get())
-        .unwrap_or(4);
-    let whisper_threads = (cpu_count / 2).max(1).min(4);
+    // 限制 whisper-cli 线程数为 1：
+    // 即使单线程 100% CPU 也只占一个核心，配合 taskpolicy -b (macOS) 或 nice -n 19 (Linux)
+    // 可以确保 UI 始终流畅。识别速度会慢一些但用户体验远比"程序卡死"好。
+    let whisper_threads = 1;
 
-    // 使用 nice -n 15 降低 CPU 调度优先级，确保 UI 流畅
-    let output_result = sidecar::build_nice_command(target)
+    // 计算 WAV 文件时长，用于解析 whisper 输出中的时间戳计算真实进度
+    let total_duration_ms = wav_duration_ms(wav_path).unwrap_or(0);
+
+    // 使用 nice -n 19 降低 CPU 调度优先级到最低，确保 UI 流畅
+    // 使用 spawn() + stderr 解析替代 output()，实现实时进度回报
+    let mut child = sidecar::build_nice_command(target)
         .args([
             "-m",
             &model_path.display().to_string(),
@@ -258,16 +411,209 @@ fn run_whisper(
             "-of",
             &subtitle_prefix.display().to_string(),
         ])
-        .output()
-        .map_err(|error| format!("执行 whisper-cli 失败: {error}"))?;
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| format!("启动 whisper-cli 失败: {error}"))?;
 
-    if output_result.status.success() {
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| "未获取到 whisper-cli 错误输出".to_string())?;
+    {
+        let mut child_guard = job
+            .active_child
+            .lock()
+            .map_err(|_| "识别进程句柄锁已损坏".to_string())?;
+        *child_guard = Some(child);
+    }
+
+    // 实时解析 whisper stderr 输出，提取时间戳算识别进度
+    let mut last_error_lines: Vec<String> = Vec::new();
+    let reader = BufReader::new(stderr);
+    let mut last_emit = Instant::now();
+
+    for line in reader.lines() {
+        let line = match line {
+            Ok(l) => l,
+            Err(_) => continue,
+        };
+
+        // 尝试解析 whisper 时间戳行: [00:00:05.280 --> 00:00:10.560]
+        if let Some(pct) = parse_whisper_progress(&line, total_duration_ms) {
+            // 节流：最多 1 秒 1 次 IPC 事件，避免前端高频更新
+            let now = Instant::now();
+            if now.duration_since(last_emit).as_millis() >= 1000 {
+                let _ = emit_progress_with_percent(
+                    app,
+                    &job.job_id,
+                    "recognizing",
+                    &format!("正在离线识别字幕… {:.0}%", pct),
+                    pct as f32,
+                );
+                last_emit = now;
+            }
+        } else if !line.trim().is_empty() {
+            // 保留最后几行非时间戳输出作为错误信息
+            if last_error_lines.len() > 5 {
+                last_error_lines.remove(0);
+            }
+            last_error_lines.push(line);
+        }
+    }
+
+    let status = wait_for_active_child(job, "whisper-cli")?;
+
+    {
+        let mut child_guard = job
+            .active_child
+            .lock()
+            .map_err(|_| "识别进程句柄锁已损坏".to_string())?;
+        child_guard.take();
+    }
+
+    if status.success() {
         Ok(())
     } else {
-        Err(format!(
-            "whisper-cli 识别失败: {}",
-            String::from_utf8_lossy(&output_result.stderr).trim()
-        ))
+        if job.cancel_requested.load(Ordering::SeqCst) {
+            return Err("当前识别任务已取消".to_string());
+        }
+
+        let detail = if last_error_lines.is_empty() {
+            format!("exit code: {:?}", status.code())
+        } else {
+            last_error_lines.join("\n")
+        };
+        Err(format!("whisper-cli 识别失败: {}", detail.trim()))
+    }
+}
+
+/// 从 whisper stderr 行解析识别进度
+/// 格式: [00:00:05.280 --> 00:00:10.560]  some text...
+fn parse_whisper_progress(line: &str, total_duration_ms: u64) -> Option<f64> {
+    let line = line.trim();
+    if !line.starts_with('[') {
+        return None;
+    }
+    let arrow = line.find(" --> ")?;
+    let bracket_end = line[arrow..].find(']').map(|i| i + arrow)?;
+
+    let end_str = &line[arrow + 4..bracket_end];
+    let end_ms = parse_timestamp_ms(end_str)?;
+
+    if total_duration_ms == 0 {
+        return None;
+    }
+    Some((end_ms as f64 / total_duration_ms as f64 * 100.0).min(100.0))
+}
+
+/// 解析时间戳 "00:00:05.280" → 毫秒
+fn parse_timestamp_ms(ts: &str) -> Option<u64> {
+    let parts: Vec<&str> = ts.split(':').collect();
+    if parts.len() != 3 {
+        return None;
+    }
+    let hours: u64 = parts[0].parse().ok()?;
+    let minutes: u64 = parts[1].parse().ok()?;
+    let sec_parts: Vec<&str> = parts[2].split('.').collect();
+    if sec_parts.len() != 2 {
+        return None;
+    }
+    let seconds: u64 = sec_parts[0].parse().ok()?;
+    let millis: u64 = sec_parts[1].parse().ok()?;
+    Some(hours * 3600_000 + minutes * 60_000 + seconds * 1000 + millis)
+}
+
+/// 估算 16kHz/16bit/mono WAV 文件的时长（毫秒）
+fn wav_duration_ms(wav_path: &Path) -> Result<u64, String> {
+    let meta =
+        fs::metadata(wav_path).map_err(|e| format!("读取 WAV 文件信息失败: {e}"))?;
+    // 16kHz × 16bit × mono = 32000 bytes/sec, WAV header 约 44 bytes
+    let data_bytes = meta.len().saturating_sub(44);
+    Ok((data_bytes as f64 / 32000.0 * 1000.0) as u64)
+}
+
+fn is_whisper_ready_wav(path: &Path) -> Result<bool, String> {
+    let extension = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default();
+    if !extension.eq_ignore_ascii_case("wav") {
+        return Ok(false);
+    }
+
+    let file = fs::File::open(path).map_err(|error| format!("读取 WAV 文件失败: {error}"))?;
+    let mut reader = BufReader::new(file);
+    let mut header = [0u8; 12];
+    reader
+        .read_exact(&mut header)
+        .map_err(|error| format!("读取 WAV 头失败: {error}"))?;
+
+    if &header[0..4] != b"RIFF" || &header[8..12] != b"WAVE" {
+        return Ok(false);
+    }
+
+    const MAX_FMT_CHUNK_SIZE: usize = 4096;
+
+    loop {
+        let mut chunk_header = [0u8; 8];
+        match reader.read_exact(&mut chunk_header) {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::UnexpectedEof => return Ok(false),
+            Err(error) => return Err(format!("读取 WAV chunk 失败: {error}")),
+        }
+
+        let chunk_id = &chunk_header[0..4];
+        let chunk_size = u32::from_le_bytes([
+            chunk_header[4],
+            chunk_header[5],
+            chunk_header[6],
+            chunk_header[7],
+        ]) as usize;
+
+        if chunk_id == b"fmt " {
+            if chunk_size < 16 || chunk_size > MAX_FMT_CHUNK_SIZE {
+                return Ok(false);
+            }
+
+            let mut fmt_chunk = vec![0u8; chunk_size];
+            reader
+                .read_exact(&mut fmt_chunk)
+                .map_err(|error| format!("读取 WAV fmt chunk 失败: {error}"))?;
+
+            let audio_format = u16::from_le_bytes([fmt_chunk[0], fmt_chunk[1]]);
+            let channels = u16::from_le_bytes([fmt_chunk[2], fmt_chunk[3]]);
+            let sample_rate = u32::from_le_bytes([
+                fmt_chunk[4],
+                fmt_chunk[5],
+                fmt_chunk[6],
+                fmt_chunk[7],
+            ]);
+            let bits_per_sample = u16::from_le_bytes([fmt_chunk[14], fmt_chunk[15]]);
+
+            return Ok(audio_format == 1
+                && channels == 1
+                && sample_rate == 16_000
+                && bits_per_sample == 16);
+        }
+
+        let skipped = io::copy(
+            &mut reader.by_ref().take(chunk_size as u64),
+            &mut io::sink(),
+        )
+        .map_err(|error| format!("跳过 WAV chunk 失败: {error}"))?;
+        if skipped != chunk_size as u64 {
+            return Ok(false);
+        }
+
+        if chunk_size % 2 == 1 {
+            let mut padding = [0u8; 1];
+            match reader.read_exact(&mut padding) {
+                Ok(()) => {}
+                Err(error) if error.kind() == io::ErrorKind::UnexpectedEof => return Ok(false),
+                Err(error) => return Err(format!("读取 WAV 对齐字节失败: {error}")),
+            }
+        }
     }
 }
 
