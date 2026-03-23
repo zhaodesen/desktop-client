@@ -321,6 +321,14 @@ pub fn record_playback(app: AppHandle, media_id: String) -> CommandResponse<Play
 }
 
 #[tauri::command]
+pub fn remove_playback_item(app: AppHandle, media_id: String) -> CommandResponse<bool> {
+    match media::remove_playback_item(&app, &media_id) {
+        Ok(_) => CommandResponse::ok(true),
+        Err(error) => CommandResponse::err("remove_playback_item_failed", error),
+    }
+}
+
+#[tauri::command]
 pub fn clear_subtitles(app: AppHandle) -> CommandResponse<CleanupResult> {
     match storage::clear_subtitles(&app) {
         Ok(result) => CommandResponse::ok(result),

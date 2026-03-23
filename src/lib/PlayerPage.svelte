@@ -14,20 +14,26 @@
     showRetryAsr: boolean;
     playlist: PlaybackHistoryItem[];
     currentMediaId: string | undefined;
+    volume: number;
     onTogglePlayback: () => void;
+    onToggleCurrentItem: () => void;
     onSeek: (ms: number) => void;
     onRateChange: (rate: number) => void;
     onPlaylistModeChange: (mode: PlaylistMode) => void;
     onRetryAsr: () => void;
     onPlayItem: (id: string) => void;
+    onPlayItemNow: (id: string) => void;
+    onRemoveItem: (id: string) => void;
+    onVolumeChange: (volume: number) => void;
+    onVolumeCommit: () => void;
   }
 
   const {
     snap, hasMedia, audioFileLabel, subtitleFileLabel, cueTiming,
     currentText, currentSecondaryText, playbackRate, playlistMode,
-    showRetryAsr, playlist, currentMediaId,
-    onTogglePlayback, onSeek, onRateChange, onPlaylistModeChange,
-    onRetryAsr, onPlayItem,
+    showRetryAsr, playlist, currentMediaId, volume,
+    onTogglePlayback, onToggleCurrentItem, onSeek, onRateChange, onPlaylistModeChange,
+    onRetryAsr, onPlayItem, onPlayItemNow, onRemoveItem, onVolumeChange, onVolumeCommit,
   }: Props = $props();
 
   function formatDuration(ms: number): string {
@@ -90,25 +96,39 @@
   {:else}
     <div class="list playlist-list">
       {#each playlist as entry (entry.mediaId)}
-        <button
-          class="playlist-item"
-          class:playlist-item-active={entry.mediaId === currentMediaId}
-          onclick={() => onPlayItem(entry.mediaId)}
-        >
-          <div class="playlist-item-indicator">
-            {#if entry.mediaId === currentMediaId && snap.playing}
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
-            {:else if entry.mediaId === currentMediaId}
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-            {:else}
-              <span class="playlist-item-num">&bull;</span>
-            {/if}
-          </div>
-          <div class="playlist-item-info">
-            <span class="playlist-item-title">{entry.title}</span>
-            <span class="playlist-item-meta">{entry.subtitlePath ? "有字幕" : "无字幕"}</span>
-          </div>
-        </button>
+        <div class="playlist-row">
+          <button
+            class="playlist-item"
+            class:playlist-item-active={entry.mediaId === currentMediaId}
+            onclick={() => onPlayItem(entry.mediaId)}
+            ondblclick={() => {
+              if (entry.mediaId === currentMediaId) onToggleCurrentItem();
+              else onPlayItemNow(entry.mediaId);
+            }}
+          >
+            <div class="playlist-item-indicator">
+              {#if entry.mediaId === currentMediaId && snap.playing}
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+              {:else if entry.mediaId === currentMediaId}
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+              {:else}
+                <span class="playlist-item-num">&bull;</span>
+              {/if}
+            </div>
+            <div class="playlist-item-info">
+              <span class="playlist-item-title">{entry.title}</span>
+              <span class="playlist-item-meta">{entry.subtitlePath ? "有字幕" : "无字幕"}</span>
+            </div>
+          </button>
+          <button
+            class="playlist-remove-btn"
+            type="button"
+            title="从播放列表移除"
+            onclick={() => onRemoveItem(entry.mediaId)}
+          >
+            删除
+          </button>
+        </div>
       {/each}
     </div>
   {/if}
@@ -164,6 +184,21 @@
           <option value="single">单曲循环</option>
         </select>
       </label>
+      <label class="inline-field inline-field-volume">
+        <span>音量</span>
+        <div class="volume-control">
+          <input
+            type="range"
+            min="0"
+            max="1"
+            step="0.01"
+            value={volume}
+            oninput={(e) => onVolumeChange(Number((e.target as HTMLInputElement).value))}
+            onchange={onVolumeCommit}
+          />
+          <strong>{Math.round(volume * 100)}%</strong>
+        </div>
+      </label>
     </div>
   </div>
 </section>
@@ -178,6 +213,13 @@
 
   .playlist-list {
     gap: 2px;
+  }
+
+  .playlist-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+    align-items: center;
   }
 
   .playlist-item {
@@ -195,6 +237,7 @@
     text-align: left;
     width: 100%;
     transition: background 150ms;
+    min-width: 0;
   }
 
   .playlist-item:hover {
@@ -240,6 +283,24 @@
     color: var(--text-dim);
   }
 
+  .playlist-remove-btn {
+    border: 1px solid var(--border);
+    background: var(--bg-base);
+    color: var(--text-secondary);
+    border-radius: var(--radius-sm);
+    padding: 8px 12px;
+    font: inherit;
+    font-size: 0.76rem;
+    cursor: pointer;
+    transition: border-color 150ms, color 150ms, background 150ms;
+  }
+
+  .playlist-remove-btn:hover {
+    border-color: var(--danger);
+    color: var(--danger);
+    background: color-mix(in srgb, var(--danger) 8%, var(--bg-base));
+  }
+
   /* 底部固定播放控制栏 */
   .player-bar {
     position: fixed;
@@ -265,6 +326,22 @@
     display: flex;
     align-items: center;
     gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  .inline-field-volume {
+    min-width: 220px;
+  }
+
+  .volume-control {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .volume-control input[type="range"] {
+    flex: 1;
+    min-width: 120px;
   }
 
   @media (max-width: 900px) {

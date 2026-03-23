@@ -46,6 +46,7 @@ export type SubtitleContext = {
 };
 
 export type OverlayPosition = "top" | "bottom";
+export type SubtitleDisplayMode = "original" | "translation" | "bilingual";
 
 export type OverlaySettings = {
   fontSize: number;
@@ -57,13 +58,28 @@ export type OverlaySettings = {
   position: OverlayPosition;
 };
 
+export type ShortcutSettings = {
+  playPause: string;
+  previousTrack: string;
+  nextTrack: string;
+  toggleOverlay: string;
+  volumeUp: string;
+  volumeDown: string;
+  showTranslation: string;
+  showOriginal: string;
+  showBilingual: string;
+};
+
 export type PlaylistMode = "single" | "sequential";
 
 export type AppSettings = {
   playbackRate: number;
+  volume: number;
   overlayVisible: boolean;
   overlay: OverlaySettings;
   playlistMode: PlaylistMode;
+  subtitleDisplayMode: SubtitleDisplayMode;
+  shortcuts: ShortcutSettings;
   selectedModel: string;
 };
 
@@ -87,6 +103,7 @@ export type PlaybackSnapshot = {
   currentTimeMs: number;
   durationMs: number;
   rate: number;
+  volume: number;
 };
 
 export type OverlayRenderPayload = {
@@ -189,6 +206,10 @@ export type DeleteMediaInput = {
 };
 
 export type RecordPlaybackInput = {
+  mediaId: string;
+};
+
+export type RemovePlaybackItemInput = {
   mediaId: string;
 };
 

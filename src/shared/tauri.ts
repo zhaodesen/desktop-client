@@ -132,6 +132,9 @@ export const backend = {
   recordPlayback(mediaId: string) {
     return callCommand<PlaybackHistoryItem>("record_playback", { mediaId });
   },
+  removePlaybackItem(mediaId: string) {
+    return callCommand<boolean>("remove_playback_item", { mediaId });
+  },
   clearSubtitles() {
     return callCommand<CleanupResult>("clear_subtitles");
   },

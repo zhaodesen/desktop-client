@@ -221,6 +221,16 @@ pub fn record_playback(app: &AppHandle, media_id: &str) -> Result<PlaybackHistor
     Ok(entry)
 }
 
+pub fn remove_playback_item(app: &AppHandle, media_id: &str) -> Result<(), String> {
+    let mut state = load_library_state(app)?;
+    let original_len = state.playback_history.len();
+    state.playback_history.retain(|entry| entry.media_id != media_id);
+    if state.playback_history.len() == original_len {
+        return Ok(());
+    }
+    save_library_state(app, &state)
+}
+
 fn load_library_state(app: &AppHandle) -> Result<LibraryState, String> {
     let path = library_file_path(app)?;
     if !path.exists() {

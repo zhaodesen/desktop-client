@@ -58,6 +58,7 @@ pub fn run() {
             commands::save_subtitle_document,
             commands::translate_media_subtitle,
             commands::record_playback,
+            commands::remove_playback_item,
             commands::clear_subtitles,
             commands::clear_audio_cache,
             commands::clear_media_library,

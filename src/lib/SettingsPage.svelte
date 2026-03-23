@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { AppSettings, ModelInfo, ModelStatus, OverlaySettings } from "../shared/types";
+  import type { AppSettings, ModelInfo, ModelStatus, OverlaySettings, ShortcutSettings } from "../shared/types";
   import ModelList from "./ModelList.svelte";
 
   interface Props {
@@ -17,6 +17,8 @@
     onDownloadModel: (id: string) => void;
     onSelectModel: (id: string) => void;
     onDeleteModel: (id: string) => void;
+    onShortcutChange: (shortcuts: ShortcutSettings) => void;
+    onShortcutCommit: () => void;
     onClearAllCache: () => void;
     onDeleteAllModels: () => void;
     onResetAppData: () => void;
@@ -27,22 +29,69 @@
     modelStatusLabel, modelPathLabel, overlayLocked,
     onOverlayVisibleChange, onOverlayLockToggle, onOverlayStyleChange, onOverlayStyleCommit,
     onDownloadModel, onSelectModel, onDeleteModel,
+    onShortcutChange, onShortcutCommit,
     onClearAllCache, onDeleteAllModels, onResetAppData,
   }: Props = $props();
 
-  type TabId = "overlay" | "models" | "data";
+  type TabId = "overlay" | "shortcuts" | "models" | "data";
+  type ShortcutField = keyof ShortcutSettings;
 
   const tabs: { id: TabId; label: string }[] = [
     { id: "overlay", label: "悬浮窗" },
+    { id: "shortcuts", label: "快捷键" },
     { id: "models", label: "离线模型" },
     { id: "data",   label: "数据管理" },
   ];
 
+  const shortcutItems: { field: ShortcutField; label: string }[] = [
+    { field: "playPause", label: "播放 / 暂停" },
+    { field: "previousTrack", label: "播放上一个" },
+    { field: "nextTrack", label: "播放下一个" },
+    { field: "toggleOverlay", label: "显示 / 隐藏悬浮窗" },
+    { field: "volumeUp", label: "音量增加" },
+    { field: "volumeDown", label: "音量减小" },
+    { field: "showTranslation", label: "显示中文字幕" },
+    { field: "showOriginal", label: "显示原文字幕" },
+    { field: "showBilingual", label: "显示双字幕" },
+  ];
+
   let activeTab = $state<TabId>("overlay");
+  let recordingField = $state<ShortcutField | null>(null);
 
   const fontSizeDisplay = $derived(`${Math.round(settings.overlay.fontSize)}px`);
   const opacityDisplay = $derived(`${Math.round(settings.overlay.opacity * 100)}%`);
   const opacityPct = $derived(Math.round(settings.overlay.opacity * 100));
+
+  function formatShortcut(code: string): string {
+    const labelMap: Record<string, string> = {
+      Space: "空格",
+      Comma: ",",
+      Period: ".",
+      Equal: "=",
+      Minus: "-",
+      Escape: "Esc",
+      ArrowUp: "↑",
+      ArrowDown: "↓",
+      ArrowLeft: "←",
+      ArrowRight: "→",
+    };
+    if (labelMap[code]) return labelMap[code];
+    if (code.startsWith("Key")) return code.slice(3).toUpperCase();
+    if (code.startsWith("Digit")) return code.slice(5);
+    return code;
+  }
+
+  async function handleShortcutCapture(field: ShortcutField, event: KeyboardEvent) {
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.code === "Escape") {
+      recordingField = null;
+      return;
+    }
+    onShortcutChange({ ...settings.shortcuts, [field]: event.code });
+    recordingField = null;
+    await onShortcutCommit();
+  }
 </script>
 
 <section class="page settings-page" data-active="true">
@@ -175,6 +224,37 @@
               onchange={onOverlayStyleCommit}
             />
           </label>
+        </div>
+      </div>
+
+    {:else if activeTab === "shortcuts"}
+      <div class="sform">
+        <div class="sform-section">
+          <div class="sform-section-title">全局快捷键</div>
+          <p class="shortcut-tip">点击某一项后直接按键即可修改，按 `Esc` 可取消当前录制。</p>
+          <div class="shortcut-list">
+            {#each shortcutItems as item}
+              <div class="shortcut-row">
+                <span>{item.label}</span>
+                <button
+                  class="shortcut-trigger"
+                  class:shortcut-trigger-recording={recordingField === item.field}
+                  type="button"
+                  onclick={() => { recordingField = item.field; }}
+                  onkeydown={(event) => {
+                    if (recordingField !== item.field) return;
+                    void handleShortcutCapture(item.field, event);
+                  }}
+                >
+                  {#if recordingField === item.field}
+                    按下快捷键
+                  {:else}
+                    {formatShortcut(settings.shortcuts[item.field])}
+                  {/if}
+                </button>
+              </div>
+            {/each}
+          </div>
         </div>
       </div>
 
@@ -318,5 +398,47 @@
     padding: 4px 0 2px;
     border-bottom: 1px solid var(--border);
     margin-bottom: 2px;
+  }
+
+  .shortcut-tip {
+    color: var(--text-dim);
+    font-size: 0.8rem;
+    margin: 0 0 6px;
+  }
+
+  .shortcut-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .shortcut-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg-surface);
+  }
+
+  .shortcut-trigger {
+    min-width: 132px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg-base);
+    color: var(--text-primary);
+    padding: 8px 12px;
+    font: inherit;
+    cursor: pointer;
+    transition: border-color 150ms, background 150ms, color 150ms;
+  }
+
+  .shortcut-trigger:hover,
+  .shortcut-trigger-recording {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: var(--accent-soft);
   }
 </style>

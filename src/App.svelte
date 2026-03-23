@@ -16,6 +16,7 @@
     OverlaySettings,
     PlaybackSnapshot,
     PlaylistMode,
+    SubtitleCue,
     SubtitleDocument,
   } from "./shared/types";
   import { PlayerController } from "./main/player-controller";
@@ -36,6 +37,7 @@
 
   const DEFAULT_SETTINGS: AppSettings = {
     playbackRate: 1,
+    volume: 1,
     overlayVisible: false,
     overlay: {
       fontSize: 34,
@@ -47,6 +49,18 @@
       position: "bottom",
     },
     playlistMode: "sequential",
+    subtitleDisplayMode: "bilingual",
+    shortcuts: {
+      playPause: "Space",
+      previousTrack: "Comma",
+      nextTrack: "Period",
+      toggleOverlay: "KeyO",
+      volumeUp: "Equal",
+      volumeDown: "Minus",
+      showTranslation: "Digit1",
+      showOriginal: "Digit2",
+      showBilingual: "Digit3",
+    },
     selectedModel: "base",
   };
 
@@ -77,7 +91,7 @@
   let activeSubtitleDocument = $state<SubtitleDocument | undefined>(undefined);
 
   // Player state (published by PlayerController)
-  let snap = $state<PlaybackSnapshot>({ playing: false, currentTimeMs: 0, durationMs: 0, rate: 1 });
+  let snap = $state<PlaybackSnapshot>({ playing: false, currentTimeMs: 0, durationMs: 0, rate: 1, volume: 1 });
   let hasMedia = $state(false);
   let audioFileLabel = $state("未选择素材");
   let subtitleFileLabel = $state("未生成字幕");
@@ -207,10 +221,26 @@
 
   /* ── Subtitle helpers ──────────────────────────────────── */
 
+  function getDisplayedCue(cue?: SubtitleCue): SubtitleCue | undefined {
+    if (!cue) return undefined;
+    if (settings.subtitleDisplayMode === "original") {
+      return { ...cue, secondaryText: undefined };
+    }
+    if (settings.subtitleDisplayMode === "translation") {
+      return {
+        ...cue,
+        text: cue.secondaryText?.trim() || cue.text,
+        secondaryText: undefined,
+      };
+    }
+    return cue;
+  }
+
   function renderSubtitle(s: PlaybackSnapshot) {
     const ctx = subtitleEngine.getContext(s.currentTimeMs);
-    currentText = ctx.current?.text ?? "当前时间点暂无字幕";
-    currentSecondaryText = ctx.current?.secondaryText ?? "";
+    const displayedCue = getDisplayedCue(ctx.current);
+    currentText = displayedCue?.text ?? "当前时间点暂无字幕";
+    currentSecondaryText = displayedCue?.secondaryText ?? "";
     cueTiming = ctx.current
       ? `${formatDuration(ctx.current.startMs)} ~ ${formatDuration(ctx.current.endMs)}`
       : "--:-- ~ --:--";
@@ -229,7 +259,7 @@
     await overlayBridge.render({
       fileLabel: media?.title,
       previous: undefined,
-      current: ctx.current,
+      current: getDisplayedCue(ctx.current),
       next: undefined,
       playback: s,
     });
@@ -264,6 +294,7 @@
 
     await player.loadUrl(convertFileSrc(media.audioPath));
     player.setPlaybackRate(settings.playbackRate);
+    player.setVolume(settings.volume);
     currentMediaId = media.id;
     audioFileLabel = media.title;
     subtitleEngine.clear();
@@ -301,6 +332,69 @@
 
   async function refreshLibrary() {
     libraryState = await backend.getLibraryState();
+  }
+
+  function applyVolume(volume: number) {
+    const nextVolume = Math.max(0, Math.min(1, volume));
+    settings = { ...settings, volume: nextVolume };
+    player.setVolume(nextVolume);
+  }
+
+  async function commitVolume(showFeedback = true) {
+    await persistSettings();
+    if (showFeedback) {
+      setStatus(`音量已调整为 ${Math.round(settings.volume * 100)}%`, "success");
+    }
+  }
+
+  async function setSubtitleDisplayMode(mode: AppSettings["subtitleDisplayMode"], showFeedback = true) {
+    if (settings.subtitleDisplayMode === mode) return;
+    settings = { ...settings, subtitleDisplayMode: mode };
+    await persistSettings();
+    renderSubtitle(player.getSnapshot());
+    await syncOverlay(player.getSnapshot());
+    if (showFeedback) {
+      const labelMap: Record<AppSettings["subtitleDisplayMode"], string> = {
+        original: "仅显示原文字幕",
+        translation: "仅显示中文字幕",
+        bilingual: "显示双语字幕",
+      };
+      setStatus(labelMap[mode], "success");
+    }
+  }
+
+  async function playHistoryDirection(direction: -1 | 1) {
+    if (libraryState.playbackHistory.length === 0) return;
+    if (!currentMediaId) {
+      const first = libraryState.playbackHistory[0];
+      await loadMediaById(first.mediaId, true);
+      await player.play();
+      return;
+    }
+
+    const currentIndex = libraryState.playbackHistory.findIndex((item) => item.mediaId === currentMediaId);
+    if (currentIndex === -1) return;
+    const nextIndex =
+      (currentIndex + direction + libraryState.playbackHistory.length) % libraryState.playbackHistory.length;
+    const nextItem = libraryState.playbackHistory[nextIndex];
+    await loadMediaById(nextItem.mediaId, true);
+    await player.play();
+  }
+
+  async function removePlaybackItem(mediaId: string) {
+    await backend.removePlaybackItem(mediaId);
+    await refreshLibrary();
+    if (currentMediaId === mediaId && libraryState.playbackHistory.length === 0) {
+      await resetPlaybackUi();
+    }
+    setStatus("已从播放列表移除", "success");
+  }
+
+  async function playPlaylistItem(mediaId: string, autoplay = false) {
+    await loadMediaById(mediaId, true);
+    if (autoplay) {
+      await player.play();
+    }
   }
 
   async function startAutoAsr(media: MediaItem) {
@@ -530,6 +624,8 @@
     try {
       const r = await backend.resetAppData();
       settings = { ...DEFAULT_SETTINGS, overlay: { ...DEFAULT_SETTINGS.overlay } };
+      player.setPlaybackRate(settings.playbackRate);
+      player.setVolume(settings.volume);
       const allStatus = await backend.getAllModelsStatus();
       const newMap = new Map<string, ModelStatus>();
       for (const s of allStatus.models) newMap.set(s.modelId, s);
@@ -546,27 +642,54 @@
 
   function handleKeydown(e: KeyboardEvent) {
     if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement || e.target instanceof HTMLTextAreaElement) return;
-    switch (e.code) {
-      case "Space":
-        e.preventDefault();
-        if (hasMedia) void player.togglePlayback();
-        break;
-      case "ArrowLeft":
-        e.preventDefault();
-        player.seek(Math.max(0, player.getSnapshot().currentTimeMs - 5000));
-        break;
-      case "ArrowRight":
-        e.preventDefault();
-        player.seek(player.getSnapshot().currentTimeMs + 5000);
-        break;
-      case "ArrowUp":
-        e.preventDefault();
-        player.seek(Math.max(0, player.getSnapshot().currentTimeMs - 1000));
-        break;
-      case "ArrowDown":
-        e.preventDefault();
-        player.seek(player.getSnapshot().currentTimeMs + 1000);
-        break;
+    const shortcut = settings.shortcuts;
+
+    if (e.code === shortcut.playPause) {
+      e.preventDefault();
+      if (hasMedia) void player.togglePlayback();
+      return;
+    }
+    if (e.code === shortcut.previousTrack) {
+      e.preventDefault();
+      void playHistoryDirection(-1);
+      return;
+    }
+    if (e.code === shortcut.nextTrack) {
+      e.preventDefault();
+      void playHistoryDirection(1);
+      return;
+    }
+    if (e.code === shortcut.toggleOverlay) {
+      e.preventDefault();
+      void handleOverlayVisibleChange(!settings.overlayVisible);
+      return;
+    }
+    if (e.code === shortcut.volumeUp) {
+      e.preventDefault();
+      applyVolume(settings.volume + 0.05);
+      void commitVolume(false);
+      return;
+    }
+    if (e.code === shortcut.volumeDown) {
+      e.preventDefault();
+      applyVolume(settings.volume - 0.05);
+      void commitVolume(false);
+      return;
+    }
+    if (e.code === shortcut.showTranslation) {
+      e.preventDefault();
+      void setSubtitleDisplayMode("translation");
+      return;
+    }
+    if (e.code === shortcut.showOriginal) {
+      e.preventDefault();
+      void setSubtitleDisplayMode("original");
+      return;
+    }
+    if (e.code === shortcut.showBilingual) {
+      e.preventDefault();
+      void setSubtitleDisplayMode("bilingual");
+      return;
     }
   }
 
@@ -779,6 +902,7 @@
       settings = await backend.getSettings();
       if (!settings.playlistMode) settings = { ...settings, playlistMode: "sequential" };
       player.setPlaybackRate(settings.playbackRate);
+      player.setVolume(settings.volume);
       await overlayBridge.updateStyle(settings.overlay);
       if (settings.overlayVisible) await backend.showOverlay();
       setStatus("设置已加载", "success");
@@ -862,7 +986,6 @@
         onEditSubtitle={(id) => void openSubtitleEditor(id)}
         onDeleteMedia={(id) => void deleteMediaById(id)}
         onAddToPlaylist={(id) => void handleAddToPlaylist(id)}
-        onImportMedia={handleImportMedia}
       />
     {:else if activePage === "playlist"}
       <PlayerPage
@@ -878,7 +1001,9 @@
         {showRetryAsr}
         playlist={libraryState.playbackHistory}
         {currentMediaId}
+        volume={settings.volume}
         onTogglePlayback={() => void player.togglePlayback()}
+        onToggleCurrentItem={() => void player.togglePlayback()}
         onSeek={(ms) => player.seek(ms)}
         onRateChange={async (rate) => {
           settings = { ...settings, playbackRate: rate };
@@ -891,8 +1016,12 @@
           await persistSettings();
           setStatus(mode === "single" ? "已切换为单曲循环" : "已切换为顺序播放", "success");
         }}
+        onVolumeChange={(volume) => applyVolume(volume)}
+        onVolumeCommit={() => { void commitVolume(); }}
         onRetryAsr={() => { const m = getCurrentMedia(); if (m) void startAutoAsr(m); }}
-        onPlayItem={(id) => { void loadMediaById(id, true); }}
+        onPlayItem={(id) => { void playPlaylistItem(id, false); }}
+        onPlayItemNow={(id) => { void playPlaylistItem(id, true); }}
+        onRemoveItem={(id) => { void removePlaybackItem(id); }}
       />
     {:else if activePage === "settings"}
       <SettingsPage
@@ -910,6 +1039,10 @@
         onDownloadModel={handleDownloadModel}
         onSelectModel={handleSelectModel}
         onDeleteModel={handleDeleteModel}
+        onShortcutChange={(shortcuts) => {
+          settings = { ...settings, shortcuts };
+        }}
+        onShortcutCommit={persistSettings}
         onClearAllCache={handleClearAllCache}
         onDeleteAllModels={handleDeleteAllModels}
         onResetAppData={handleResetAppData}

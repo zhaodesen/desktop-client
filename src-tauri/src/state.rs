@@ -47,12 +47,59 @@ impl Default for OverlaySettings {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SubtitleDisplayMode {
+    Original,
+    Translation,
+    Bilingual,
+}
+
+impl Default for SubtitleDisplayMode {
+    fn default() -> Self {
+        Self::Bilingual
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ShortcutSettings {
+    pub play_pause: String,
+    pub previous_track: String,
+    pub next_track: String,
+    pub toggle_overlay: String,
+    pub volume_up: String,
+    pub volume_down: String,
+    pub show_translation: String,
+    pub show_original: String,
+    pub show_bilingual: String,
+}
+
+impl Default for ShortcutSettings {
+    fn default() -> Self {
+        Self {
+            play_pause: "Space".to_string(),
+            previous_track: "Comma".to_string(),
+            next_track: "Period".to_string(),
+            toggle_overlay: "KeyO".to_string(),
+            volume_up: "Equal".to_string(),
+            volume_down: "Minus".to_string(),
+            show_translation: "Digit1".to_string(),
+            show_original: "Digit2".to_string(),
+            show_bilingual: "Digit3".to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct AppSettings {
     pub playback_rate: f64,
+    pub volume: f64,
     pub overlay_visible: bool,
     pub overlay: OverlaySettings,
     pub playlist_mode: String,
+    pub subtitle_display_mode: SubtitleDisplayMode,
+    pub shortcuts: ShortcutSettings,
     /// The ID of the currently selected whisper model (e.g. "tiny", "base", "small", "medium", "large-v3-turbo").
     pub selected_model: String,
 }
@@ -61,9 +108,12 @@ impl Default for AppSettings {
     fn default() -> Self {
         Self {
             playback_rate: 1.0,
+            volume: 1.0,
             overlay_visible: false,
             overlay: OverlaySettings::default(),
             playlist_mode: "sequential".to_string(),
+            subtitle_display_mode: SubtitleDisplayMode::Bilingual,
+            shortcuts: ShortcutSettings::default(),
             selected_model: "base".to_string(),
         }
     }

@@ -25,6 +25,7 @@ export class PlayerController {
     });
     this.audio.addEventListener("loadedmetadata", () => this.publish());
     this.audio.addEventListener("ratechange", () => this.publish());
+    this.audio.addEventListener("volumechange", () => this.publish());
     this.audio.addEventListener("seeked", () => this.publish());
     // timeupdate 仅在 ticker 未运行时触发（暂停 seek 等场景）
     // 播放期间由 ticker(80ms) 负责 publish，避免双重触发叠加 IPC
@@ -135,6 +136,7 @@ export class PlayerController {
       currentTimeMs: this.audio.currentTime * 1000,
       durationMs: duration,
       rate: this.audio.playbackRate,
+      volume: this.audio.volume,
     };
   }
 
@@ -161,6 +163,10 @@ export class PlayerController {
     this.audio.pause();
   }
 
+  async play(): Promise<void> {
+    await this.audio.play();
+  }
+
   pause(): void {
     this.audio.pause();
   }
@@ -172,6 +178,11 @@ export class PlayerController {
 
   setPlaybackRate(rate: number): void {
     this.audio.playbackRate = rate;
+    this.publish();
+  }
+
+  setVolume(volume: number): void {
+    this.audio.volume = Math.max(0, Math.min(1, volume));
     this.publish();
   }
 

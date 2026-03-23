@@ -28,6 +28,7 @@ import { SubtitleEngine } from "./subtitle-engine";
 
 const DEFAULT_SETTINGS: AppSettings = {
   playbackRate: 1,
+  volume: 1,
   overlayVisible: false,
   overlay: {
     fontSize: 34,
@@ -39,7 +40,19 @@ const DEFAULT_SETTINGS: AppSettings = {
     position: "bottom",
   },
   playlistMode: "sequential",
+  subtitleDisplayMode: "bilingual",
   selectedModel: "base",
+  shortcuts: {
+    playPause: "Space",
+    previousTrack: "Comma",
+    nextTrack: "Period",
+    toggleOverlay: "KeyO",
+    volumeUp: "Equal",
+    volumeDown: "Minus",
+    showTranslation: "Digit1",
+    showOriginal: "Digit2",
+    showBilingual: "Digit3",
+  },
 };
 
 function queryElement<T extends Element>(selector: string): T {
