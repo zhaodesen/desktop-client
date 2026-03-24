@@ -129,3 +129,63 @@ mkdir -p /Users/zhaodesen/Desktop/desktop-client/models
 npm run build
 cargo check --manifest-path src-tauri/Cargo.toml
 ```
+
+## 上传到 GitHub
+
+如果你还没有远程仓库，可以先在 GitHub 上创建一个空仓库，然后在本地执行：
+
+```bash
+cd /Users/zhaodesen/Desktop/desktop-client
+git remote add origin <你的 GitHub 仓库地址>
+git push -u origin master
+```
+
+如果已经有远程仓库，只需要：
+
+```bash
+cd /Users/zhaodesen/Desktop/desktop-client
+git push -u origin master
+```
+
+## GitHub Actions 自动打包
+
+项目已添加工作流：
+
+- [release.yml](/Users/zhaodesen/Desktop/desktop-client/.github/workflows/release.yml)
+
+触发方式：
+
+- 推送版本标签：`v0.1.0`、`v0.2.0` 这类 tag
+- 或在 GitHub Actions 页面手动执行 `Release Desktop App`
+
+当前工作流会自动构建：
+
+- macOS Apple Silicon：`aarch64-apple-darwin`
+- macOS Intel：`x86_64-apple-darwin`
+- Windows x64：`x86_64-pc-windows-msvc`
+
+构建完成后，安装包会上传到当前版本对应的 GitHub Release 页面，你可以直接在 Release 的 `Assets` 区域下载。
+
+### 发版命令
+
+每次想发新版本时，建议先同步版本号：
+
+- [package.json](/Users/zhaodesen/Desktop/desktop-client/package.json)
+- [src-tauri/tauri.conf.json](/Users/zhaodesen/Desktop/desktop-client/src-tauri/tauri.conf.json)
+
+然后执行：
+
+```bash
+cd /Users/zhaodesen/Desktop/desktop-client
+git add .
+git commit -m "release: v0.1.0"
+git push origin master
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+### 重要说明
+
+- `src-tauri/binaries/` 下必须提前准备好对应平台的 `ffmpeg` 和 `whisper-cli` sidecar，否则 GitHub Actions 打包会失败。
+- 目前这个工作流会生成未签名安装包。macOS 首次打开可能提示安全警告，Windows 也可能提示未知发布者。
+- 如果后续你要做正式分发，可以继续补充 macOS 签名、公证，以及 Windows 代码签名。
