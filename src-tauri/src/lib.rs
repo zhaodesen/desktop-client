@@ -3,6 +3,7 @@ mod commands;
 mod error;
 mod media;
 mod model;
+mod shutdown;
 mod sidecar;
 mod state;
 mod storage;
@@ -15,7 +16,7 @@ use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let app_handle = app.handle().clone();
@@ -52,11 +53,14 @@ pub fn run() {
             commands::delete_model,
             commands::get_library_state,
             commands::import_media,
+            commands::import_online_media,
             commands::delete_media,
             commands::update_media_subtitle,
             commands::get_subtitle_document,
             commands::save_subtitle_document,
             commands::translate_media_subtitle,
+            commands::get_shutdown_task_summary,
+            commands::shutdown_and_exit,
             commands::record_playback,
             commands::remove_playback_item,
             commands::clear_subtitles,
@@ -65,6 +69,10 @@ pub fn run() {
             commands::delete_default_model,
             commands::reset_app_data
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application");
+
+    app.run(|app_handle, event| {
+        shutdown::handle_run_event(app_handle, &event);
+    });
 }

@@ -1,15 +1,18 @@
 use serde::{Deserialize, Serialize};
 use std::{
-    fs::File,
     fs,
+    fs::File,
     io::{BufRead, BufReader, Read, Write},
     path::{Path, PathBuf},
     process::Stdio,
+    sync::{mpsc, Arc, Mutex},
+    thread,
     time::{SystemTime, UNIX_EPOCH},
 };
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::sidecar::{self, CommandTarget};
+use crate::state::ExternalProcessState;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -62,13 +65,30 @@ pub struct ImportMediaProgressPayload {
     pub percent: Option<f32>,
 }
 
-
 pub fn get_library_state(app: &AppHandle) -> Result<LibraryState, String> {
     load_library_state(app)
 }
 
 pub fn import_media(app: &AppHandle, input: ImportMediaInput) -> Result<MediaItem, String> {
-    let source_path = PathBuf::from(&input.source_path);
+    let source_path = PathBuf::from(input.source_path);
+    import_media_from_source_path(app, &source_path)
+}
+
+pub fn import_online_media(
+    app: &AppHandle,
+    url: &str,
+    active_import: Arc<Mutex<Option<ExternalProcessState>>>,
+) -> Result<MediaItem, String> {
+    let trimmed_url = url.trim();
+    if trimmed_url.is_empty() {
+        return Err("请输入在线视频地址".to_string());
+    }
+
+    let downloaded_path = download_online_media(app, trimmed_url, active_import)?;
+    import_media_from_source_path(app, &downloaded_path)
+}
+
+fn import_media_from_source_path(app: &AppHandle, source_path: &Path) -> Result<MediaItem, String> {
     if !source_path.exists() {
         return Err("导入文件不存在".to_string());
     }
@@ -86,7 +106,7 @@ pub fn import_media(app: &AppHandle, input: ImportMediaInput) -> Result<MediaIte
         .unwrap_or("未命名素材")
         .to_string();
 
-    let source_kind = if is_video_file(&source_path) {
+    let source_kind = if is_video_file(source_path) {
         MediaSourceKind::Video
     } else {
         MediaSourceKind::Audio
@@ -102,14 +122,14 @@ pub fn import_media(app: &AppHandle, input: ImportMediaInput) -> Result<MediaIte
                 .unwrap_or("mp3");
             let target = media_dir.join(format!("{id}.{extension}"));
             emit_import_progress(app, "copying", "正在复制音频文件…", Some(0.0))?;
-            copy_file_with_progress(app, &source_path, &target)?;
+            copy_file_with_progress(app, source_path, &target)?;
             target
         }
         MediaSourceKind::Video => {
             let ffmpeg = sidecar::locate_executable(app, "FFMPEG_BIN", &["ffmpeg"])?;
             let target = media_dir.join(format!("{id}.wav"));
             emit_import_progress(app, "extracting", "正在从视频提取音频…", Some(0.0))?;
-            extract_audio_with_ffmpeg(app, &ffmpeg, &source_path, &target)?;
+            extract_audio_with_ffmpeg(app, &ffmpeg, source_path, &target)?;
             target
         }
     };
@@ -132,7 +152,11 @@ pub fn import_media(app: &AppHandle, input: ImportMediaInput) -> Result<MediaIte
 
 pub fn delete_media(app: &AppHandle, media_id: &str) -> Result<(), String> {
     let mut state = load_library_state(app)?;
-    let Some(index) = state.media_items.iter().position(|item| item.id == media_id) else {
+    let Some(index) = state
+        .media_items
+        .iter()
+        .position(|item| item.id == media_id)
+    else {
         return Ok(());
     };
 
@@ -142,7 +166,9 @@ pub fn delete_media(app: &AppHandle, media_id: &str) -> Result<(), String> {
         remove_if_exists(Path::new(path))?;
     }
 
-    state.playback_history.retain(|entry| entry.media_id != media_id);
+    state
+        .playback_history
+        .retain(|entry| entry.media_id != media_id);
     save_library_state(app, &state)
 }
 
@@ -224,7 +250,9 @@ pub fn record_playback(app: &AppHandle, media_id: &str) -> Result<PlaybackHistor
 pub fn remove_playback_item(app: &AppHandle, media_id: &str) -> Result<(), String> {
     let mut state = load_library_state(app)?;
     let original_len = state.playback_history.len();
-    state.playback_history.retain(|entry| entry.media_id != media_id);
+    state
+        .playback_history
+        .retain(|entry| entry.media_id != media_id);
     if state.playback_history.len() == original_len {
         return Ok(());
     }
@@ -248,8 +276,8 @@ fn save_library_state(app: &AppHandle, state: &LibraryState) -> Result<(), Strin
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|error| format!("创建素材库目录失败: {error}"))?;
     }
-    let content =
-        serde_json::to_string_pretty(state).map_err(|error| format!("序列化素材库失败: {error}"))?;
+    let content = serde_json::to_string_pretty(state)
+        .map_err(|error| format!("序列化素材库失败: {error}"))?;
     fs::write(&path, content).map_err(|error| format!("写入素材库失败: {error}"))
 }
 
@@ -282,6 +310,349 @@ fn is_video_file(path: &Path) -> bool {
     )
 }
 
+fn ensure_online_download_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    let base_dir = app
+        .path()
+        .download_dir()
+        .or_else(|_| app.path().home_dir().map(|path| path.join("Downloads")))
+        .map_err(|error| format!("读取系统下载目录失败: {error}"))?;
+    let dir = base_dir.join("字幕工作台").join("在线视频");
+    fs::create_dir_all(&dir).map_err(|error| format!("创建在线视频目录失败: {error}"))?;
+    Ok(dir)
+}
+
+#[derive(Debug)]
+struct YtDlpPipeLine {
+    is_stdout: bool,
+    line: String,
+}
+
+#[derive(Debug, Clone)]
+struct YtDlpAttempt {
+    label: String,
+    args: Vec<String>,
+}
+
+const BILIBILI_REFERER: &str = "https://www.bilibili.com/";
+const BILIBILI_USER_AGENT: &str =
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 \
+     (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36";
+
+fn download_online_media(
+    app: &AppHandle,
+    url: &str,
+    active_import: Arc<Mutex<Option<ExternalProcessState>>>,
+) -> Result<PathBuf, String> {
+    emit_import_progress(app, "downloading", "正在准备在线视频下载…", Some(0.0))?;
+
+    let yt_dlp = sidecar::locate_executable(app, "YT_DLP_BIN", &["yt-dlp"])?;
+    let download_dir = ensure_online_download_dir(app)?;
+    let output_template = download_dir.join("%(title).160B [%(id)s].%(ext)s");
+    let output_template_text = output_template.display().to_string();
+    let attempts = build_yt_dlp_attempts(url, &output_template_text);
+    let total_attempts = attempts.len();
+    let mut last_error = None;
+
+    for (index, attempt) in attempts.into_iter().enumerate() {
+        if index > 0 {
+            let retry_message = format!(
+                "首次下载失败，正在重试（{}/{}）：{}…",
+                index + 1,
+                total_attempts,
+                attempt.label
+            );
+            emit_import_progress(app, "downloading", &retry_message, Some(0.0))?;
+        }
+
+        match run_yt_dlp_download(app, &yt_dlp, &attempt.args, active_import.clone()) {
+            Ok(path) => {
+                emit_import_progress(
+                    app,
+                    "downloading",
+                    "在线视频下载完成，准备导入…",
+                    Some(100.0),
+                )?;
+                return Ok(path);
+            }
+            Err(error) => {
+                last_error = Some(match last_error {
+                    Some(previous) => select_preferred_download_error(previous, error),
+                    None => error,
+                });
+            }
+        }
+    }
+
+    let fallback_hint = if is_bilibili_url(url) {
+        "。如仍失败，请先在本机浏览器登录 B 站后重试，应用会自动尝试读取浏览器 Cookie。"
+    } else {
+        ""
+    };
+
+    Err(format!(
+        "{}{}",
+        last_error.unwrap_or_else(|| "在线视频下载失败: 未知错误".to_string()),
+        fallback_hint
+    ))
+}
+
+fn run_yt_dlp_download(
+    app: &AppHandle,
+    yt_dlp: &CommandTarget,
+    args: &[String],
+    active_import: Arc<Mutex<Option<ExternalProcessState>>>,
+) -> Result<PathBuf, String> {
+    let mut child = sidecar::build_nice_command(yt_dlp)
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| format!("启动 yt-dlp 失败: {error}"))?;
+    let pid = child.id();
+    if let Ok(mut guard) = active_import.lock() {
+        *guard = Some(ExternalProcessState::new("在线视频下载", pid));
+    }
+
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| "未获取到 yt-dlp 标准输出".to_string())?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| "未获取到 yt-dlp 标准错误输出".to_string())?;
+
+    let (tx, rx) = mpsc::channel::<YtDlpPipeLine>();
+    let stdout_tx = tx.clone();
+    thread::spawn(move || read_yt_dlp_pipe(stdout, true, stdout_tx));
+    let stderr_tx = tx.clone();
+    thread::spawn(move || read_yt_dlp_pipe(stderr, false, stderr_tx));
+    drop(tx);
+
+    let mut downloaded_path: Option<PathBuf> = None;
+    let mut last_percent = 0f32;
+    let mut last_message = "正在下载在线视频…".to_string();
+
+    for output in rx {
+        let line = output.line.trim();
+        if line.is_empty() {
+            continue;
+        }
+
+        if output.is_stdout {
+            let path = PathBuf::from(line);
+            if path.is_absolute() {
+                downloaded_path = Some(path);
+                last_message = "视频下载完成，正在导入素材…".to_string();
+                continue;
+            }
+        }
+
+        if let Some(percent) = parse_yt_dlp_percent(line) {
+            last_percent = percent.max(last_percent);
+            last_message = format!("正在下载在线视频… {:.0}%", percent);
+            emit_import_progress(app, "downloading", &last_message, Some(percent))?;
+            continue;
+        }
+
+        if line.contains("Merging formats") || line.contains("Fixing") {
+            last_percent = last_percent.max(96.0);
+            last_message = "正在合并音视频流…".to_string();
+            emit_import_progress(app, "downloading", &last_message, Some(last_percent))?;
+            continue;
+        }
+
+        if line.starts_with("ERROR:") {
+            last_message = line.trim_start_matches("ERROR:").trim().to_string();
+            continue;
+        }
+
+        if !output.is_stdout
+            && (line.contains("HTTP Error")
+                || line.contains("unable to download")
+                || line.contains("Unable to download")
+                || line.contains("403")
+                || line.contains("login"))
+        {
+            last_message = line.to_string();
+        }
+    }
+
+    let result = (|| -> Result<PathBuf, String> {
+        let status = child
+            .wait()
+            .map_err(|error| format!("等待 yt-dlp 结束失败: {error}"))?;
+
+        if !status.success() {
+            return Err(format!("在线视频下载失败: {}", last_message.trim()));
+        }
+
+        let Some(downloaded_path) = downloaded_path else {
+            return Err("在线视频下载完成，但未拿到输出文件路径".to_string());
+        };
+
+        if !downloaded_path.exists() {
+            return Err("在线视频下载完成，但目标文件不存在".to_string());
+        }
+
+        Ok(downloaded_path)
+    })();
+
+    if let Ok(mut guard) = active_import.lock() {
+        if guard.as_ref().map(|task| task.pid == pid).unwrap_or(false) {
+            *guard = None;
+        }
+    }
+
+    result
+}
+
+fn build_yt_dlp_attempts(url: &str, output_template: &str) -> Vec<YtDlpAttempt> {
+    let mut attempts = vec![YtDlpAttempt {
+        label: "默认参数".to_string(),
+        args: build_yt_dlp_args(url, output_template, &[]),
+    }];
+
+    if !is_bilibili_url(url) {
+        return attempts;
+    }
+
+    let headers = bilibili_request_args();
+    attempts.push(YtDlpAttempt {
+        label: "补充 B 站请求头".to_string(),
+        args: build_yt_dlp_args(url, output_template, &headers),
+    });
+
+    for browser in bilibili_cookie_browsers() {
+        let mut extra_args = headers.clone();
+        extra_args.push("--cookies-from-browser".to_string());
+        extra_args.push(browser.to_string());
+        attempts.push(YtDlpAttempt {
+            label: format!("读取 {browser} Cookie"),
+            args: build_yt_dlp_args(url, output_template, &extra_args),
+        });
+    }
+
+    attempts
+}
+
+fn build_yt_dlp_args(url: &str, output_template: &str, extra_args: &[String]) -> Vec<String> {
+    let mut args = vec![
+        "--no-playlist".to_string(),
+        "--newline".to_string(),
+        "--progress".to_string(),
+        "--merge-output-format".to_string(),
+        "mp4".to_string(),
+        "--format".to_string(),
+        "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/bv*+ba/b".to_string(),
+        "--output".to_string(),
+        output_template.to_string(),
+        "--print".to_string(),
+        "after_move:filepath".to_string(),
+    ];
+    args.extend(extra_args.iter().cloned());
+    args.push(url.to_string());
+    args
+}
+
+fn bilibili_request_args() -> Vec<String> {
+    vec![
+        "--add-headers".to_string(),
+        format!("Referer:{BILIBILI_REFERER}"),
+        "--add-headers".to_string(),
+        "Origin:https://www.bilibili.com".to_string(),
+        "--add-headers".to_string(),
+        format!("User-Agent:{BILIBILI_USER_AGENT}"),
+    ]
+}
+
+fn bilibili_cookie_browsers() -> &'static [&'static str] {
+    #[cfg(target_os = "macos")]
+    {
+        &["safari", "chrome", "edge", "firefox"]
+    }
+    #[cfg(target_os = "windows")]
+    {
+        &["edge", "chrome", "firefox"]
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        &["chrome", "chromium", "firefox"]
+    }
+}
+
+fn is_bilibili_url(url: &str) -> bool {
+    let lowered = url.to_ascii_lowercase();
+    lowered.contains("bilibili.com") || lowered.contains("b23.tv")
+}
+
+fn select_preferred_download_error(previous: String, next: String) -> String {
+    let previous_score = score_download_error(&previous);
+    let next_score = score_download_error(&next);
+    if next_score >= previous_score {
+        next
+    } else {
+        previous
+    }
+}
+
+fn score_download_error(message: &str) -> u8 {
+    let lowered = message.to_ascii_lowercase();
+    if lowered.contains("http error")
+        || lowered.contains("403")
+        || lowered.contains("unable to download")
+        || lowered.contains("download json metadata")
+    {
+        return 3;
+    }
+    if lowered.contains("login") || lowered.contains("cookie") {
+        return 2;
+    }
+    if lowered.contains("browser") || lowered.contains("firefox") || lowered.contains("chrome") {
+        return 1;
+    }
+    0
+}
+
+fn read_yt_dlp_pipe<R: Read + Send + 'static>(
+    reader: R,
+    is_stdout: bool,
+    sender: mpsc::Sender<YtDlpPipeLine>,
+) {
+    let reader = BufReader::new(reader);
+    for line in reader.lines() {
+        let Ok(line) = line else {
+            continue;
+        };
+        if sender.send(YtDlpPipeLine { is_stdout, line }).is_err() {
+            break;
+        }
+    }
+}
+
+fn parse_yt_dlp_percent(line: &str) -> Option<f32> {
+    if !line.contains("[download]") || !line.contains('%') {
+        return None;
+    }
+
+    let percent_index = line.find('%')?;
+    let prefix = &line[..percent_index];
+    let start = prefix
+        .rfind(|ch: char| !(ch.is_ascii_digit() || ch == '.'))
+        .map(|index| index + 1)
+        .unwrap_or(0);
+    let number = prefix[start..].trim();
+    if number.is_empty() {
+        return None;
+    }
+
+    number
+        .parse::<f32>()
+        .ok()
+        .map(|value| value.clamp(0.0, 100.0))
+}
+
 fn emit_import_progress(
     app: &AppHandle,
     stage: &'static str,
@@ -300,12 +671,15 @@ fn emit_import_progress(
     .map_err(|error| format!("发送导入进度事件失败: {error}"))
 }
 
-fn copy_file_with_progress(app: &AppHandle, source_path: &Path, target_path: &Path) -> Result<(), String> {
+fn copy_file_with_progress(
+    app: &AppHandle,
+    source_path: &Path,
+    target_path: &Path,
+) -> Result<(), String> {
     let total_bytes = fs::metadata(source_path)
         .map_err(|error| format!("读取源文件信息失败: {error}"))?
         .len();
-    let mut source =
-        File::open(source_path).map_err(|error| format!("打开源文件失败: {error}"))?;
+    let mut source = File::open(source_path).map_err(|error| format!("打开源文件失败: {error}"))?;
     let mut target =
         File::create(target_path).map_err(|error| format!("创建目标文件失败: {error}"))?;
 
@@ -451,10 +825,7 @@ fn extract_audio_with_ffmpeg(
         } else {
             last_error_lines.join("\n")
         };
-        Err(format!(
-            "视频转音频失败: {}",
-            detail.trim()
-        ))
+        Err(format!("视频转音频失败: {}", detail.trim()))
     }
 }
 

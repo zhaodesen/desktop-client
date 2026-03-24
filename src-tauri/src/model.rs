@@ -2,12 +2,15 @@ use reqwest::blocking::get;
 use serde::{Deserialize, Serialize};
 use std::{
     fs::{self, File},
+    io::{Read, Write},
     path::PathBuf,
-    sync::{Arc, Mutex},
+    sync::{atomic::Ordering, Arc, Mutex},
     thread,
     time::{SystemTime, UNIX_EPOCH},
 };
 use tauri::{AppHandle, Emitter, Manager};
+
+use crate::state::ModelDownloadState;
 
 // ---------------------------------------------------------------------------
 // Model registry
@@ -126,6 +129,7 @@ pub struct ModelDownloadStartedPayload {
 pub struct ModelDownloadProgressPayload {
     pub job_id: String,
     pub message: String,
+    pub percent: Option<f32>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -161,7 +165,10 @@ fn resolve_model_path(app: &AppHandle, file_name: &str) -> Result<PathBuf, Strin
     Ok(app_data_dir.join("models").join(file_name))
 }
 
-fn resolve_model_candidates(app: &AppHandle, file_name: &str) -> Result<Vec<ModelCandidate>, String> {
+fn resolve_model_candidates(
+    app: &AppHandle,
+    file_name: &str,
+) -> Result<Vec<ModelCandidate>, String> {
     let mut candidates = Vec::new();
 
     if let Ok(path) = std::env::var("WHISPER_MODEL_PATH") {
@@ -183,10 +190,7 @@ fn resolve_model_candidates(app: &AppHandle, file_name: &str) -> Result<Vec<Mode
         source: "project".into(),
     });
     candidates.push(ModelCandidate {
-        path: current_dir
-            .join("src-tauri")
-            .join("models")
-            .join(file_name),
+        path: current_dir.join("src-tauri").join("models").join(file_name),
         source: "project".into(),
     });
 
@@ -266,7 +270,7 @@ pub fn resolve_default_model_path(app: &AppHandle) -> Result<PathBuf, String> {
 pub fn download_model(
     app: AppHandle,
     model_id: String,
-    active_job: Arc<Mutex<Option<String>>>,
+    active_job: Arc<Mutex<Option<ModelDownloadState>>>,
 ) -> Result<DownloadModelOutput, String> {
     let info = find_model_info(&model_id)?;
 
@@ -283,13 +287,14 @@ pub fn download_model(
     }
 
     let job_id = generate_job_id();
-    let spawned_job_id = job_id.clone();
-    *guard = Some(job_id.clone());
+    let job_state = ModelDownloadState::new(job_id.clone());
+    let spawned_job = job_state.clone();
+    *guard = Some(job_state);
 
     let app_handle = app.clone();
     let active_job_ref = active_job.clone();
     thread::spawn(move || {
-        run_download(app_handle, active_job_ref, spawned_job_id, info);
+        run_download(app_handle, active_job_ref, spawned_job, info);
     });
 
     Ok(DownloadModelOutput { job_id })
@@ -298,13 +303,16 @@ pub fn download_model(
 /// Backward-compatible wrapper.
 pub fn download_default_model(
     app: AppHandle,
-    active_job: Arc<Mutex<Option<String>>>,
+    active_job: Arc<Mutex<Option<ModelDownloadState>>>,
 ) -> Result<DownloadModelOutput, String> {
     download_model(app, "base".into(), active_job)
 }
 
 /// Delete a specific model by ID.
-pub fn delete_model(app: &AppHandle, model_id: &str) -> Result<crate::storage::CleanupResult, String> {
+pub fn delete_model(
+    app: &AppHandle,
+    model_id: &str,
+) -> Result<crate::storage::CleanupResult, String> {
     let info = find_model_info(model_id)?;
     let path = resolve_model_path(app, &info.file_name)?;
 
@@ -350,8 +358,8 @@ pub fn delete_model(app: &AppHandle, model_id: &str) -> Result<crate::storage::C
 
 fn run_download(
     app: AppHandle,
-    active_job: Arc<Mutex<Option<String>>>,
-    job_id: String,
+    active_job: Arc<Mutex<Option<ModelDownloadState>>>,
+    job: ModelDownloadState,
     info: ModelInfo,
 ) {
     let model_id = info.id.clone();
@@ -360,7 +368,7 @@ fn run_download(
             "main",
             "model://download-failed",
             ModelDownloadFailedPayload {
-                job_id: job_id.clone(),
+                job_id: job.job_id.clone(),
                 code: "model_download_failed".into(),
                 message,
             },
@@ -372,7 +380,7 @@ fn run_download(
             "main",
             "model://download-started",
             ModelDownloadStartedPayload {
-                job_id: job_id.clone(),
+                job_id: job.job_id.clone(),
                 model_id: model_id.clone(),
             },
         )
@@ -380,8 +388,9 @@ fn run_download(
 
         emit_progress(
             &app,
-            &job_id,
+            &job.job_id,
             &format!("正在请求模型 {} 下载地址", info.label),
+            Some(0.0),
         )?;
         let target_path = resolve_model_path(&app, &info.file_name)?;
         if let Some(parent) = target_path.parent() {
@@ -389,13 +398,17 @@ fn run_download(
         }
 
         let temp_path = target_path.with_extension("bin.download");
+        if let Ok(mut temp_guard) = job.temp_path.lock() {
+            *temp_guard = Some(temp_path.clone());
+        }
         emit_progress(
             &app,
-            &job_id,
+            &job.job_id,
             &format!(
                 "正在下载模型 {} (~{} MB)，这一步可能需要一点时间",
                 info.label, info.size_mb
             ),
+            Some(2.0),
         )?;
         let mut response = get(&info.download_url)
             .and_then(|response| response.error_for_status())
@@ -403,20 +416,53 @@ fn run_download(
 
         let mut file =
             File::create(&temp_path).map_err(|error| format!("创建模型文件失败: {error}"))?;
-        response
-            .copy_to(&mut file)
-            .map_err(|error| format!("写入模型文件失败: {error}"))?;
+        let total_bytes = response.content_length();
+        let mut downloaded_bytes = 0u64;
+        let mut last_percent = 0f32;
+        let mut buffer = [0u8; 1024 * 1024];
+
+        loop {
+            if job.cancel_requested.load(Ordering::SeqCst) {
+                let _ = fs::remove_file(&temp_path);
+                return Err("模型下载已取消".to_string());
+            }
+
+            let read = response
+                .read(&mut buffer)
+                .map_err(|error| format!("读取模型下载流失败: {error}"))?;
+            if read == 0 {
+                break;
+            }
+
+            file.write_all(&buffer[..read])
+                .map_err(|error| format!("写入模型文件失败: {error}"))?;
+            downloaded_bytes += read as u64;
+
+            if let Some(total_bytes) = total_bytes.filter(|size| *size > 0) {
+                let percent =
+                    ((downloaded_bytes as f64 / total_bytes as f64) * 100.0).min(100.0) as f32;
+                if percent >= last_percent + 3.0 || percent >= 100.0 {
+                    emit_progress(
+                        &app,
+                        &job.job_id,
+                        &format!("正在下载模型 {}… {:.0}%", info.label, percent),
+                        Some(percent),
+                    )?;
+                    last_percent = percent;
+                }
+            }
+        }
 
         fs::rename(&temp_path, &target_path)
             .map_err(|error| format!("保存模型文件失败: {error}"))?;
-        emit_progress(&app, &job_id, "模型下载完成，正在校验状态")?;
+        emit_progress(&app, &job.job_id, "模型下载完成，正在校验状态", Some(100.0))?;
 
         let status = get_model_status(&app, &model_id)?;
         app.emit_to(
             "main",
             "model://download-completed",
             ModelDownloadCompletedPayload {
-                job_id: job_id.clone(),
+                job_id: job.job_id.clone(),
                 status,
             },
         )
@@ -430,17 +476,29 @@ fn run_download(
     }
 
     if let Ok(mut guard) = active_job.lock() {
-        *guard = None;
+        if guard
+            .as_ref()
+            .map(|current| current.job_id == job.job_id)
+            .unwrap_or(false)
+        {
+            *guard = None;
+        }
     }
 }
 
-fn emit_progress(app: &AppHandle, job_id: &str, message: &str) -> Result<(), String> {
+fn emit_progress(
+    app: &AppHandle,
+    job_id: &str,
+    message: &str,
+    percent: Option<f32>,
+) -> Result<(), String> {
     app.emit_to(
         "main",
         "model://download-progress",
         ModelDownloadProgressPayload {
             job_id: job_id.to_string(),
             message: message.to_string(),
+            percent,
         },
     )
     .map_err(|error| format!("发送模型下载进度事件失败: {error}"))

@@ -11,7 +11,6 @@
     currentSecondaryText: string;
     playbackRate: number;
     playlistMode: PlaylistMode;
-    showRetryAsr: boolean;
     playlist: PlaybackHistoryItem[];
     currentMediaId: string | undefined;
     volume: number;
@@ -20,7 +19,6 @@
     onSeek: (ms: number) => void;
     onRateChange: (rate: number) => void;
     onPlaylistModeChange: (mode: PlaylistMode) => void;
-    onRetryAsr: () => void;
     onPlayItem: (id: string) => void;
     onPlayItemNow: (id: string) => void;
     onRemoveItem: (id: string) => void;
@@ -31,9 +29,9 @@
   const {
     snap, hasMedia, audioFileLabel, subtitleFileLabel, cueTiming,
     currentText, currentSecondaryText, playbackRate, playlistMode,
-    showRetryAsr, playlist, currentMediaId, volume,
+    playlist, currentMediaId, volume,
     onTogglePlayback, onToggleCurrentItem, onSeek, onRateChange, onPlaylistModeChange,
-    onRetryAsr, onPlayItem, onPlayItemNow, onRemoveItem, onVolumeChange, onVolumeCommit,
+    onPlayItem, onPlayItemNow, onRemoveItem, onVolumeChange, onVolumeCommit,
   }: Props = $props();
 
   function formatDuration(ms: number): string {
@@ -71,13 +69,6 @@
         <p class="subtitle-secondary-text">{currentSecondaryText}</p>
       {/if}
     </div>
-
-    {#if showRetryAsr}
-      <button class="btn btn-outline btn-sm" type="button" title="重新生成字幕" onclick={onRetryAsr}>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
-        重新识别
-      </button>
-    {/if}
   </div>
 
   <!-- 播放列表 -->

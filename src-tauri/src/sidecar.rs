@@ -1,8 +1,4 @@
-use std::{
-    env,
-    path::PathBuf,
-    process::Command,
-};
+use std::{env, path::PathBuf, process::Command};
 use tauri::{path::BaseDirectory, AppHandle, Manager};
 
 #[derive(Debug, Clone)]
@@ -39,8 +35,12 @@ pub fn locate_executable(
         }
     }
 
+    if let Some(candidate) = resolve_path_candidate(file_candidates) {
+        return Ok(CommandTarget::File(candidate));
+    }
+
     Err(format!(
-        "未找到可用的可执行文件。请把二进制放到 src-tauri/binaries 并通过 externalBin 打包，或通过环境变量 {} 指定绝对路径。",
+        "未找到可用的可执行文件。请把二进制放到 src-tauri/binaries、安装到系统 PATH，或通过环境变量 {} 指定绝对路径。",
         env_key
     ))
 }
@@ -81,6 +81,19 @@ pub fn resolve_local_candidates(app: &AppHandle, names: &[&str]) -> Result<Vec<P
     }
 
     Ok(candidates)
+}
+
+fn resolve_path_candidate(names: &[&str]) -> Option<PathBuf> {
+    let paths = env::var_os("PATH")?;
+    for dir in env::split_paths(&paths) {
+        for name in names {
+            let candidate = dir.join(with_exe_suffix(name));
+            if candidate.exists() {
+                return Some(candidate);
+            }
+        }
+    }
+    None
 }
 
 pub fn with_target_triple(name: &str) -> String {
@@ -125,8 +138,12 @@ pub fn build_nice_command(target: &CommandTarget) -> Command {
         let mut cmd = Command::new("taskpolicy");
         cmd.arg("-b");
         match target {
-            CommandTarget::Program(program) => { cmd.arg(program); }
-            CommandTarget::File(path) => { cmd.arg(path); }
+            CommandTarget::Program(program) => {
+                cmd.arg(program);
+            }
+            CommandTarget::File(path) => {
+                cmd.arg(path);
+            }
         }
         cmd
     }
@@ -135,13 +152,45 @@ pub fn build_nice_command(target: &CommandTarget) -> Command {
         let mut cmd = Command::new("nice");
         cmd.args(["-n", "19"]);
         match target {
-            CommandTarget::Program(program) => { cmd.arg(program); }
-            CommandTarget::File(path) => { cmd.arg(path); }
+            CommandTarget::Program(program) => {
+                cmd.arg(program);
+            }
+            CommandTarget::File(path) => {
+                cmd.arg(path);
+            }
         }
         cmd
     }
     #[cfg(not(unix))]
     {
         build_command(target)
+    }
+}
+
+pub fn kill_process(pid: u32) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        let status = Command::new("taskkill")
+            .args(["/PID", &pid.to_string(), "/T", "/F"])
+            .status()
+            .map_err(|error| format!("终止进程失败: {error}"))?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err(format!("终止进程失败，退出码: {:?}", status.code()))
+        }
+    }
+
+    #[cfg(not(windows))]
+    {
+        let status = Command::new("kill")
+            .args(["-TERM", &pid.to_string()])
+            .status()
+            .map_err(|error| format!("终止进程失败: {error}"))?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err(format!("终止进程失败，退出码: {:?}", status.code()))
+        }
     }
 }

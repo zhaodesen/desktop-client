@@ -18,11 +18,15 @@ def load_request() -> dict:
 
 def normalize_language_code(code: str | None) -> str:
     if not code:
-        return "en"
-    lowered = code.lower()
+        return "auto"
+    lowered = code.strip().lower()
+    if not lowered or lowered == "auto":
+        return "auto"
     if lowered.startswith("zh"):
         return "zh"
-    return lowered
+    if lowered.startswith("en"):
+        return "en"
+    return lowered.split("-")[0]
 
 
 def detect_source_language(lines: list[str]) -> str:
@@ -93,7 +97,12 @@ def main() -> int:
             if path.strip()
         ]
 
-        source_language = detect_source_language(lines)
+        raw_source_language = request.get("sourceLanguage", "auto")
+        source_language = normalize_language_code(
+            raw_source_language if isinstance(raw_source_language, str) or raw_source_language is None else str(raw_source_language)
+        )
+        if source_language == "auto":
+            source_language = detect_source_language(lines)
         if source_language == target_language:
             translations = lines
         else:

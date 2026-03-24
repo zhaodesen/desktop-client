@@ -42,6 +42,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   playlistMode: "sequential",
   subtitleDisplayMode: "bilingual",
   selectedModel: "base",
+  hasCompletedOnboarding: false,
+  hasSeenMainTour: false,
   shortcuts: {
     playPause: "Space",
     previousTrack: "Comma",
@@ -77,6 +79,10 @@ function formatTimestamp(ts: number): string {
 
 function escapeHtml(v: string): string {
   return v.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+function isChineseLanguage(code?: string): boolean {
+  return code?.trim().toLowerCase().startsWith("zh") ?? false;
 }
 
 /* ============================================================
@@ -1004,21 +1010,24 @@ export async function bootstrapMainApp(): Promise<void> {
   });
   unlisteners.push(unAsrProgress);
 
-  const unAsrCompleted = await asrEvents.onCompleted(async ({ jobId, subtitlePath }) => {
+  const unAsrCompleted = await asrEvents.onCompleted(async ({ jobId, subtitlePath, detectedLanguage }) => {
     if (activeAsrJobId !== jobId) return;
     activeAsrJobId = undefined;
 
     try {
       let finalSubtitlePath = subtitlePath;
       let translationError: string | undefined;
+      const shouldTranslateToChinese = !isChineseLanguage(detectedLanguage);
       if (pendingSubtitleMediaId) {
         await backend.updateMediaSubtitle(pendingSubtitleMediaId, subtitlePath);
-        try {
-          const translated = await backend.translateMediaSubtitle(pendingSubtitleMediaId);
-          finalSubtitlePath = translated.subtitlePath;
-        } catch (err) {
-          console.error(err);
-          translationError = formatErrorMessage(err);
+        if (shouldTranslateToChinese) {
+          try {
+            const translated = await backend.translateMediaSubtitle(pendingSubtitleMediaId, detectedLanguage);
+            finalSubtitlePath = translated.subtitlePath;
+          } catch (err) {
+            console.error(err);
+            translationError = formatErrorMessage(err);
+          }
         }
       }
       await refreshLibrary();
@@ -1029,7 +1038,9 @@ export async function bootstrapMainApp(): Promise<void> {
       setStatus(
         translationError
           ? `离线识别完成，但中文字幕生成失败：${translationError}`
-          : "离线识别完成，双语字幕已绑定",
+          : shouldTranslateToChinese
+            ? "离线识别完成，双语字幕已绑定"
+            : "离线识别完成，原文字幕已绑定",
         translationError ? "warning" : "success",
       );
     } catch (err) {

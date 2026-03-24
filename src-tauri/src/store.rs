@@ -16,7 +16,23 @@ pub fn load_settings(app: &AppHandle) -> Result<AppSettings, String> {
     let content =
         fs::read_to_string(&path).map_err(|error| format!("读取设置文件失败: {error}"))?;
 
-    serde_json::from_str(&content).map_err(|error| format!("解析设置文件失败: {error}"))
+    let value: serde_json::Value =
+        serde_json::from_str(&content).map_err(|error| format!("解析设置文件失败: {error}"))?;
+    let has_completed_onboarding = value.get("hasCompletedOnboarding").is_some();
+    let has_seen_main_tour = value.get("hasSeenMainTour").is_some();
+
+    let mut settings: AppSettings =
+        serde_json::from_value(value).map_err(|error| format!("解析设置内容失败: {error}"))?;
+
+    // 兼容旧版本配置：旧用户升级后不应再次看到首次启动引导。
+    if !has_completed_onboarding {
+        settings.has_completed_onboarding = true;
+    }
+    if !has_seen_main_tour {
+        settings.has_seen_main_tour = true;
+    }
+
+    Ok(settings)
 }
 
 pub fn save_settings(app: &AppHandle, settings: &AppSettings) -> Result<(), String> {

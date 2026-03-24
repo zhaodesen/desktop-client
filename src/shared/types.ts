@@ -81,6 +81,8 @@ export type AppSettings = {
   subtitleDisplayMode: SubtitleDisplayMode;
   shortcuts: ShortcutSettings;
   selectedModel: string;
+  hasCompletedOnboarding: boolean;
+  hasSeenMainTour: boolean;
 };
 
 export type CommandError = {
@@ -132,7 +134,7 @@ export type AsrStartedPayload = {
 };
 
 export type ImportMediaProgressPayload = {
-  stage: "copying" | "extracting" | "registering";
+  stage: "downloading" | "copying" | "extracting" | "registering";
   message: string;
   percent: number | null;
 };
@@ -150,6 +152,7 @@ export type AsrCompletedPayload = {
   subtitlePath: string;
   wavPath: string;
   modelPath: string;
+  detectedLanguage?: string;
 };
 
 export type AsrFailedPayload = {
@@ -187,6 +190,15 @@ export type DownloadModelOutput = {
   jobId: string;
 };
 
+export type ShutdownTaskSummary = {
+  hasActiveTasks: boolean;
+  tasks: string[];
+};
+
+export type ShutdownCleanupOutput = {
+  cancelledTasks: string[];
+};
+
 export type CleanupResult = {
   deletedFiles: number;
   deletedDirs: number;
@@ -214,6 +226,7 @@ export type RemovePlaybackItemInput = {
 };
 
 export type ImportProgressStage =
+  | "downloading"
   | "importing"
   | "preparing"
   | "recognizing"
@@ -235,6 +248,7 @@ export type ModelDownloadStartedPayload = {
 export type ModelDownloadProgressPayload = {
   jobId: string;
   message: string;
+  percent: number | null;
 };
 
 export type ModelDownloadCompletedPayload = {

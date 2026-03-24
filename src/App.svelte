@@ -1,10 +1,11 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
   import { convertFileSrc } from "@tauri-apps/api/core";
   import { emitTo, listen } from "@tauri-apps/api/event";
+  import { getCurrentWindow } from "@tauri-apps/api/window";
   import { open } from "@tauri-apps/plugin-dialog";
   import { OVERLAY_CLOSE_EVENT, OVERLAY_LOCK_EVENT } from "./shared/events";
-  import { asrEvents, backend, importEvents, modelEvents, overlayBridge } from "./shared/tauri";
+  import { appEvents, asrEvents, backend, importEvents, modelEvents, overlayBridge } from "./shared/tauri";
   import type {
     AppSettings,
     CleanupResult,
@@ -16,6 +17,7 @@
     OverlaySettings,
     PlaybackSnapshot,
     PlaylistMode,
+    ShutdownTaskSummary,
     SubtitleCue,
     SubtitleDocument,
   } from "./shared/types";
@@ -30,6 +32,8 @@
   import SettingsPage from "./lib/SettingsPage.svelte";
   import SubtitleEditor from "./lib/SubtitleEditor.svelte";
   import ConfirmDialog from "./lib/ConfirmDialog.svelte";
+  import FirstRunOnboarding from "./lib/FirstRunOnboarding.svelte";
+  import MainTourOverlay from "./lib/MainTourOverlay.svelte";
 
   import "./styles.css";
 
@@ -62,7 +66,64 @@
       showBilingual: "Digit3",
     },
     selectedModel: "base",
+    hasCompletedOnboarding: false,
+    hasSeenMainTour: false,
   };
+
+  const ONBOARDING_MODEL_GUIDES: Record<string, { pros: string[]; cons: string[]; recommended?: boolean }> = {
+    tiny: {
+      pros: ["下载最快", "占用最小", "老机器也能跑"],
+      cons: ["准确率最低", "嘈杂音频容易漏词"],
+    },
+    base: {
+      pros: ["速度和效果平衡", "对大多数日常素材够用", "安装体积适中"],
+      cons: ["复杂口音和多人对话下仍有误差"],
+      recommended: true,
+    },
+    small: {
+      pros: ["准确率明显更好", "适合中长视频", "对口音更稳"],
+      cons: ["下载和推理都更慢", "对磁盘与内存要求更高"],
+    },
+    medium: {
+      pros: ["高准确率", "适合课程、访谈等长音频", "中文字幕校对工作更少"],
+      cons: ["文件很大", "低配设备耗时明显"],
+    },
+    "large-v3-turbo": {
+      pros: ["整体效果最好", "对复杂语音场景更稳", "适合高质量转写"],
+      cons: ["下载最大", "启动和识别耗时最长"],
+    },
+  };
+
+  const MAIN_TOUR_STEPS = [
+    {
+      id: "import",
+      page: "import" as const,
+      title: "从导入开始",
+      description: "这里负责把本地音视频或在线视频拉进应用。导入后会自动开始离线识别并生成双语字幕。",
+      hint: "先点击“导入”，再选择文件导入或在线视频导入。",
+    },
+    {
+      id: "resources",
+      page: "resources" as const,
+      title: "资源列表",
+      description: "所有已导入的素材都会在这里集中管理，你可以查看状态、编辑字幕，或把条目加入播放列表。",
+      hint: "导入完成后，优先来这里检查字幕是否已经生成。",
+    },
+    {
+      id: "playlist",
+      page: "playlist" as const,
+      title: "播放列表",
+      description: "这里用来播放最近使用或手动加入的素材，可以边听边看字幕，也能直接重跑识别任务。",
+      hint: "适合复听、复查和快速切换多个素材。",
+    },
+    {
+      id: "settings",
+      page: "settings" as const,
+      title: "设置",
+      description: "这里可以更换离线模型、调整悬浮字幕样式、修改快捷键，以及清理缓存数据。",
+      hint: "如果以后想切模型或重下模型，就来这里。",
+    },
+  ];
 
   /* ── State ─────────────────────────────────────────────── */
 
@@ -89,6 +150,19 @@
   let availableModels = $state<ModelInfo[]>([]);
   let modelsStatusMap = $state<Map<string, ModelStatus>>(new Map());
   let activeSubtitleDocument = $state<SubtitleDocument | undefined>(undefined);
+  let activeImportSource = $state<"local" | "online" | undefined>(undefined);
+  let showFirstRunOnboarding = $state(false);
+  let onboardingStep = $state<"select-model" | "downloading" | "ready">("select-model");
+  let onboardingSelectedModelId = $state<string | undefined>(undefined);
+  let onboardingDownloadPercent = $state(0);
+  let onboardingDownloadMessage = $state("正在准备模型下载…");
+  let onboardingError = $state<string | undefined>(undefined);
+  let showMainTour = $state(false);
+  let mainTourStepIndex = $state(0);
+  let mainTourTargetRect = $state<
+    | { top: number; left: number; right: number; bottom: number; width: number; height: number }
+    | undefined
+  >(undefined);
 
   // Player state (published by PlayerController)
   let snap = $state<PlaybackSnapshot>({ playing: false, currentTimeMs: 0, durationMs: 0, rate: 1, volume: 1 });
@@ -98,7 +172,6 @@
   let cueTiming = $state("--:-- ~ --:--");
   let currentText = $state("等待播放");
   let currentSecondaryText = $state("");
-  let showRetryAsr = $state(false);
 
   // Status bar
   let statusText = $state("导入媒体后自动生成双语字幕");
@@ -144,6 +217,7 @@
   let player: PlayerController;
   let subtitleEngine: SubtitleEngine;
   let audioEl: HTMLAudioElement;
+  const tauriWindow = getCurrentWindow();
 
   // ConfirmDialog ref
   let confirmDialog: ConfirmDialog;
@@ -188,11 +262,100 @@
     return libraryState.mediaItems.find((i) => i.id === currentMediaId);
   }
 
+  function buildAppExitWarning(summary: ShutdownTaskSummary): string {
+    return [
+      `当前仍有后台任务正在进行：${summary.tasks.join("、")}。`,
+      "确认退出后，应用会先终止这些后台任务并执行清理，然后再关闭。",
+      "确定仍要退出吗？",
+    ].join(" ");
+  }
+
+  async function handleAppCloseRequest(summary?: ShutdownTaskSummary) {
+    const closeSummary = summary ?? await backend.getShutdownTaskSummary();
+    if (closeSummary.hasActiveTasks) {
+      const ok = await confirmDialog.show("退出应用", buildAppExitWarning(closeSummary));
+      if (!ok) return false;
+    }
+
+    const result = await backend.shutdownAndExit();
+    if (result.cancelledTasks.length > 0) {
+      setStatus(`正在关闭后台任务并退出应用：${result.cancelledTasks.join("、")}`, "warning");
+    } else {
+      setStatus("正在退出应用…", "warning");
+    }
+    return true;
+  }
+
   function setActivePage(page: string) {
     if (page === "import" || page === "resources" || page === "playlist" || page === "settings") {
       lastMainPage = page;
     }
     activePage = page;
+  }
+
+  function updateMainTourTargetRect() {
+    if (!showMainTour) {
+      mainTourTargetRect = undefined;
+      return;
+    }
+    const step = MAIN_TOUR_STEPS[mainTourStepIndex];
+    const el = document.querySelector<HTMLElement>(`[data-guide-id="${step.id}"]`);
+    if (!el) {
+      mainTourTargetRect = undefined;
+      return;
+    }
+    const rect = el.getBoundingClientRect();
+    mainTourTargetRect = {
+      top: rect.top,
+      left: rect.left,
+      right: rect.right,
+      bottom: rect.bottom,
+      width: rect.width,
+      height: rect.height,
+    };
+  }
+
+  async function openMainTour() {
+    mainTourStepIndex = 0;
+    showMainTour = true;
+    setActivePage("import");
+    await tick();
+    updateMainTourTargetRect();
+  }
+
+  async function completeMainTour() {
+    showMainTour = false;
+    mainTourTargetRect = undefined;
+    setActivePage("import");
+    if (settings.hasSeenMainTour) return;
+    settings = { ...settings, hasSeenMainTour: true };
+    await persistSettings();
+  }
+
+  async function handleMainTourNext() {
+    const nextIndex = mainTourStepIndex + 1;
+    if (nextIndex >= MAIN_TOUR_STEPS.length) {
+      await completeMainTour();
+      return;
+    }
+
+    mainTourStepIndex = nextIndex;
+    setActivePage(MAIN_TOUR_STEPS[nextIndex].page);
+    await tick();
+    updateMainTourTargetRect();
+  }
+
+  async function handleOnboardingStart() {
+    showFirstRunOnboarding = false;
+    onboardingError = undefined;
+    onboardingStep = "ready";
+    settings = { ...settings, hasCompletedOnboarding: true };
+    await persistSettings();
+    setActivePage("import");
+
+    if (!settings.hasSeenMainTour) {
+      await openMainTour();
+    }
   }
 
   /* ── Persist settings ──────────────────────────────────── */
@@ -221,6 +384,10 @@
 
   /* ── Subtitle helpers ──────────────────────────────────── */
 
+  function isChineseLanguage(code?: string): boolean {
+    return code?.trim().toLowerCase().startsWith("zh") ?? false;
+  }
+
   function getDisplayedCue(cue?: SubtitleCue): SubtitleCue | undefined {
     if (!cue) return undefined;
     if (settings.subtitleDisplayMode === "original") {
@@ -229,7 +396,7 @@
     if (settings.subtitleDisplayMode === "translation") {
       return {
         ...cue,
-        text: cue.secondaryText?.trim() || cue.text,
+        text: cue.secondaryText?.trim() ?? "",
         secondaryText: undefined,
       };
     }
@@ -284,7 +451,6 @@
     currentText = "等待播放";
     currentSecondaryText = "";
     cueTiming = "--:-- ~ --:--";
-    showRetryAsr = false;
     await overlayBridge.clear();
   }
 
@@ -299,16 +465,13 @@
     audioFileLabel = media.title;
     subtitleEngine.clear();
     subtitleFileLabel = media.subtitlePath ? "正在加载字幕…" : "未生成字幕";
-    showRetryAsr = !media.subtitlePath;
 
     if (media.subtitlePath) {
       try {
         await loadSubtitleFromPath(media.subtitlePath);
-        showRetryAsr = false;
       } catch (err) {
         console.error(err);
         subtitleFileLabel = "字幕加载失败";
-        showRetryAsr = true;
       }
     }
 
@@ -397,18 +560,57 @@
     }
   }
 
-  async function startAutoAsr(media: MediaItem) {
+  async function startAutoAsr(
+    media: MediaItem,
+    options: { statusMessage?: string; syncImportUi?: boolean } = {},
+  ) {
     pendingSubtitleMediaId = media.id;
     isCancellingAsr = false;
+    const {
+      statusMessage = "素材已导入，正在离线生成字幕…",
+      syncImportUi = true,
+    } = options;
     try {
       const { jobId } = await backend.startAsrJob({ audioPath: media.audioPath });
       activeAsrJobId = jobId;
-      setStatus("素材已导入，正在离线生成字幕…", "neutral");
+      setStatus(statusMessage, "neutral");
     } catch (err) {
       console.error(err);
       pendingSubtitleMediaId = undefined;
-      setStatus(formatError(err), "warning");
+      const message = formatError(err);
+      if (syncImportUi) {
+        importError = message;
+        importProgress = { ...IMPORT_IDLE };
+        activeImportSource = undefined;
+      }
+      setStatus(message, "warning");
     }
+  }
+
+  async function retryAsrForMedia(mediaId: string) {
+    const media = libraryState.mediaItems.find((item) => item.id === mediaId);
+    if (!media) {
+      setStatus("未找到对应素材", "warning");
+      return;
+    }
+
+    const ok = await confirmDialog.show(
+      "重新识别字幕",
+      [
+        `将为《${media.title}》重新执行离线识别。`,
+        media.subtitlePath
+          ? "当前已绑定的字幕结果可能会被新的识别结果覆盖。"
+          : "当前素材还没有字幕，本次会重新生成识别结果。",
+        "如果识别过程中退出应用，本轮任务可能中断，结果也可能无法自动绑定回素材。",
+        "确定继续吗？",
+      ].join(""),
+    );
+    if (!ok) return;
+
+    await startAutoAsr(media, {
+      statusMessage: `正在重新识别《${media.title}》字幕…`,
+      syncImportUi: false,
+    });
   }
 
   async function handleCancelAsr() {
@@ -462,6 +664,21 @@
 
   /* ── Import handlers ───────────────────────────────────── */
 
+  function beginImportFlow(source: "local" | "online", initialMessage: string) {
+    activeImportSource = source;
+    importError = undefined;
+    showImportSuccess = false;
+    clearTimeout(importSuccessTimer);
+    isCancellingAsr = false;
+    resetScheduledProgressUpdate();
+    importProgress = {
+      active: true,
+      stage: source === "online" ? "downloading" : "importing",
+      message: initialMessage,
+      percent: source === "online" ? 2 : 5,
+    };
+  }
+
   async function handleImportMedia() {
     const selected = await open({
       multiple: false,
@@ -472,17 +689,7 @@
     });
     if (!selected || Array.isArray(selected)) return;
 
-    importError = undefined;
-    showImportSuccess = false;
-    clearTimeout(importSuccessTimer);
-    isCancellingAsr = false;
-    resetScheduledProgressUpdate();
-    importProgress = {
-      active: true,
-      stage: "importing",
-      message: "正在导入媒体文件…",
-      percent: 5,
-    };
+    beginImportFlow("local", "正在导入媒体文件…");
     try {
       await waitForNextPaint();
       const media = await backend.importMedia(selected);
@@ -499,6 +706,25 @@
       console.error(err);
       importError = formatError(err);
       importProgress = { ...IMPORT_IDLE };
+      activeImportSource = undefined;
+    }
+  }
+
+  async function handleImportOnlineMedia(url: string) {
+    beginImportFlow("online", "正在准备在线视频下载…");
+    try {
+      await waitForNextPaint();
+      const media = await backend.importOnlineMedia(url);
+      importProgress = { active: true, stage: "importing", message: "在线视频已下载，准备生成字幕…", percent: 15 };
+      importSuccessName = media.title;
+      await refreshLibrary();
+      await startAutoAsr(media);
+    } catch (err) {
+      console.error(err);
+      importError = formatError(err);
+      importProgress = { ...IMPORT_IDLE };
+      activeImportSource = undefined;
+      throw err;
     }
   }
 
@@ -513,7 +739,6 @@
       await loadSubtitleFromPath(selected);
       await backend.updateMediaSubtitle(currentMediaId, selected);
       await refreshLibrary();
-      showRetryAsr = false;
       setStatus("手动字幕已导入并绑定", "success");
     } catch (err) {
       console.error(err);
@@ -551,19 +776,24 @@
 
   /* ── Model handlers ────────────────────────────────────── */
 
-  async function handleDownloadModel(modelId: string) {
+  async function handleDownloadModel(modelId: string, options?: { silent?: boolean }) {
     try {
       const { jobId } = await backend.downloadModel(modelId);
       activeModelDownloadJobId = jobId;
       const label = availableModels.find((m) => m.id === modelId)?.label ?? modelId;
-      setStatus(`模型 ${label} 开始下载`, "neutral");
+      if (!options?.silent) {
+        setStatus(`模型 ${label} 开始下载`, "neutral");
+      }
     } catch (err) {
       console.error(err);
-      setStatus("启动模型下载失败", "warning");
+      if (!options?.silent) {
+        setStatus("启动模型下载失败", "warning");
+      }
+      throw err;
     }
   }
 
-  async function handleSelectModel(modelId: string) {
+  async function handleSelectModel(modelId: string, options?: { silent?: boolean }) {
     settings = { ...settings, selectedModel: modelId };
     await persistSettings();
     try {
@@ -572,7 +802,54 @@
     } catch { /* ignore */ }
     refreshModelLabels();
     const label = availableModels.find((m) => m.id === modelId)?.label ?? modelId;
-    setStatus(`已切换为 ${label} 模型`, "success");
+    if (!options?.silent) {
+      setStatus(`已切换为 ${label} 模型`, "success");
+    }
+  }
+
+  async function beginOnboardingModelDownload(modelId: string) {
+    onboardingSelectedModelId = modelId;
+    onboardingError = undefined;
+    onboardingDownloadPercent = 0;
+    onboardingDownloadMessage = "正在准备模型下载…";
+    onboardingStep = "downloading";
+
+    await handleSelectModel(modelId, { silent: true });
+    const status = await backend.getModelStatus(modelId);
+    modelsStatusMap = new Map(modelsStatusMap).set(modelId, status);
+    refreshModelLabels();
+
+    if (status.installed) {
+      onboardingDownloadPercent = 100;
+      onboardingDownloadMessage = "模型已存在，已直接就绪。";
+      onboardingStep = "ready";
+      return;
+    }
+
+    await handleDownloadModel(modelId, { silent: true });
+  }
+
+  async function handleOnboardingModelSelect(modelId: string) {
+    try {
+      await beginOnboardingModelDownload(modelId);
+    } catch (err) {
+      onboardingError = formatError(err);
+      onboardingDownloadMessage = "模型下载启动失败";
+      onboardingStep = "downloading";
+      setStatus(formatError(err), "warning");
+    }
+  }
+
+  async function handleRetryOnboardingDownload() {
+    if (!onboardingSelectedModelId) return;
+    await handleOnboardingModelSelect(onboardingSelectedModelId);
+  }
+
+  function handleBackToOnboardingSelection() {
+    onboardingError = undefined;
+    onboardingDownloadPercent = 0;
+    onboardingDownloadMessage = "正在准备模型下载…";
+    onboardingStep = "select-model";
   }
 
   async function handleDeleteModel(modelId: string) {
@@ -626,6 +903,13 @@
       settings = { ...DEFAULT_SETTINGS, overlay: { ...DEFAULT_SETTINGS.overlay } };
       player.setPlaybackRate(settings.playbackRate);
       player.setVolume(settings.volume);
+      showFirstRunOnboarding = true;
+      showMainTour = false;
+      onboardingStep = "select-model";
+      onboardingSelectedModelId = undefined;
+      onboardingDownloadPercent = 0;
+      onboardingDownloadMessage = "正在准备模型下载…";
+      onboardingError = undefined;
       const allStatus = await backend.getAllModelsStatus();
       const newMap = new Map<string, ModelStatus>();
       for (const s of allStatus.models) newMap.set(s.modelId, s);
@@ -696,6 +980,8 @@
   /* ── onMount (init) ────────────────────────────────────── */
 
   onMount(async () => {
+    let closingConfirmVisible = false;
+    let closingApp = false;
     // Init services
     subtitleEngine = new SubtitleEngine();
     player = new PlayerController(audioEl);
@@ -731,17 +1017,79 @@
       settings = { ...settings, overlayVisible: false };
       await persistSettings();
     });
+    const unlistenAppClose = await appEvents.onCloseRequested(async (summary) => {
+      if (closingApp || closingConfirmVisible) return;
+      closingConfirmVisible = true;
+      try {
+        closingApp = true;
+        const shouldExit = await handleAppCloseRequest(summary);
+        if (!shouldExit) {
+          closingApp = false;
+        }
+      } catch (err) {
+        closingApp = false;
+        setStatus(formatError(err), "warning");
+      } finally {
+        closingConfirmVisible = false;
+      }
+    });
+    const unlistenWindowClose = await tauriWindow.onCloseRequested(async (event) => {
+      event.preventDefault();
+      if (closingApp || closingConfirmVisible) return;
+      closingConfirmVisible = true;
+      try {
+        closingApp = true;
+        const shouldExit = await handleAppCloseRequest();
+        if (!shouldExit) {
+          closingApp = false;
+        }
+      } catch (err) {
+        closingApp = false;
+        setStatus(formatError(err), "warning");
+      } finally {
+        closingConfirmVisible = false;
+      }
+    });
+
+    const handleViewportUpdate = () => {
+      updateMainTourTargetRect();
+    };
+    window.addEventListener("resize", handleViewportUpdate);
+    document.addEventListener("scroll", handleViewportUpdate, true);
 
     const unImportProgress = await importEvents.onProgress(({ stage, message, percent }) => {
-      if (!importProgress.active || importProgress.stage !== "importing") return;
-      const fallbackPercent: Record<"copying" | "extracting" | "registering", number> = {
+      if (!importProgress.active) return;
+
+      if (stage === "downloading") {
+        if (activeImportSource !== "online") return;
+        const overall = percent != null ? 2 + (percent / 100) * 10 : 6;
+        scheduleProgressUpdate({
+          active: true,
+          stage: "downloading",
+          message,
+          percent: Math.round(overall),
+        });
+        return;
+      }
+
+      const localFallbackPercent: Record<"copying" | "extracting" | "registering", number> = {
         copying: 8,
         extracting: 10,
         registering: 15,
       };
-      const overall = percent != null
-        ? 5 + (percent / 100) * 10
-        : fallbackPercent[stage];
+      const onlineFallbackPercent: Record<"copying" | "extracting" | "registering", number> = {
+        copying: 13,
+        extracting: 14,
+        registering: 15,
+      };
+      const overall = activeImportSource === "online"
+        ? percent != null
+          ? 12 + (percent / 100) * 3
+          : onlineFallbackPercent[stage]
+        : percent != null
+          ? 5 + (percent / 100) * 10
+          : localFallbackPercent[stage];
+
       scheduleProgressUpdate({
         active: true,
         stage: "importing",
@@ -783,28 +1131,30 @@
       }
     });
 
-    const unAsrCompleted = await asrEvents.onCompleted(async ({ jobId, subtitlePath }) => {
+    const unAsrCompleted = await asrEvents.onCompleted(async ({ jobId, subtitlePath, detectedLanguage }) => {
       if (activeAsrJobId !== jobId) return;
       activeAsrJobId = undefined;
       isCancellingAsr = false;
       try {
         let finalSubtitlePath = subtitlePath;
         let translationError: string | undefined;
+        const shouldTranslateToChinese = !isChineseLanguage(detectedLanguage);
         const mediaIdForSubtitle = pendingSubtitleMediaId;
         if (mediaIdForSubtitle) {
           await backend.updateMediaSubtitle(mediaIdForSubtitle, subtitlePath);
-          // 进入翻译阶段
-          if (importProgress.active) {
-            resetScheduledProgressUpdate();
-            importProgress = { active: true, stage: "translating", message: "正在生成中文翻译…", percent: 85 };
-          }
-          try {
-            await waitForNextPaint();
-            const translated = await backend.translateMediaSubtitle(mediaIdForSubtitle);
-            finalSubtitlePath = translated.subtitlePath;
-          } catch (err) {
-            console.error(err);
-            translationError = formatError(err);
+          if (shouldTranslateToChinese) {
+            if (importProgress.active) {
+              resetScheduledProgressUpdate();
+              importProgress = { active: true, stage: "translating", message: "正在生成中文翻译…", percent: 85 };
+            }
+            try {
+              await waitForNextPaint();
+              const translated = await backend.translateMediaSubtitle(mediaIdForSubtitle, detectedLanguage);
+              finalSubtitlePath = translated.subtitlePath;
+            } catch (err) {
+              console.error(err);
+              translationError = formatError(err);
+            }
           }
         }
 
@@ -812,7 +1162,9 @@
         setStatus(
           translationError
             ? `离线识别完成，但中文字幕生成失败：${translationError}`
-            : "离线识别完成，双语字幕已绑定",
+            : shouldTranslateToChinese
+              ? "离线识别完成，双语字幕已绑定"
+              : "离线识别完成，原文字幕已绑定",
           translationError ? "warning" : "success",
         );
 
@@ -829,7 +1181,6 @@
         await refreshLibrary();
         if (mediaIdForSubtitle && currentMediaId === mediaIdForSubtitle) {
           await loadSubtitleFromPath(finalSubtitlePath);
-          showRetryAsr = false;
         }
 
         if (importProgress.active) {
@@ -838,6 +1189,7 @@
           importSuccessTimer = setTimeout(() => {
             showImportSuccess = true;
             importProgress = { ...IMPORT_IDLE };
+            activeImportSource = undefined;
           }, 550);
         }
       } catch (err) {
@@ -845,6 +1197,7 @@
         setStatus("识别完成，但字幕绑定失败", "warning");
         resetScheduledProgressUpdate();
         importProgress = { ...IMPORT_IDLE };
+        activeImportSource = undefined;
       } finally {
         pendingSubtitleMediaId = undefined;
       }
@@ -855,11 +1208,11 @@
       activeAsrJobId = undefined;
       isCancellingAsr = false;
       pendingSubtitleMediaId = undefined;
-      showRetryAsr = true;
       if (code === "asr_cancelled") {
         setStatus("已取消当前识别任务", "warning");
         resetScheduledProgressUpdate();
         importProgress = { ...IMPORT_IDLE };
+        activeImportSource = undefined;
         importError = undefined;
         return;
       }
@@ -868,18 +1221,31 @@
       if (importProgress.active) {
         resetScheduledProgressUpdate();
         importProgress = { ...IMPORT_IDLE };
+        activeImportSource = undefined;
         importError = `字幕生成失败: [${code}] ${message}`;
       }
     });
 
     // Model download events
-    const unModelStarted = await modelEvents.onStarted(({ jobId }) => {
+    const unModelStarted = await modelEvents.onStarted(({ jobId, modelId }) => {
       activeModelDownloadJobId = jobId;
+      if (showFirstRunOnboarding && onboardingSelectedModelId === modelId) {
+        onboardingStep = "downloading";
+        onboardingError = undefined;
+        onboardingDownloadPercent = 0;
+        onboardingDownloadMessage = "正在连接模型下载源…";
+      }
     });
 
-    const unModelProgress = await modelEvents.onProgress(({ jobId, message }) => {
+    const unModelProgress = await modelEvents.onProgress(({ jobId, message, percent }) => {
       if (activeModelDownloadJobId && activeModelDownloadJobId !== jobId) return;
       console.debug("[Model Download]", message);
+      if (showFirstRunOnboarding && onboardingStep === "downloading") {
+        onboardingDownloadMessage = message;
+        if (percent != null) {
+          onboardingDownloadPercent = Math.max(onboardingDownloadPercent, Math.round(percent));
+        }
+      }
     });
 
     const unModelCompleted = await modelEvents.onCompleted(({ jobId, status }) => {
@@ -887,6 +1253,12 @@
       activeModelDownloadJobId = undefined;
       modelsStatusMap = new Map(modelsStatusMap).set(status.modelId, status);
       refreshModelLabels();
+      if (showFirstRunOnboarding && onboardingSelectedModelId === status.modelId) {
+        onboardingDownloadPercent = 100;
+        onboardingDownloadMessage = "模型下载完成，可以开始使用了。";
+        onboardingError = undefined;
+        onboardingStep = "ready";
+      }
       const label = availableModels.find((m) => m.id === status.modelId)?.label ?? status.modelId;
       setStatus(`模型 ${label} 下载完成`, "success");
     });
@@ -894,6 +1266,10 @@
     const unModelFailed = await modelEvents.onFailed(({ jobId, code, message }) => {
       if (activeModelDownloadJobId && activeModelDownloadJobId !== jobId) return;
       activeModelDownloadJobId = undefined;
+      if (showFirstRunOnboarding && onboardingStep === "downloading") {
+        onboardingError = `[${code}] ${message}`;
+        onboardingDownloadMessage = "模型下载失败，请重试。";
+      }
       setStatus(`[${code}] ${message}`, "warning");
     });
 
@@ -905,9 +1281,12 @@
       player.setVolume(settings.volume);
       await overlayBridge.updateStyle(settings.overlay);
       if (settings.overlayVisible) await backend.showOverlay();
+      showFirstRunOnboarding = !settings.hasCompletedOnboarding;
+      onboardingStep = settings.hasCompletedOnboarding ? "ready" : "select-model";
       setStatus("设置已加载", "success");
     } catch (err) {
       console.error(err);
+      showFirstRunOnboarding = !DEFAULT_SETTINGS.hasCompletedOnboarding;
       setStatus("读取设置失败，已使用默认配置", "warning");
     }
 
@@ -932,9 +1311,17 @@
       modelStatusLabel = "模型状态读取失败";
     }
 
+    if (!showFirstRunOnboarding && !settings.hasSeenMainTour) {
+      await openMainTour();
+    }
+
     return () => {
       unlistenLock();
+      unlistenAppClose();
       unlistenClose();
+      unlistenWindowClose();
+      window.removeEventListener("resize", handleViewportUpdate);
+      document.removeEventListener("scroll", handleViewportUpdate, true);
       unImportProgress();
       unAsrStarted();
       unAsrProgress();
@@ -975,6 +1362,7 @@
         canCancel={Boolean(activeAsrJobId) && importProgress.stage !== "done"}
         {isCancellingAsr}
         onImportMedia={handleImportMedia}
+        onImportOnline={handleImportOnlineMedia}
         onCancel={() => { void handleCancelAsr(); }}
         onDismissError={() => { importError = undefined; }}
         onImportSuccessClose={() => { showImportSuccess = false; importSuccessName = undefined; }}
@@ -983,6 +1371,7 @@
     {:else if activePage === "resources"}
       <ResourceListPage
         items={libraryState.mediaItems}
+        onRetryAsr={(id) => void retryAsrForMedia(id)}
         onEditSubtitle={(id) => void openSubtitleEditor(id)}
         onDeleteMedia={(id) => void deleteMediaById(id)}
         onAddToPlaylist={(id) => void handleAddToPlaylist(id)}
@@ -998,7 +1387,6 @@
         {currentSecondaryText}
         playbackRate={settings.playbackRate}
         playlistMode={settings.playlistMode}
-        {showRetryAsr}
         playlist={libraryState.playbackHistory}
         {currentMediaId}
         volume={settings.volume}
@@ -1018,7 +1406,6 @@
         }}
         onVolumeChange={(volume) => applyVolume(volume)}
         onVolumeCommit={() => { void commitVolume(); }}
-        onRetryAsr={() => { const m = getCurrentMedia(); if (m) void startAutoAsr(m); }}
         onPlayItem={(id) => { void playPlaylistItem(id, false); }}
         onPlayItemNow={(id) => { void playPlaylistItem(id, true); }}
         onRemoveItem={(id) => { void removePlaybackItem(id); }}
@@ -1060,3 +1447,32 @@
 </main>
 
 <ConfirmDialog bind:this={confirmDialog} />
+
+{#if showFirstRunOnboarding}
+  <FirstRunOnboarding
+    step={onboardingStep}
+    models={availableModels}
+    {modelsStatusMap}
+    selectedModelId={onboardingSelectedModelId}
+    downloadPercent={onboardingDownloadPercent}
+    downloadMessage={onboardingDownloadMessage}
+    error={onboardingError}
+    modelGuides={ONBOARDING_MODEL_GUIDES}
+    onSelectModel={(id) => { void handleOnboardingModelSelect(id); }}
+    onRetry={() => { void handleRetryOnboardingDownload(); }}
+    onBack={handleBackToOnboardingSelection}
+    onStart={() => { void handleOnboardingStart(); }}
+  />
+{/if}
+
+{#if showMainTour}
+  <MainTourOverlay
+    step={MAIN_TOUR_STEPS[mainTourStepIndex]}
+    index={mainTourStepIndex}
+    total={MAIN_TOUR_STEPS.length}
+    targetRect={mainTourTargetRect}
+    onSkip={() => { void completeMainTour(); }}
+    onNext={() => { void handleMainTourNext(); }}
+    onFinish={() => { void completeMainTour(); }}
+  />
+{/if}

@@ -10,6 +10,7 @@
     canCancel: boolean;
     isCancellingAsr: boolean;
     onImportMedia: () => void;
+    onImportOnline: (url: string) => Promise<void> | void;
     onCancel: () => void;
     onDismissError: () => void;
     onImportSuccessClose: () => void;
@@ -24,6 +25,7 @@
     canCancel,
     isCancellingAsr,
     onImportMedia,
+    onImportOnline,
     onCancel,
     onDismissError,
     onImportSuccessClose,
@@ -35,6 +37,10 @@
   let suppressDialog = $state(false);
   let dialogSuppressChecked = $state(false);
   let showToast = $state(false);
+  let showOnlineDialog = $state(false);
+  let onlineUrl = $state("");
+  let onlineUrlError = $state<string | undefined>(undefined);
+  let isSubmittingOnline = $state(false);
   let toastTimer: ReturnType<typeof setTimeout> | undefined;
 
   onMount(() => {
@@ -61,6 +67,7 @@
 
   // 阶段标签映射
   const stageLabels: Record<string, string> = {
+    downloading: "下载在线视频",
     importing: "导入媒体",
     preparing: "检查依赖",
     recognizing: "离线识别",
@@ -69,6 +76,7 @@
   };
 
   const stageLabel = $derived(stageLabels[progress.stage] ?? progress.stage);
+  const importErrorHint = $derived(getImportErrorHint(importError));
 
   function saveSuppress() {
     if (dialogSuppressChecked) {
@@ -89,6 +97,47 @@
     onImportSuccessClose();
     onGoToResources();
   }
+
+  function getImportErrorHint(error: string | undefined): string | undefined {
+    if (!error) return undefined;
+
+    const lowered = error.toLowerCase();
+    const isBilibiliError =
+      lowered.includes("bilibili")
+      || lowered.includes("b23.tv")
+      || error.includes("B 站")
+      || error.includes("浏览器 Cookie");
+
+    if (!isBilibiliError) return undefined;
+
+    return "可先在本机浏览器里登录一次 B 站，再回到这里重试。应用会自动尝试读取浏览器 Cookie。";
+  }
+
+  async function handleOnlineImportSubmit() {
+    const trimmedUrl = onlineUrl.trim();
+    if (!trimmedUrl) {
+      onlineUrlError = "请输入在线视频地址";
+      return;
+    }
+
+    isSubmittingOnline = true;
+    onlineUrlError = undefined;
+    showOnlineDialog = false;
+    onlineUrl = "";
+    try {
+      await onImportOnline(trimmedUrl);
+    } catch {
+      // 具体错误由父组件统一显示在导入页顶部错误条。
+    } finally {
+      isSubmittingOnline = false;
+    }
+  }
+
+  function handleCloseOnlineDialog() {
+    if (isSubmittingOnline) return;
+    showOnlineDialog = false;
+    onlineUrlError = undefined;
+  }
 </script>
 
 <!-- 导入失败：顶部固定错误条 -->
@@ -97,7 +146,12 @@
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0">
       <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
     </svg>
-    <span class="import-error-msg">{importError}</span>
+    <div class="import-error-copy">
+      <span class="import-error-msg">{importError}</span>
+      {#if importErrorHint}
+        <div class="import-error-hint">{importErrorHint}</div>
+      {/if}
+    </div>
     <button class="import-error-close" type="button" onclick={onDismissError} aria-label="关闭错误">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
         <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
@@ -138,6 +192,8 @@
 
       <!-- 阶段指示器 -->
       <div class="progress-stages">
+        <span class="stage-dot" class:stage-active={progress.stage === "downloading"} class:stage-done={["importing","preparing","recognizing","translating","done"].includes(progress.stage)}>下载</span>
+        <span class="stage-line"></span>
         <span class="stage-dot" class:stage-active={progress.stage === "importing"} class:stage-done={["preparing","recognizing","translating","done"].includes(progress.stage)}>导入</span>
         <span class="stage-line"></span>
         <span class="stage-dot" class:stage-active={progress.stage === "preparing"} class:stage-done={["recognizing","translating","done"].includes(progress.stage)}>检查</span>
@@ -177,6 +233,15 @@
         </svg>
         选择文件导入
       </button>
+      <button class="btn btn-outline btn-lg import-online-btn" type="button" onclick={() => { showOnlineDialog = true; }}>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M5 12h14"/><path d="M12 5l7 7-7 7"/><path d="M5 5h.01"/><path d="M5 19h.01"/>
+        </svg>
+        导入在线视频
+      </button>
+      <p class="import-online-hint">
+        适合直接抓取支持的网站视频链接。不支持的地址建议先手动下载到本地，再用上方按钮导入。
+      </p>
     </div>
   {/if}
 </section>
@@ -188,6 +253,46 @@
       <polyline points="20 6 9 17 4 12"/>
     </svg>
     <span>全部完成，双语字幕已生成</span>
+  </div>
+{/if}
+
+{#if showOnlineDialog}
+  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+  <div class="import-dialog-backdrop" role="presentation" onclick={handleCloseOnlineDialog}></div>
+  <div class="import-dialog import-online-dialog" role="dialog" aria-modal="true">
+    <div class="import-dialog-check import-dialog-check-accent">
+      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M5 12h14" /><path d="M12 5l7 7-7 7" />
+      </svg>
+    </div>
+    <h3 class="import-dialog-title">导入在线视频</h3>
+    <p class="import-dialog-desc">
+      粘贴在线视频地址后，应用会通过 <code>yt-dlp</code> 下载原视频到你电脑的下载目录，再自动导入本应用继续生成字幕。
+    </p>
+    <p class="import-dialog-tip">
+      部分站点、私有链接或带校验参数的 URL 可能不支持。如果下载失败，建议先手动保存到本地后再导入。
+    </p>
+
+    <label class="online-input-block">
+      <span>视频网址</span>
+      <input
+        type="url"
+        placeholder="https://example.com/watch?v=..."
+        bind:value={onlineUrl}
+        disabled={isSubmittingOnline}
+      />
+    </label>
+
+    {#if onlineUrlError}
+      <div class="online-input-error">{onlineUrlError}</div>
+    {/if}
+
+    <div class="import-dialog-actions">
+      <button class="btn btn-ghost btn-sm" type="button" onclick={handleCloseOnlineDialog} disabled={isSubmittingOnline}>取消</button>
+      <button class="btn btn-primary btn-sm" type="button" onclick={() => { void handleOnlineImportSubmit(); }} disabled={isSubmittingOnline}>
+        开始下载并导入
+      </button>
+    </div>
   </div>
 {/if}
 
@@ -240,9 +345,27 @@
   }
 
   .import-error-msg {
-    flex: 1;
     min-width: 0;
     word-break: break-all;
+  }
+
+  .import-error-copy {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .import-error-hint {
+    padding: 8px 10px;
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--danger-soft) 55%, white 45%);
+    border: 1px solid color-mix(in srgb, var(--danger-border) 60%, white 40%);
+    color: color-mix(in srgb, var(--danger) 82%, #6b1d1d 18%);
+    font-size: 0.8rem;
+    line-height: 1.45;
+    word-break: break-word;
   }
 
   .import-error-close {
@@ -314,6 +437,17 @@
     font-size: 0.95rem;
     border-radius: var(--radius-md);
     margin-top: 8px;
+  }
+
+  .import-online-btn {
+    margin-top: 0;
+  }
+
+  .import-online-hint {
+    max-width: 460px;
+    font-size: 0.78rem;
+    color: var(--text-dim);
+    line-height: 1.7;
   }
 
   /* ── Progress icon ── */
@@ -539,5 +673,58 @@
     margin-top: 8px;
     width: 100%;
     justify-content: flex-end;
+  }
+
+  .import-online-dialog {
+    width: 440px;
+    align-items: stretch;
+    text-align: left;
+  }
+
+  .import-dialog-check-accent {
+    background: var(--accent-soft);
+    color: var(--accent);
+    align-self: center;
+  }
+
+  .import-dialog-tip {
+    font-size: 0.78rem;
+    line-height: 1.65;
+    color: var(--text-dim);
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 12px;
+    padding: 10px 12px;
+  }
+
+  .online-input-block {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 4px;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+  }
+
+  .online-input-block input {
+    width: 100%;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.03);
+    color: var(--text-primary);
+    font: inherit;
+    padding: 12px 14px;
+    outline: none;
+    transition: border-color 150ms ease, background 150ms ease;
+  }
+
+  .online-input-block input:focus {
+    border-color: var(--accent);
+    background: rgba(255, 255, 255, 0.05);
+  }
+
+  .online-input-error {
+    color: var(--danger);
+    font-size: 0.78rem;
+    margin-top: -2px;
   }
 </style>

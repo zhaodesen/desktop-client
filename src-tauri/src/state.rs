@@ -1,10 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::{
+    path::PathBuf,
     process::Child,
-    sync::{
-        Arc, Mutex,
-        atomic::AtomicBool,
-    },
+    sync::{atomic::AtomicBool, Arc, Mutex},
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -102,6 +100,8 @@ pub struct AppSettings {
     pub shortcuts: ShortcutSettings,
     /// The ID of the currently selected whisper model (e.g. "tiny", "base", "small", "medium", "large-v3-turbo").
     pub selected_model: String,
+    pub has_completed_onboarding: bool,
+    pub has_seen_main_tour: bool,
 }
 
 impl Default for AppSettings {
@@ -115,6 +115,8 @@ impl Default for AppSettings {
             subtitle_display_mode: SubtitleDisplayMode::Bilingual,
             shortcuts: ShortcutSettings::default(),
             selected_model: "base".to_string(),
+            has_completed_onboarding: false,
+            has_seen_main_tour: false,
         }
     }
 }
@@ -122,7 +124,10 @@ impl Default for AppSettings {
 pub struct AppState {
     pub settings: Arc<Mutex<AppSettings>>,
     pub active_asr_job: Arc<Mutex<Option<AsrJobState>>>,
-    pub active_model_download: Arc<Mutex<Option<String>>>,
+    pub active_model_download: Arc<Mutex<Option<ModelDownloadState>>>,
+    pub active_online_import: Arc<Mutex<Option<ExternalProcessState>>>,
+    pub active_translation_job: Arc<Mutex<Option<ExternalProcessState>>>,
+    pub shutdown_confirmed: Arc<AtomicBool>,
 }
 
 impl AppState {
@@ -131,6 +136,9 @@ impl AppState {
             settings: Arc::new(Mutex::new(settings)),
             active_asr_job: Arc::new(Mutex::new(None)),
             active_model_download: Arc::new(Mutex::new(None)),
+            active_online_import: Arc::new(Mutex::new(None)),
+            active_translation_job: Arc::new(Mutex::new(None)),
+            shutdown_confirmed: Arc::new(AtomicBool::new(false)),
         }
     }
 }
@@ -149,6 +157,35 @@ impl AsrJobState {
             cancel_requested: Arc::new(AtomicBool::new(false)),
             active_child: Arc::new(Mutex::new(None)),
         }
+    }
+}
+
+#[derive(Clone)]
+pub struct ModelDownloadState {
+    pub job_id: String,
+    pub cancel_requested: Arc<AtomicBool>,
+    pub temp_path: Arc<Mutex<Option<PathBuf>>>,
+}
+
+impl ModelDownloadState {
+    pub fn new(job_id: String) -> Self {
+        Self {
+            job_id,
+            cancel_requested: Arc::new(AtomicBool::new(false)),
+            temp_path: Arc::new(Mutex::new(None)),
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct ExternalProcessState {
+    pub label: &'static str,
+    pub pid: u32,
+}
+
+impl ExternalProcessState {
+    pub fn new(label: &'static str, pid: u32) -> Self {
+        Self { label, pid }
     }
 }
 

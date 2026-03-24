@@ -4,7 +4,7 @@ use std::{
     io::{self, BufRead, BufReader, Read},
     path::{Path, PathBuf},
     process::Stdio,
-    sync::{Arc, Mutex, atomic::Ordering},
+    sync::{atomic::Ordering, Arc, Mutex},
     thread,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
@@ -13,6 +13,8 @@ use tauri::{AppHandle, Emitter, Manager};
 use crate::model;
 use crate::sidecar::{self, CommandTarget};
 use crate::state::AsrJobState;
+
+const WHISPER_LANGUAGE_MODE: &str = "auto";
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -56,6 +58,7 @@ pub struct AsrCompletedPayload {
     pub subtitle_path: String,
     pub wav_path: String,
     pub model_path: String,
+    pub detected_language: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -65,7 +68,6 @@ pub struct AsrFailedPayload {
     pub code: &'static str,
     pub message: String,
 }
-
 
 pub fn start_job(
     app: AppHandle,
@@ -100,7 +102,9 @@ pub fn start_job(
     }
 }
 
-pub fn cancel_job(active_job: Arc<Mutex<Option<AsrJobState>>>) -> Result<CancelAsrJobOutput, String> {
+pub fn cancel_job(
+    active_job: Arc<Mutex<Option<AsrJobState>>>,
+) -> Result<CancelAsrJobOutput, String> {
     let job = {
         let guard = active_job
             .lock()
@@ -166,7 +170,8 @@ fn run_pipeline(
         let whisper = locate_whisper_cli(&app)?;
         let model_path = locate_whisper_model(&app)?;
         let subtitle_dir = ensure_dir(&app, "subtitles")?;
-        let subtitle_prefix = subtitle_dir.join(format!("{}-{}", file_stem(&audio_path), job.job_id));
+        let subtitle_prefix =
+            subtitle_dir.join(format!("{}-{}", file_stem(&audio_path), job.job_id));
         let subtitle_path = subtitle_prefix.with_extension("srt");
         let wav_path = if is_whisper_ready_wav(&audio_path)? {
             emit_progress(
@@ -202,7 +207,14 @@ fn run_pipeline(
                 model_path.display()
             ),
         )?;
-        run_whisper(&app, &job, &whisper, &model_path, &wav_path, &subtitle_prefix)?;
+        let detected_language = run_whisper(
+            &app,
+            &job,
+            &whisper,
+            &model_path,
+            &wav_path,
+            &subtitle_prefix,
+        )?;
 
         if !subtitle_path.exists() {
             return Err("whisper-cli 执行完成，但没有生成 .srt 文件".to_string());
@@ -218,6 +230,7 @@ fn run_pipeline(
                 subtitle_path: subtitle_path.display().to_string(),
                 wav_path: wav_path.display().to_string(),
                 model_path: model_path.display().to_string(),
+                detected_language,
             },
         )
         .map_err(|error| format!("发送识别完成事件失败: {error}"))?;
@@ -292,7 +305,10 @@ fn ensure_not_cancelled(job: &AsrJobState) -> Result<(), String> {
     }
 }
 
-fn wait_for_active_child(job: &AsrJobState, label: &str) -> Result<std::process::ExitStatus, String> {
+fn wait_for_active_child(
+    job: &AsrJobState,
+    label: &str,
+) -> Result<std::process::ExitStatus, String> {
     loop {
         let status = {
             let mut child_guard = job
@@ -374,10 +390,7 @@ fn run_ffmpeg(
         if let Some(stderr_reader) = stderr.as_mut() {
             let _ = stderr_reader.read_to_string(&mut detail);
         }
-        Err(format!(
-            "ffmpeg 转码失败: {}",
-            detail.trim()
-        ))
+        Err(format!("ffmpeg 转码失败: {}", detail.trim()))
     }
 }
 
@@ -388,7 +401,7 @@ fn run_whisper(
     model_path: &Path,
     wav_path: &Path,
     subtitle_prefix: &Path,
-) -> Result<(), String> {
+) -> Result<Option<String>, String> {
     // 限制 whisper-cli 线程数为 1：
     // 即使单线程 100% CPU 也只占一个核心，配合 taskpolicy -b (macOS) 或 nice -n 19 (Linux)
     // 可以确保 UI 始终流畅。识别速度会慢一些但用户体验远比"程序卡死"好。
@@ -405,6 +418,8 @@ fn run_whisper(
             &model_path.display().to_string(),
             "-f",
             &wav_path.display().to_string(),
+            "-l",
+            WHISPER_LANGUAGE_MODE,
             "-t",
             &whisper_threads.to_string(),
             "-osrt",
@@ -432,12 +447,18 @@ fn run_whisper(
     let mut last_error_lines: Vec<String> = Vec::new();
     let reader = BufReader::new(stderr);
     let mut last_emit = Instant::now();
+    let mut detected_language: Option<String> = None;
 
     for line in reader.lines() {
         let line = match line {
             Ok(l) => l,
             Err(_) => continue,
         };
+
+        if let Some(language) = parse_whisper_detected_language(&line) {
+            detected_language = Some(language);
+            continue;
+        }
 
         // 尝试解析 whisper 时间戳行: [00:00:05.280 --> 00:00:10.560]
         if let Some(pct) = parse_whisper_progress(&line, total_duration_ms) {
@@ -473,7 +494,7 @@ fn run_whisper(
     }
 
     if status.success() {
-        Ok(())
+        Ok(detected_language)
     } else {
         if job.cancel_requested.load(Ordering::SeqCst) {
             return Err("当前识别任务已取消".to_string());
@@ -485,6 +506,24 @@ fn run_whisper(
             last_error_lines.join("\n")
         };
         Err(format!("whisper-cli 识别失败: {}", detail.trim()))
+    }
+}
+
+fn parse_whisper_detected_language(line: &str) -> Option<String> {
+    let marker = "auto-detected language:";
+    let lowered = line.to_ascii_lowercase();
+    let start = lowered.find(marker)? + marker.len();
+    let language = line[start..]
+        .trim()
+        .split_whitespace()
+        .next()?
+        .trim_matches(|char: char| !char.is_ascii_alphanumeric() && char != '-')
+        .to_ascii_lowercase();
+
+    if language.is_empty() {
+        None
+    } else {
+        Some(language)
     }
 }
 
@@ -526,8 +565,7 @@ fn parse_timestamp_ms(ts: &str) -> Option<u64> {
 
 /// 估算 16kHz/16bit/mono WAV 文件的时长（毫秒）
 fn wav_duration_ms(wav_path: &Path) -> Result<u64, String> {
-    let meta =
-        fs::metadata(wav_path).map_err(|e| format!("读取 WAV 文件信息失败: {e}"))?;
+    let meta = fs::metadata(wav_path).map_err(|e| format!("读取 WAV 文件信息失败: {e}"))?;
     // 16kHz × 16bit × mono = 32000 bytes/sec, WAV header 约 44 bytes
     let data_bytes = meta.len().saturating_sub(44);
     Ok((data_bytes as f64 / 32000.0 * 1000.0) as u64)
@@ -583,12 +621,8 @@ fn is_whisper_ready_wav(path: &Path) -> Result<bool, String> {
 
             let audio_format = u16::from_le_bytes([fmt_chunk[0], fmt_chunk[1]]);
             let channels = u16::from_le_bytes([fmt_chunk[2], fmt_chunk[3]]);
-            let sample_rate = u32::from_le_bytes([
-                fmt_chunk[4],
-                fmt_chunk[5],
-                fmt_chunk[6],
-                fmt_chunk[7],
-            ]);
+            let sample_rate =
+                u32::from_le_bytes([fmt_chunk[4], fmt_chunk[5], fmt_chunk[6], fmt_chunk[7]]);
             let bits_per_sample = u16::from_le_bytes([fmt_chunk[14], fmt_chunk[15]]);
 
             return Ok(audio_format == 1
@@ -633,6 +667,7 @@ fn locate_whisper_model(app: &AppHandle) -> Result<PathBuf, String> {
     if let Ok(path) = env::var("WHISPER_MODEL_PATH") {
         let model_path = PathBuf::from(path);
         if model_path.exists() {
+            ensure_multilingual_whisper_model(&model_path)?;
             return Ok(model_path);
         }
     }
@@ -646,6 +681,7 @@ fn locate_whisper_model(app: &AppHandle) -> Result<PathBuf, String> {
 
     for candidate in candidates {
         if candidate.exists() {
+            ensure_multilingual_whisper_model(&candidate)?;
             return Ok(candidate);
         }
     }
@@ -654,6 +690,24 @@ fn locate_whisper_model(app: &AppHandle) -> Result<PathBuf, String> {
         "未找到 Whisper 模型文件。请把模型放到 ./models/ggml-base.bin，或设置环境变量 WHISPER_MODEL_PATH。"
             .to_string(),
     )
+}
+
+fn ensure_multilingual_whisper_model(model_path: &Path) -> Result<(), String> {
+    let file_name = model_path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+
+    let is_english_only = file_name.contains(".en.") || file_name.contains(".en-");
+    if is_english_only {
+        return Err(format!(
+            "当前 Whisper 模型 {} 是英文专用模型，无法稳定识别非英语音频。请切换到 tiny、base、small、medium 或 large-v3-turbo 等多语言模型。",
+            model_path.display()
+        ));
+    }
+
+    Ok(())
 }
 
 fn ensure_dir(app: &AppHandle, relative: &str) -> Result<PathBuf, String> {

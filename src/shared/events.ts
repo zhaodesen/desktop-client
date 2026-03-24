@@ -12,3 +12,4 @@ export const MODEL_DOWNLOAD_STARTED_EVENT = "model://download-started";
 export const MODEL_DOWNLOAD_PROGRESS_EVENT = "model://download-progress";
 export const MODEL_DOWNLOAD_COMPLETED_EVENT = "model://download-completed";
 export const MODEL_DOWNLOAD_FAILED_EVENT = "model://download-failed";
+export const APP_CLOSE_REQUESTED_EVENT = "app://close-requested";

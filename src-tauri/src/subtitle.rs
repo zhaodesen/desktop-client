@@ -5,11 +5,13 @@ use std::{
     io::Write,
     path::{Path, PathBuf},
     process::Stdio,
+    sync::{Arc, Mutex},
 };
 use tauri::{path::BaseDirectory, AppHandle, Manager};
 
 use crate::media::{self, MediaItem};
 use crate::sidecar;
+use crate::state::ExternalProcessState;
 
 const TRANSLATION_TARGET_LANGUAGE: &str = "zh";
 const TRANSLATION_SCRIPT_NAME: &str = "translate.py";
@@ -95,14 +97,17 @@ pub fn save_subtitle_document(
 
 pub fn translate_media_subtitle(
     app: &AppHandle,
+    active_translation_job: Arc<Mutex<Option<ExternalProcessState>>>,
     media_id: &str,
+    source_language: Option<&str>,
 ) -> Result<SubtitleDocument, String> {
     let document = get_subtitle_document(app, media_id)?;
     if document.cues.is_empty() {
         return Err("没有可翻译的字幕内容".to_string());
     }
 
-    let translated_cues = translate_cues(app, &document.cues)?;
+    let translated_cues =
+        translate_cues(app, active_translation_job, &document.cues, source_language)?;
     save_subtitle_document(app, media_id, translated_cues)
 }
 
@@ -306,13 +311,19 @@ fn normalize_cues(cues: Vec<SubtitleCue>) -> Vec<SubtitleCue> {
     normalized
 }
 
-fn translate_cues(app: &AppHandle, cues: &[SubtitleCue]) -> Result<Vec<SubtitleCue>, String> {
+fn translate_cues(
+    app: &AppHandle,
+    active_translation_job: Arc<Mutex<Option<ExternalProcessState>>>,
+    cues: &[SubtitleCue],
+    source_language: Option<&str>,
+) -> Result<Vec<SubtitleCue>, String> {
     let source_lines = cues
         .iter()
         .map(|cue| cue.text.trim().to_string())
         .collect::<Vec<_>>();
 
-    let translation = request_offline_translation(app, &source_lines)?;
+    let translation =
+        request_offline_translation(app, active_translation_job, &source_lines, source_language)?;
     if translation.translations.len() != cues.len() {
         return Err("中文字幕数量与原文字幕数量不一致".to_string());
     }
@@ -325,7 +336,7 @@ fn translate_cues(app: &AppHandle, cues: &[SubtitleCue]) -> Result<Vec<SubtitleC
                 start_ms: cue.start_ms,
                 end_ms: cue.end_ms,
                 text: cue.text.clone(),
-                secondary_text: Some(cue.text.clone()),
+                secondary_text: None,
             })
             .collect());
     }
@@ -345,7 +356,9 @@ fn translate_cues(app: &AppHandle, cues: &[SubtitleCue]) -> Result<Vec<SubtitleC
 
 fn request_offline_translation(
     app: &AppHandle,
+    active_translation_job: Arc<Mutex<Option<ExternalProcessState>>>,
     lines: &[String],
+    source_language: Option<&str>,
 ) -> Result<TranslationResponse, String> {
     let translator_project = resolve_translator_project_dir(app)?;
     let translator_script = translator_project.join(TRANSLATION_SCRIPT_NAME);
@@ -356,6 +369,7 @@ fn request_offline_translation(
 
     let request_payload = json!({
         "targetLanguage": TRANSLATION_TARGET_LANGUAGE,
+        "sourceLanguage": source_language,
         "lines": lines,
     })
     .to_string();
@@ -379,30 +393,44 @@ fn request_offline_translation(
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|error| format!("启动离线翻译进程失败，请确认已安装 uv: {error}"))?;
-
-    if let Some(stdin) = child.stdin.as_mut() {
-        stdin
-            .write_all(request_payload.as_bytes())
-            .map_err(|error| format!("写入离线翻译请求失败: {error}"))?;
+    let pid = child.id();
+    if let Ok(mut guard) = active_translation_job.lock() {
+        *guard = Some(ExternalProcessState::new("字幕翻译", pid));
     }
 
-    let output = child
-        .wait_with_output()
-        .map_err(|error| format!("等待离线翻译进程失败: {error}"))?;
+    let result = (|| -> Result<TranslationResponse, String> {
+        if let Some(stdin) = child.stdin.as_mut() {
+            stdin
+                .write_all(request_payload.as_bytes())
+                .map_err(|error| format!("写入离线翻译请求失败: {error}"))?;
+        }
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        let detail = if !stderr.is_empty() { stderr } else { stdout };
-        return Err(if detail.is_empty() {
-            "离线翻译进程执行失败".to_string()
-        } else {
-            format!("离线翻译进程执行失败: {detail}")
-        });
+        let output = child
+            .wait_with_output()
+            .map_err(|error| format!("等待离线翻译进程失败: {error}"))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            let detail = if !stderr.is_empty() { stderr } else { stdout };
+            return Err(if detail.is_empty() {
+                "离线翻译进程执行失败".to_string()
+            } else {
+                format!("离线翻译进程执行失败: {detail}")
+            });
+        }
+
+        serde_json::from_slice::<TranslationResponse>(&output.stdout)
+            .map_err(|error| format!("解析离线翻译结果失败: {error}"))
+    })();
+
+    if let Ok(mut guard) = active_translation_job.lock() {
+        if guard.as_ref().map(|task| task.pid == pid).unwrap_or(false) {
+            *guard = None;
+        }
     }
 
-    serde_json::from_slice::<TranslationResponse>(&output.stdout)
-        .map_err(|error| format!("解析离线翻译结果失败: {error}"))
+    result
 }
 
 fn resolve_translator_project_dir(app: &AppHandle) -> Result<PathBuf, String> {
@@ -444,10 +472,7 @@ fn resolve_argos_packages_dir(app: &AppHandle) -> Result<PathBuf, String> {
 fn resolve_argos_model_dirs(app: &AppHandle) -> Vec<PathBuf> {
     let mut model_dirs = Vec::new();
 
-    if let Ok(resource_dir) = app
-        .path()
-        .resolve("models/argos", BaseDirectory::Resource)
-    {
+    if let Ok(resource_dir) = app.path().resolve("models/argos", BaseDirectory::Resource) {
         if resource_dir.exists() {
             model_dirs.push(resource_dir);
         }
@@ -476,7 +501,8 @@ fn resolve_argos_model_dirs(app: &AppHandle) -> Vec<PathBuf> {
 }
 
 fn contains_chinese(text: &str) -> bool {
-    text.chars().any(|char| ('\u{4e00}'..='\u{9fff}').contains(&char))
+    text.chars()
+        .any(|char| ('\u{4e00}'..='\u{9fff}').contains(&char))
 }
 
 #[allow(dead_code)]

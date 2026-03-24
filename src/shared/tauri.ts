@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { emitTo } from "@tauri-apps/api/event";
 import {
+  APP_CLOSE_REQUESTED_EVENT,
   ASR_COMPLETED_EVENT,
   ASR_FAILED_EVENT,
   ASR_PROGRESS_EVENT,
@@ -38,6 +39,8 @@ import type {
   OverlayRenderPayload,
   OverlayWindowState,
   PlaybackHistoryItem,
+  ShutdownCleanupOutput,
+  ShutdownTaskSummary,
   StartAsrJobInput,
   StartAsrJobOutput,
   SubtitleCue,
@@ -111,6 +114,9 @@ export const backend = {
   importMedia(sourcePath: string) {
     return callCommand<MediaItem>("import_media", { sourcePath });
   },
+  importOnlineMedia(url: string) {
+    return callCommand<MediaItem>("import_online_media", { url });
+  },
   deleteMedia(mediaId: string) {
     return callCommand<boolean>("delete_media", { mediaId });
   },
@@ -126,8 +132,11 @@ export const backend = {
   saveSubtitleDocument(mediaId: string, cues: SubtitleCue[]) {
     return callCommand<SubtitleDocument>("save_subtitle_document", { mediaId, cues });
   },
-  translateMediaSubtitle(mediaId: string) {
-    return callCommand<SubtitleDocument>("translate_media_subtitle", { mediaId });
+  translateMediaSubtitle(mediaId: string, sourceLanguage?: string) {
+    return callCommand<SubtitleDocument>("translate_media_subtitle", {
+      mediaId,
+      sourceLanguage,
+    });
   },
   recordPlayback(mediaId: string) {
     return callCommand<PlaybackHistoryItem>("record_playback", { mediaId });
@@ -149,6 +158,12 @@ export const backend = {
   },
   resetAppData() {
     return callCommand<CleanupResult>("reset_app_data");
+  },
+  getShutdownTaskSummary() {
+    return callCommand<ShutdownTaskSummary>("get_shutdown_task_summary");
+  },
+  shutdownAndExit() {
+    return callCommand<ShutdownCleanupOutput>("shutdown_and_exit");
   },
 };
 
@@ -227,5 +242,13 @@ export const modelEvents = {
         handler(payload);
       },
     );
+  },
+};
+
+export const appEvents = {
+  onCloseRequested(handler: (payload: ShutdownTaskSummary) => void) {
+    return listen<ShutdownTaskSummary>(APP_CLOSE_REQUESTED_EVENT, ({ payload }) => {
+      handler(payload);
+    });
   },
 };

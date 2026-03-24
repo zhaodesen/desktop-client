@@ -2,13 +2,17 @@ use crate::{
     asr::{self, CancelAsrJobOutput, StartAsrJobInput, StartAsrJobOutput},
     error::CommandResponse,
     media::{self, ImportMediaInput, LibraryState, MediaItem, PlaybackHistoryItem},
-    model::{self, AllModelsStatus, DefaultModelStatus, DownloadModelOutput, ModelInfo, ModelStatus},
+    model::{
+        self, AllModelsStatus, DefaultModelStatus, DownloadModelOutput, ModelInfo, ModelStatus,
+    },
+    shutdown::{self, ShutdownCleanupOutput, ShutdownTaskSummary},
     state::{AppSettings, AppState, OverlayWindowState},
     storage::{self, CleanupResult},
+    store,
     subtitle::{self, SubtitleCue, SubtitleDocument},
-    store, window,
+    window,
 };
-use tauri::{AppHandle, State, async_runtime};
+use tauri::{async_runtime, AppHandle, Manager, State};
 
 async fn run_blocking_task<T, F>(task: F) -> Result<T, String>
 where
@@ -253,6 +257,21 @@ pub async fn import_media(app: AppHandle, source_path: String) -> CommandRespons
 }
 
 #[tauri::command]
+pub async fn import_online_media(app: AppHandle, url: String) -> CommandResponse<MediaItem> {
+    let app_handle = app.clone();
+    let active_online_import = app.state::<AppState>().active_online_import.clone();
+
+    match run_blocking_task(move || {
+        media::import_online_media(&app_handle, &url, active_online_import)
+    })
+    .await
+    {
+        Ok(item) => CommandResponse::ok(item),
+        Err(error) => CommandResponse::err("import_online_media_failed", error),
+    }
+}
+
+#[tauri::command]
 pub fn delete_media(app: AppHandle, media_id: String) -> CommandResponse<bool> {
     match media::delete_media(&app, &media_id) {
         Ok(_) => CommandResponse::ok(true),
@@ -299,17 +318,41 @@ pub fn save_subtitle_document(
 pub async fn translate_media_subtitle(
     app: AppHandle,
     media_id: String,
+    source_language: Option<String>,
 ) -> CommandResponse<SubtitleDocument> {
     let app_handle = app.clone();
+    let active_translation_job = app.state::<AppState>().active_translation_job.clone();
 
     match run_blocking_task(move || {
-        subtitle::translate_media_subtitle(&app_handle, &media_id)
+        subtitle::translate_media_subtitle(
+            &app_handle,
+            active_translation_job,
+            &media_id,
+            source_language.as_deref(),
+        )
     })
     .await
     {
         Ok(document) => CommandResponse::ok(document),
         Err(error) => CommandResponse::err("translate_media_subtitle_failed", error),
     }
+}
+
+#[tauri::command]
+pub fn get_shutdown_task_summary(
+    state: State<'_, AppState>,
+) -> CommandResponse<ShutdownTaskSummary> {
+    CommandResponse::ok(shutdown::get_task_summary(&state))
+}
+
+#[tauri::command]
+pub fn shutdown_and_exit(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> CommandResponse<ShutdownCleanupOutput> {
+    let output = shutdown::prepare_for_exit(&app, &state);
+    shutdown::exit_after_cleanup(app);
+    CommandResponse::ok(output)
 }
 
 #[tauri::command]

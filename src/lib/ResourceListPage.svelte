@@ -5,12 +5,13 @@
 
   interface Props {
     items: MediaItem[];
+    onRetryAsr: (id: string) => void;
     onEditSubtitle: (id: string) => void;
     onDeleteMedia: (id: string) => void;
     onAddToPlaylist: (id: string) => void;
   }
 
-  const { items, onEditSubtitle, onDeleteMedia, onAddToPlaylist }: Props = $props();
+  const { items, onRetryAsr, onEditSubtitle, onDeleteMedia, onAddToPlaylist }: Props = $props();
   let durationLabels = $state<Record<string, string>>({});
   let addedTooltipId = $state<string | undefined>(undefined);
   let tooltipTimer: ReturnType<typeof setTimeout> | undefined;
@@ -130,6 +131,7 @@
                 <span class="add-tooltip">已添加到播放列表</span>
               {/if}
             </div>
+            <button class="btn btn-sm" onclick={() => onRetryAsr(item.id)}>重新识别</button>
             <button class="btn btn-sm" disabled={!item.subtitlePath} onclick={() => onEditSubtitle(item.id)}>编辑字幕</button>
             <button class="btn btn-sm btn-danger" onclick={() => onDeleteMedia(item.id)}>删除</button>
           </div>
@@ -152,6 +154,22 @@
   .add-btn-wrap {
     position: relative;
     display: inline-flex;
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    .list-item-actions {
+      opacity: 0;
+      transform: translateX(8px);
+      pointer-events: none;
+      transition: opacity 160ms ease, transform 160ms ease;
+    }
+
+    .list-item:hover .list-item-actions,
+    .list-item:focus-within .list-item-actions {
+      opacity: 1;
+      transform: translateX(0);
+      pointer-events: auto;
+    }
   }
 
   .add-tooltip {
