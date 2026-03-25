@@ -195,6 +195,7 @@ git push origin v0.1.0
 
 - GitHub Actions 不再依赖你手工把各平台 sidecar 提前提交到仓库；工作流会按目标平台自动准备。
 - 不配置签名 secrets 也可以正常发布安装包。
+- macOS 默认启用 `ad-hoc signing`，可降低 Apple Silicon 设备上的安装拦截概率，但仍不等于正式签名或公证。
 - 没有签名时，macOS 首次打开可能需要右键打开或在系统设置里手动放行，Windows 也可能提示未知发布者。
 - 如果你想减少系统安全提示，再去 GitHub 仓库 `Settings -> Secrets and variables -> Actions` 中配置签名密钥。
 
