@@ -10,6 +10,7 @@ $CacheDir = Join-Path $RootDir ".cache"
 $WhisperDir = if ($env:WHISPER_CPP_DIR) { $env:WHISPER_CPP_DIR } else { Join-Path $CacheDir "whisper.cpp" }
 $WhisperRef = if ($env:WHISPER_CPP_REF) { $env:WHISPER_CPP_REF } else { "master" }
 $YtDlpSource = if ($env:YT_DLP_SOURCE) { $env:YT_DLP_SOURCE } else { "" }
+$YtDlpDownloadUrl = if ($env:YT_DLP_DOWNLOAD_URL) { $env:YT_DLP_DOWNLOAD_URL } else { "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe" }
 
 New-Item -ItemType Directory -Force -Path $BinDir | Out-Null
 New-Item -ItemType Directory -Force -Path $CacheDir | Out-Null
@@ -65,6 +66,13 @@ function Find-YtDlp {
   return $null
 }
 
+function Install-YtDlp {
+  param([string]$TargetPath)
+
+  Write-Host "Downloading yt-dlp from $YtDlpDownloadUrl"
+  Invoke-WebRequest -Uri $YtDlpDownloadUrl -OutFile $TargetPath
+}
+
 $ffmpeg = Find-Ffmpeg
 if (-not $ffmpeg) {
   choco install ffmpeg --yes
@@ -80,16 +88,17 @@ Copy-Item $ffmpeg $FfmpegTargetPath -Force
 
 $ytDlp = Find-YtDlp
 if (-not $ytDlp) {
-  choco install yt-dlp --yes
-  $env:PATH = "C:\ProgramData\chocolatey\bin;C:\tools\ffmpeg\bin;$env:PATH"
-  $ytDlp = Find-YtDlp
+  Install-YtDlp -TargetPath $YtDlpTargetPath
+  $ytDlp = $YtDlpTargetPath
 }
 
 if (-not $ytDlp) {
-  throw "Cannot locate yt-dlp after Chocolatey installation."
+  throw "Cannot locate yt-dlp after installation."
 }
 
-Copy-Item $ytDlp $YtDlpTargetPath -Force
+if ((Resolve-Path $ytDlp).Path -ne (Resolve-Path $YtDlpTargetPath -ErrorAction SilentlyContinue | ForEach-Object { $_.Path })) {
+  Copy-Item $ytDlp $YtDlpTargetPath -Force
+}
 
 if (Test-Path (Join-Path $WhisperDir ".git")) {
   git -C $WhisperDir fetch --depth 1 origin $WhisperRef

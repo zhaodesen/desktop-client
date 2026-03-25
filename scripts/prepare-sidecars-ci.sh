@@ -28,6 +28,7 @@ target_suffix() {
 FFMPEG_TARGET_PATH="$BIN_DIR/$(target_suffix ffmpeg)"
 WHISPER_TARGET_PATH="$BIN_DIR/$(target_suffix whisper-cli)"
 YT_DLP_TARGET_PATH="$BIN_DIR/$(target_suffix yt-dlp)"
+YT_DLP_DOWNLOAD_URL="${YT_DLP_DOWNLOAD_URL:-https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe}"
 
 require_command() {
   command -v "$1" >/dev/null 2>&1 || {
@@ -112,38 +113,8 @@ install_yt_dlp() {
       cp "$yt_dlp_bin" "$YT_DLP_TARGET_PATH"
       ;;
     x86_64-pc-windows-msvc)
-      local choco_bin=""
-      if [[ -x "/c/ProgramData/chocolatey/bin/choco.exe" ]]; then
-        choco_bin="/c/ProgramData/chocolatey/bin/choco.exe"
-      elif command -v choco.exe >/dev/null 2>&1; then
-        choco_bin="$(command -v choco.exe)"
-      elif command -v choco >/dev/null 2>&1; then
-        choco_bin="$(command -v choco)"
-      fi
-
-      if [[ -z "$choco_bin" ]]; then
-        echo "Cannot find Chocolatey on Windows runner." >&2
-        exit 1
-      fi
-
-      if ! command -v yt-dlp >/dev/null 2>&1; then
-        "$choco_bin" install yt-dlp --yes
-        export PATH="/c/ProgramData/chocolatey/bin:$PATH"
-      fi
-
-      local yt_dlp_bin=""
-      if command -v yt-dlp >/dev/null 2>&1; then
-        yt_dlp_bin="$(command -v yt-dlp)"
-      elif [[ -x "/c/ProgramData/chocolatey/bin/yt-dlp.exe" ]]; then
-        yt_dlp_bin="/c/ProgramData/chocolatey/bin/yt-dlp.exe"
-      fi
-
-      if [[ -z "$yt_dlp_bin" ]]; then
-        echo "Cannot locate yt-dlp after Chocolatey installation." >&2
-        exit 1
-      fi
-
-      cp "$yt_dlp_bin" "$YT_DLP_TARGET_PATH"
+      require_command curl
+      curl -L --fail --retry 3 -o "$YT_DLP_TARGET_PATH" "$YT_DLP_DOWNLOAD_URL"
       ;;
     *)
       echo "Unsupported target for CI sidecar preparation: $TARGET_TRIPLE" >&2
