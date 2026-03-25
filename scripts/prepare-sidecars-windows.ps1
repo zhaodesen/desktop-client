@@ -22,12 +22,8 @@ $FfmpegTargetPath = Join-Path $BinDir (Resolve-TargetName "ffmpeg")
 $WhisperTargetPath = Join-Path $BinDir (Resolve-TargetName "whisper-cli")
 
 function Find-Ffmpeg {
-  $command = Get-Command ffmpeg -ErrorAction SilentlyContinue
-  if ($command) {
-    return $command.Source
-  }
-
   $candidates = @(
+    "C:\ProgramData\chocolatey\lib\ffmpeg\tools\ffmpeg\bin\ffmpeg.exe",
     "C:\tools\ffmpeg\bin\ffmpeg.exe",
     "C:\ProgramData\chocolatey\bin\ffmpeg.exe"
   )
@@ -36,6 +32,11 @@ function Find-Ffmpeg {
     if (Test-Path $candidate) {
       return $candidate
     }
+  }
+
+  $command = Get-Command ffmpeg -ErrorAction SilentlyContinue
+  if ($command) {
+    return $command.Source
   }
 
   return $null
