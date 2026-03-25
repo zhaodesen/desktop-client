@@ -16,16 +16,21 @@ jobs:
         include:
           - name: macOS Apple Silicon
             platform: macos-latest
+            target: aarch64-apple-darwin
             args: --target aarch64-apple-darwin
           - name: macOS Intel
-            platform: macos-latest
+            platform: macos-13
+            target: x86_64-apple-darwin
             args: --target x86_64-apple-darwin
           - name: Windows x64
             platform: windows-latest
+            target: x86_64-pc-windows-msvc
             args: --target x86_64-pc-windows-msvc
 
     runs-on: ${{ matrix.platform }}
     name: ${{ matrix.name }}
+    env:
+      TARGET_TRIPLE: ${{ matrix.target }}
 
     steps:
       - name: Checkout repository
@@ -40,7 +45,7 @@ jobs:
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-apple-darwin,x86_64-apple-darwin,x86_64-pc-windows-msvc
+          targets: ${{ matrix.target }}
 
       - name: Restore Rust cache
         uses: swatinem/rust-cache@v2
@@ -50,10 +55,92 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Prepare bundled sidecars
+        shell: bash
+        run: ./scripts/prepare-sidecars-ci.sh "${TARGET_TRIPLE}"
+
+      - name: Detect macOS signing availability
+        if: startsWith(matrix.target, 'aarch64-apple-darwin') || startsWith(matrix.target, 'x86_64-apple-darwin')
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          ENABLE_MACOS_SIGNING=true
+          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID KEYCHAIN_PASSWORD; do
+            if [[ -z "${!name:-}" ]]; then
+              ENABLE_MACOS_SIGNING=false
+            fi
+          done
+          echo "ENABLE_MACOS_SIGNING=$ENABLE_MACOS_SIGNING" >> "$GITHUB_ENV"
+
+      - name: Import Apple Developer certificate
+        if: (startsWith(matrix.target, 'aarch64-apple-darwin') || startsWith(matrix.target, 'x86_64-apple-darwin')) && env.ENABLE_MACOS_SIGNING == 'true'
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security set-keychain-settings -t 3600 -u build.keychain
+          security import certificate.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+
+      - name: Resolve Apple signing identity
+        if: (startsWith(matrix.target, 'aarch64-apple-darwin') || startsWith(matrix.target, 'x86_64-apple-darwin')) && env.ENABLE_MACOS_SIGNING == 'true'
+        shell: bash
+        run: |
+          CERT_ID=$(security find-identity -v -p codesigning build.keychain | grep "Developer ID Application" | head -n 1 | awk -F'"' '{print $2}')
+          if [[ -z "$CERT_ID" ]]; then
+            echo "Cannot find Developer ID Application certificate in keychain." >&2
+            exit 1
+          fi
+          echo "APPLE_SIGNING_IDENTITY=$CERT_ID" >> "$GITHUB_ENV"
+
+      - name: Detect Windows signing availability
+        if: matrix.target == 'x86_64-pc-windows-msvc'
+        shell: bash
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          ENABLE_WINDOWS_SIGNING=true
+          for name in WINDOWS_CERTIFICATE WINDOWS_CERTIFICATE_PASSWORD; do
+            if [[ -z "${!name:-}" ]]; then
+              ENABLE_WINDOWS_SIGNING=false
+            fi
+          done
+          echo "ENABLE_WINDOWS_SIGNING=$ENABLE_WINDOWS_SIGNING" >> "$GITHUB_ENV"
+
+      - name: Import Windows code signing certificate
+        if: matrix.target == 'x86_64-pc-windows-msvc' && env.ENABLE_WINDOWS_SIGNING == 'true'
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          New-Item -ItemType Directory -Path certificate -Force | Out-Null
+          Set-Content -Path certificate/tempCert.txt -Value $env:WINDOWS_CERTIFICATE
+          certutil -decode certificate/tempCert.txt certificate/certificate.pfx
+          Remove-Item certificate/tempCert.txt
+          Import-PfxCertificate -FilePath certificate/certificate.pfx -CertStoreLocation Cert:\CurrentUser\My -Password (ConvertTo-SecureString -String $env:WINDOWS_CERTIFICATE_PASSWORD -Force -AsPlainText) | Out-Null
+
       - name: Build and publish Tauri app
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_SIGNING_IDENTITY: ${{ env.APPLE_SIGNING_IDENTITY }}
         with:
           tagName: v__VERSION__
           releaseName: 字幕工作台 v__VERSION__
@@ -63,6 +150,8 @@ jobs:
             - macOS Intel
             - Windows x64
 
+            当前工作流会在发布时自动准备 sidecar。
+            如果已配置证书 secrets，会自动启用 macOS / Windows 代码签名。
             请在 Assets 中下载对应平台安装包。
           releaseDraft: false
           prerelease: false

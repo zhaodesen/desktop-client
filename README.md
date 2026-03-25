@@ -164,6 +164,13 @@ git push -u origin master
 - macOS Intel：`x86_64-apple-darwin`
 - Windows x64：`x86_64-pc-windows-msvc`
 
+构建过程中还会自动完成：
+
+- 在 CI 中安装 `ffmpeg`，并复制为 Tauri 需要的 sidecar 命名
+- 在 CI 中编译 `whisper-cli`，并复制为 Tauri 需要的 sidecar 命名
+- 如果已配置 secrets，macOS 使用 `Developer ID Application` 证书签名，并提交公证
+- 如果已配置 secrets，Windows 使用 `.pfx` 证书签名
+
 构建完成后，安装包会上传到当前版本对应的 GitHub Release 页面，你可以直接在 Release 的 `Assets` 区域下载。
 
 ### 发版命令
@@ -186,6 +193,45 @@ git push origin v0.1.0
 
 ### 重要说明
 
-- `src-tauri/binaries/` 下必须提前准备好对应平台的 `ffmpeg` 和 `whisper-cli` sidecar，否则 GitHub Actions 打包会失败。
-- 目前这个工作流会生成未签名安装包。macOS 首次打开可能提示安全警告，Windows 也可能提示未知发布者。
-- 如果后续你要做正式分发，可以继续补充 macOS 签名、公证，以及 Windows 代码签名。
+- GitHub Actions 不再依赖你手工把各平台 sidecar 提前提交到仓库；工作流会按目标平台自动准备。
+- 不配置签名 secrets 也可以正常发布安装包。
+- 没有签名时，macOS 首次打开可能需要右键打开或在系统设置里手动放行，Windows 也可能提示未知发布者。
+- 如果你想减少系统安全提示，再去 GitHub 仓库 `Settings -> Secrets and variables -> Actions` 中配置签名密钥。
+
+### 必填 GitHub Secrets
+
+#### macOS 签名与公证
+
+- `APPLE_CERTIFICATE`
+  - Base64 编码后的 `Developer ID Application` 证书 `.p12`
+- `APPLE_CERTIFICATE_PASSWORD`
+  - 导出 `.p12` 时设置的密码
+- `APPLE_ID`
+  - Apple Developer 登录邮箱
+- `APPLE_PASSWORD`
+  - Apple 专用 app-specific password
+- `APPLE_TEAM_ID`
+  - Apple Developer Team ID
+- `KEYCHAIN_PASSWORD`
+  - CI 临时 keychain 密码，可自定义一个强密码
+
+#### Windows 签名
+
+- `WINDOWS_CERTIFICATE`
+  - Base64 编码后的代码签名证书 `.pfx`
+- `WINDOWS_CERTIFICATE_PASSWORD`
+  - 导出 `.pfx` 时设置的密码
+
+### 证书转换命令
+
+#### macOS `.p12` 转 Base64
+
+```bash
+base64 -i developer-id-application.p12 | pbcopy
+```
+
+#### Windows `.pfx` 转 Base64
+
+```bash
+base64 -i codesign-certificate.pfx | pbcopy
+```
