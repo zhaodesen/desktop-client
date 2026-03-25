@@ -68,7 +68,7 @@ Push-Location $WhisperDir
 if (Test-Path build) {
   Remove-Item build -Recurse -Force
 }
-cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF
 cmake --build build --config Release
 Pop-Location
 
