@@ -8,7 +8,9 @@ CACHE_DIR="$ROOT_DIR/.cache"
 WHISPER_CPP_DIR="${WHISPER_CPP_DIR:-$CACHE_DIR/whisper.cpp}"
 WHISPER_CPP_REF="${WHISPER_CPP_REF:-master}"
 TARGET_TRIPLE="${1:-}"
-YT_DLP_SOURCE="${YT_DLP_SOURCE:-}"
+FFMPEG_SOURCE="${FFMPEG_SOURCE:-${FFMPEG_BIN:-}}"
+WHISPER_CLI_SOURCE="${WHISPER_CLI_SOURCE:-${WHISPER_CLI_BIN:-}}"
+YT_DLP_SOURCE="${YT_DLP_SOURCE:-${YT_DLP_BIN:-}}"
 
 if [[ -z "$TARGET_TRIPLE" ]]; then
   echo "Usage: scripts/prepare-sidecars-ci.sh <target-triple>" >&2
@@ -97,6 +99,18 @@ ensure_whisper_source() {
 }
 
 install_ffmpeg() {
+  if [[ -n "$FFMPEG_SOURCE" ]]; then
+    if [[ ! -f "$FFMPEG_SOURCE" ]]; then
+      echo "FFMPEG_SOURCE does not exist: $FFMPEG_SOURCE" >&2
+      exit 1
+    fi
+
+    cp "$FFMPEG_SOURCE" "$FFMPEG_TARGET_PATH"
+    chmod +x "$FFMPEG_TARGET_PATH" || true
+    echo "Prepared ffmpeg sidecar: $FFMPEG_TARGET_PATH"
+    return
+  fi
+
   case "$TARGET_TRIPLE" in
     aarch64-apple-darwin|x86_64-apple-darwin)
       require_command brew
@@ -175,6 +189,18 @@ install_yt_dlp() {
 }
 
 build_whisper_cli() {
+  if [[ -n "$WHISPER_CLI_SOURCE" ]]; then
+    if [[ ! -f "$WHISPER_CLI_SOURCE" ]]; then
+      echo "WHISPER_CLI_SOURCE does not exist: $WHISPER_CLI_SOURCE" >&2
+      exit 1
+    fi
+
+    cp "$WHISPER_CLI_SOURCE" "$WHISPER_TARGET_PATH"
+    chmod +x "$WHISPER_TARGET_PATH" || true
+    echo "Prepared whisper sidecar: $WHISPER_TARGET_PATH"
+    return
+  fi
+
   ensure_whisper_source
   require_command cmake
 

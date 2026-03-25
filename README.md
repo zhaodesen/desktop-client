@@ -17,6 +17,18 @@ npm install
 npm run tauri dev
 ```
 
+Windows 下如果 `src-tauri/binaries` 缺少当前目标平台的 sidecar，`npm run tauri dev` / `npm run tauri build` 现在会先自动调用 [prepare-sidecars-windows.ps1](/Users/zhaodesen/Desktop/desktop-client/scripts/prepare-sidecars-windows.ps1) 补齐：
+
+- `ffmpeg-x86_64-pc-windows-msvc.exe`
+- `whisper-cli-x86_64-pc-windows-msvc.exe`
+- `yt-dlp-x86_64-pc-windows-msvc.exe`
+
+如果你已经在本机准备好了可执行文件，也可以直接复用运行时环境变量：
+
+- `FFMPEG_BIN`
+- `WHISPER_CLI_BIN`
+- `YT_DLP_BIN`
+
 ## 离线识别依赖
 
 当前离线识别会按下面顺序查找依赖。正式版会优先使用打包进去的 sidecar：
@@ -99,12 +111,27 @@ src-tauri/binaries/yt-dlp-x86_64-unknown-linux-gnu
 
 ## 推荐的最小本地准备
 
-准备 sidecar：
+macOS / Linux 准备 sidecar：
 
 ```bash
 cd /Users/zhaodesen/Desktop/desktop-client
 FFMPEG_SOURCE=/absolute/path/to/ffmpeg ./scripts/build-sidecars.sh
 ./scripts/verify-sidecars.sh
+```
+
+Windows 本地开发可以直接运行：
+
+```powershell
+cd /Users/zhaodesen/Desktop/desktop-client
+npm run tauri dev
+```
+
+首次运行时如果缺少 sidecar，会自动执行准备脚本。若要复用你本机已有的二进制，可以先设置：
+
+```powershell
+$env:FFMPEG_BIN="C:\absolute\path\to\ffmpeg.exe"
+$env:WHISPER_CLI_BIN="C:\absolute\path\to\whisper-cli.exe"
+$env:YT_DLP_BIN="C:\absolute\path\to\yt-dlp.exe"
 ```
 
 然后准备模型：
@@ -212,6 +239,7 @@ git push origin v0.1.12
 ### 重要说明
 
 - GitHub Actions 不再依赖你手工把各平台 sidecar 提前提交到仓库；工作流会按目标平台自动准备。
+- Windows 本地 `tauri dev/build` 也不再要求你先手工往 `src-tauri/binaries` 填 sidecar；缺失时会自动准备，或优先复用 `FFMPEG_BIN` / `WHISPER_CLI_BIN` / `YT_DLP_BIN`。
 - 不配置签名 secrets 也可以正常发布安装包。
 - macOS 默认启用 `ad-hoc signing`，可降低 Apple Silicon 设备上的安装拦截概率，但仍不等于正式签名或公证。
 - 没有签名时，macOS 首次打开可能需要右键打开或在系统设置里手动放行，Windows 也可能提示未知发布者。

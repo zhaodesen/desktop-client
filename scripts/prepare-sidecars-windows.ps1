@@ -9,7 +9,9 @@ $BinDir = Join-Path $RootDir "src-tauri/binaries"
 $CacheDir = Join-Path $RootDir ".cache"
 $WhisperDir = if ($env:WHISPER_CPP_DIR) { $env:WHISPER_CPP_DIR } else { Join-Path $CacheDir "whisper.cpp" }
 $WhisperRef = if ($env:WHISPER_CPP_REF) { $env:WHISPER_CPP_REF } else { "master" }
-$YtDlpSource = if ($env:YT_DLP_SOURCE) { $env:YT_DLP_SOURCE } else { "" }
+$FfmpegSource = if ($env:FFMPEG_SOURCE) { $env:FFMPEG_SOURCE } elseif ($env:FFMPEG_BIN) { $env:FFMPEG_BIN } else { "" }
+$WhisperCliSource = if ($env:WHISPER_CLI_SOURCE) { $env:WHISPER_CLI_SOURCE } elseif ($env:WHISPER_CLI_BIN) { $env:WHISPER_CLI_BIN } else { "" }
+$YtDlpSource = if ($env:YT_DLP_SOURCE) { $env:YT_DLP_SOURCE } elseif ($env:YT_DLP_BIN) { $env:YT_DLP_BIN } else { "" }
 $YtDlpDownloadUrl = if ($env:YT_DLP_DOWNLOAD_URL) { $env:YT_DLP_DOWNLOAD_URL } else { "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe" }
 
 New-Item -ItemType Directory -Force -Path $BinDir | Out-Null
@@ -25,6 +27,14 @@ $WhisperTargetPath = Join-Path $BinDir (Resolve-TargetName "whisper-cli")
 $YtDlpTargetPath = Join-Path $BinDir (Resolve-TargetName "yt-dlp")
 
 function Find-Ffmpeg {
+  if ($FfmpegSource) {
+    if (-not (Test-Path $FfmpegSource)) {
+      throw "FFMPEG_SOURCE does not exist: $FfmpegSource"
+    }
+
+    return (Resolve-Path $FfmpegSource).Path
+  }
+
   $candidates = @(
     "C:\ProgramData\chocolatey\lib\ffmpeg\tools\ffmpeg\bin\ffmpeg.exe",
     "C:\tools\ffmpeg\bin\ffmpeg.exe",
@@ -90,6 +100,22 @@ function Resolve-YtDlpSource {
   return (Resolve-Path $YtDlpSource).Path
 }
 
+function Resolve-WhisperCliSource {
+  if (-not $WhisperCliSource) {
+    return $null
+  }
+
+  if (-not (Test-Path $WhisperCliSource)) {
+    throw "WHISPER_CLI_SOURCE does not exist: $WhisperCliSource"
+  }
+
+  if (-not (Test-PortableExecutable $WhisperCliSource)) {
+    throw "WHISPER_CLI_SOURCE must point to a native whisper-cli .exe."
+  }
+
+  return (Resolve-Path $WhisperCliSource).Path
+}
+
 $ffmpeg = Find-Ffmpeg
 if (-not $ffmpeg) {
   choco install ffmpeg --yes
@@ -121,35 +147,39 @@ if ((Resolve-Path $ytDlp).Path -ne (Resolve-Path $YtDlpTargetPath -ErrorAction S
   Copy-Item $ytDlp $YtDlpTargetPath -Force
 }
 
-if (Test-Path (Join-Path $WhisperDir ".git")) {
-  git -C $WhisperDir fetch --depth 1 origin $WhisperRef
-  git -C $WhisperDir checkout -f FETCH_HEAD
+if ($resolvedWhisper = Resolve-WhisperCliSource) {
+  Copy-Item $resolvedWhisper $WhisperTargetPath -Force
 } else {
-  if (Test-Path $WhisperDir) {
-    Remove-Item $WhisperDir -Recurse -Force
+  if (Test-Path (Join-Path $WhisperDir ".git")) {
+    git -C $WhisperDir fetch --depth 1 origin $WhisperRef
+    git -C $WhisperDir checkout -f FETCH_HEAD
+  } else {
+    if (Test-Path $WhisperDir) {
+      Remove-Item $WhisperDir -Recurse -Force
+    }
+    git clone --depth 1 --branch $WhisperRef https://github.com/ggml-org/whisper.cpp.git $WhisperDir
   }
-  git clone --depth 1 --branch $WhisperRef https://github.com/ggml-org/whisper.cpp.git $WhisperDir
+
+  Push-Location $WhisperDir
+  if (Test-Path build) {
+    Remove-Item build -Recurse -Force
+  }
+  cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF
+  cmake --build build --config Release
+  Pop-Location
+
+  $whisperCandidates = @(
+    (Join-Path $WhisperDir "build/bin/Release/whisper-cli.exe"),
+    (Join-Path $WhisperDir "build/bin/whisper-cli.exe")
+  )
+
+  $whisperBuilt = $whisperCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+  if (-not $whisperBuilt) {
+    throw "Cannot find built whisper-cli.exe."
+  }
+
+  Copy-Item $whisperBuilt $WhisperTargetPath -Force
 }
-
-Push-Location $WhisperDir
-if (Test-Path build) {
-  Remove-Item build -Recurse -Force
-}
-cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF
-cmake --build build --config Release
-Pop-Location
-
-$whisperCandidates = @(
-  (Join-Path $WhisperDir "build/bin/Release/whisper-cli.exe"),
-  (Join-Path $WhisperDir "build/bin/whisper-cli.exe")
-)
-
-$whisperBuilt = $whisperCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
-if (-not $whisperBuilt) {
-  throw "Cannot find built whisper-cli.exe."
-}
-
-Copy-Item $whisperBuilt $WhisperTargetPath -Force
 
 & $WhisperTargetPath --help *> $null
 if ($LASTEXITCODE -notin @(0, 1)) {

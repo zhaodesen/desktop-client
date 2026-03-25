@@ -7,8 +7,9 @@ BIN_DIR="$ROOT_DIR/src-tauri/binaries"
 CACHE_DIR="$ROOT_DIR/.cache"
 WHISPER_CPP_DIR="${WHISPER_CPP_DIR:-$CACHE_DIR/whisper.cpp}"
 WHISPER_CPP_REF="${WHISPER_CPP_REF:-master}"
-FFMPEG_SOURCE="${FFMPEG_SOURCE:-}"
-YT_DLP_SOURCE="${YT_DLP_SOURCE:-}"
+FFMPEG_SOURCE="${FFMPEG_SOURCE:-${FFMPEG_BIN:-}}"
+WHISPER_CLI_SOURCE="${WHISPER_CLI_SOURCE:-${WHISPER_CLI_BIN:-}}"
+YT_DLP_SOURCE="${YT_DLP_SOURCE:-${YT_DLP_BIN:-}}"
 YT_DLP_DOWNLOAD_URL="${YT_DLP_DOWNLOAD_URL:-}"
 
 mkdir -p "$BIN_DIR"
@@ -114,6 +115,18 @@ ensure_whisper_source() {
 }
 
 build_whisper_cli() {
+  if [[ -n "$WHISPER_CLI_SOURCE" ]]; then
+    if [[ ! -f "$WHISPER_CLI_SOURCE" ]]; then
+      echo "WHISPER_CLI_SOURCE does not exist: $WHISPER_CLI_SOURCE" >&2
+      exit 1
+    fi
+
+    cp "$WHISPER_CLI_SOURCE" "$WHISPER_TARGET_PATH"
+    chmod +x "$WHISPER_TARGET_PATH" || true
+    echo "Prepared whisper sidecar: $WHISPER_TARGET_PATH"
+    return
+  fi
+
   ensure_whisper_source
 
   pushd "$WHISPER_CPP_DIR" >/dev/null
@@ -146,6 +159,8 @@ FFMPEG_SOURCE is not set.
 
 Provide a prebuilt ffmpeg binary path, for example:
   FFMPEG_SOURCE=/absolute/path/to/ffmpeg scripts/build-sidecars.sh
+Or reuse the runtime variable:
+  FFMPEG_BIN=/absolute/path/to/ffmpeg scripts/build-sidecars.sh
 EOF
     exit 1
   fi
@@ -177,6 +192,8 @@ Cannot determine a yt-dlp download URL for target: $TARGET_TRIPLE
 
 Provide a prebuilt standalone yt-dlp binary path, for example:
   YT_DLP_SOURCE=/absolute/path/to/yt-dlp scripts/build-sidecars.sh
+Or reuse the runtime variable:
+  YT_DLP_BIN=/absolute/path/to/yt-dlp scripts/build-sidecars.sh
 EOF
       exit 1
     fi

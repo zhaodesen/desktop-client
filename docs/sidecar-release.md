@@ -60,6 +60,18 @@ src-tauri/binaries/yt-dlp-x86_64-unknown-linux-gnu
 
 ## 获取策略
 
+Windows 本地开发和构建现在会在缺失 sidecar 时自动调用 [prepare-sidecars-windows.ps1](/Users/zhaodesen/Desktop/desktop-client/scripts/prepare-sidecars-windows.ps1)，自动补齐：
+
+- `ffmpeg-x86_64-pc-windows-msvc.exe`
+- `whisper-cli-x86_64-pc-windows-msvc.exe`
+- `yt-dlp-x86_64-pc-windows-msvc.exe`
+
+如果机器上已经有现成的原生可执行文件，也可以直接复用这些运行时环境变量：
+
+- `FFMPEG_BIN`
+- `WHISPER_CLI_BIN`
+- `YT_DLP_BIN`
+
 ## 1. whisper-cli
 
 推荐从官方源码自行编译，而不是依赖第三方散装二进制。
@@ -87,6 +99,10 @@ FFMPEG_SOURCE=/absolute/path/to/ffmpeg ./scripts/build-sidecars.sh
   - 指定本地 whisper.cpp 源码目录
 - `WHISPER_CPP_REF`
   - 指定克隆分支或 tag，默认 `master`
+- `WHISPER_CLI_SOURCE`
+  - 直接指定要复制进 `src-tauri/binaries/` 的 `whisper-cli`
+- `WHISPER_CLI_BIN`
+  - 与运行时变量同名，脚本会把它当作 `WHISPER_CLI_SOURCE` 使用
 
 ## 2. ffmpeg
 
@@ -108,6 +124,12 @@ FFmpeg 官方主要提供源码，已编译二进制通常通过其下载页列�
 FFMPEG_SOURCE=/absolute/path/to/ffmpeg ./scripts/build-sidecars.sh
 ```
 
+也可以直接复用运行时变量：
+
+```bash
+FFMPEG_BIN=/absolute/path/to/ffmpeg ./scripts/build-sidecars.sh
+```
+
 ## 3. yt-dlp
 
 `yt-dlp` 直接使用官方发布的预编译二进制即可。
@@ -122,6 +144,12 @@ FFMPEG_SOURCE=/absolute/path/to/ffmpeg ./scripts/build-sidecars.sh
 - Linux x64：`yt-dlp_linux`
 
 如果你要使用自定义文件，也可以显式传入 `YT_DLP_SOURCE`，但它必须是官方 standalone 二进制，不要传 `brew`、`pip`、`uv tool` 安装出来的包装脚本。
+
+也可以直接复用运行时变量：
+
+```bash
+YT_DLP_BIN=/absolute/path/to/yt-dlp ./scripts/build-sidecars.sh
+```
 
 ## 发布前检查
 
@@ -149,6 +177,8 @@ cd /Users/zhaodesen/Desktop/desktop-client
 npm run tauri dev
 ```
 
+Windows 上如果缺少 sidecar，可以直接执行 `npm run tauri dev`，预检脚本会先自动准备。
+
 ### 正式构建
 
 ```bash
@@ -156,6 +186,8 @@ npm run tauri dev
 ./scripts/verify-sidecars.sh
 npm run tauri build
 ```
+
+Windows 上如果缺少 sidecar，可以直接执行 `npm run tauri build`，预检脚本会先自动准备。
 
 ## 模型文件
 

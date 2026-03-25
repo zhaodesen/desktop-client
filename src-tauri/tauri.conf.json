@@ -1,12 +1,12 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "字幕工作台",
-  "version": "0.1.12",
+  "version": "0.1.13",
   "identifier": "com.zhaodesen.desktopclient",
   "build": {
-    "beforeDevCommand": "npm run dev",
+    "beforeDevCommand": "node scripts/pre-tauri.mjs dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run build",
+    "beforeBuildCommand": "node scripts/pre-tauri.mjs build",
     "frontendDist": "../dist"
   },
   "app": {
