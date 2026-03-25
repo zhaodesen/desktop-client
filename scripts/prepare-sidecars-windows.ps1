@@ -85,7 +85,14 @@ if (-not $whisperBuilt) {
 Copy-Item $whisperBuilt $WhisperTargetPath -Force
 
 & $WhisperTargetPath --help *> $null
+if ($LASTEXITCODE -notin @(0, 1)) {
+  throw "whisper-cli verification failed with exit code $LASTEXITCODE."
+}
+
 & $FfmpegTargetPath -version *> $null
+if ($LASTEXITCODE -ne 0) {
+  throw "ffmpeg verification failed with exit code $LASTEXITCODE."
+}
 
 Write-Host "Prepared whisper sidecar: $WhisperTargetPath"
 Write-Host "Prepared ffmpeg sidecar: $FfmpegTargetPath"
