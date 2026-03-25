@@ -45,32 +45,49 @@ function Find-Ffmpeg {
   return $null
 }
 
-function Find-YtDlp {
-  $candidates = @(
-    $YtDlpSource,
-    "C:\ProgramData\chocolatey\bin\yt-dlp.exe",
-    "C:\ProgramData\chocolatey\lib\yt-dlp\tools\yt-dlp.exe"
-  ) | Where-Object { $_ }
-
-  foreach ($candidate in $candidates) {
-    if (Test-Path $candidate) {
-      return $candidate
-    }
-  }
-
-  $command = Get-Command yt-dlp -ErrorAction SilentlyContinue
-  if ($command) {
-    return $command.Source
-  }
-
-  return $null
-}
-
 function Install-YtDlp {
   param([string]$TargetPath)
 
   Write-Host "Downloading yt-dlp from $YtDlpDownloadUrl"
   Invoke-WebRequest -Uri $YtDlpDownloadUrl -OutFile $TargetPath
+}
+
+function Test-PortableExecutable {
+  param([string]$Path)
+
+  if (-not (Test-Path $Path)) {
+    return $false
+  }
+
+  $stream = [System.IO.File]::OpenRead($Path)
+  try {
+    if ($stream.Length -lt 2) {
+      return $false
+    }
+
+    $header = New-Object byte[] 2
+    $null = $stream.Read($header, 0, 2)
+    return $header[0] -eq 0x4D -and $header[1] -eq 0x5A
+  }
+  finally {
+    $stream.Dispose()
+  }
+}
+
+function Resolve-YtDlpSource {
+  if (-not $YtDlpSource) {
+    return $null
+  }
+
+  if (-not (Test-Path $YtDlpSource)) {
+    throw "YT_DLP_SOURCE does not exist: $YtDlpSource"
+  }
+
+  if (-not (Test-PortableExecutable $YtDlpSource)) {
+    throw "YT_DLP_SOURCE must point to a standalone yt-dlp .exe, not a wrapper script or shim."
+  }
+
+  return (Resolve-Path $YtDlpSource).Path
 }
 
 $ffmpeg = Find-Ffmpeg
@@ -86,7 +103,7 @@ if (-not $ffmpeg) {
 
 Copy-Item $ffmpeg $FfmpegTargetPath -Force
 
-$ytDlp = Find-YtDlp
+$ytDlp = Resolve-YtDlpSource
 if (-not $ytDlp) {
   Install-YtDlp -TargetPath $YtDlpTargetPath
   $ytDlp = $YtDlpTargetPath
@@ -94,6 +111,10 @@ if (-not $ytDlp) {
 
 if (-not $ytDlp) {
   throw "Cannot locate yt-dlp after installation."
+}
+
+if (-not (Test-PortableExecutable $ytDlp)) {
+  throw "yt-dlp binary is not a standalone Windows executable: $ytDlp"
 }
 
 if ((Resolve-Path $ytDlp).Path -ne (Resolve-Path $YtDlpTargetPath -ErrorAction SilentlyContinue | ForEach-Object { $_.Path })) {

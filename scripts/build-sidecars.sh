@@ -9,6 +9,7 @@ WHISPER_CPP_DIR="${WHISPER_CPP_DIR:-$CACHE_DIR/whisper.cpp}"
 WHISPER_CPP_REF="${WHISPER_CPP_REF:-master}"
 FFMPEG_SOURCE="${FFMPEG_SOURCE:-}"
 YT_DLP_SOURCE="${YT_DLP_SOURCE:-}"
+YT_DLP_DOWNLOAD_URL="${YT_DLP_DOWNLOAD_URL:-}"
 
 mkdir -p "$BIN_DIR"
 mkdir -p "$CACHE_DIR"
@@ -39,6 +40,64 @@ YT_DLP_TARGET_NAME="$(target_suffix yt-dlp)"
 WHISPER_TARGET_PATH="$BIN_DIR/$WHISPER_TARGET_NAME"
 FFMPEG_TARGET_PATH="$BIN_DIR/$FFMPEG_TARGET_NAME"
 YT_DLP_TARGET_PATH="$BIN_DIR/$YT_DLP_TARGET_NAME"
+
+require_command() {
+  command -v "$1" >/dev/null 2>&1 || {
+    echo "Missing required command: $1" >&2
+    exit 1
+  }
+}
+
+default_yt_dlp_download_url() {
+  if [[ -n "$YT_DLP_DOWNLOAD_URL" ]]; then
+    printf "%s" "$YT_DLP_DOWNLOAD_URL"
+    return
+  fi
+
+  case "$TARGET_TRIPLE" in
+    aarch64-apple-darwin|x86_64-apple-darwin)
+      printf "%s" "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos"
+      ;;
+    x86_64-pc-windows-msvc)
+      printf "%s" "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
+      ;;
+    aarch64-pc-windows-msvc)
+      printf "%s" "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_arm64.exe"
+      ;;
+    x86_64-unknown-linux-gnu)
+      printf "%s" "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux"
+      ;;
+    aarch64-unknown-linux-gnu)
+      printf "%s" "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux_aarch64"
+      ;;
+    *)
+      printf "%s" ""
+      ;;
+  esac
+}
+
+validate_yt_dlp_candidate() {
+  local candidate="$1"
+
+  if ! command -v file >/dev/null 2>&1; then
+    return
+  fi
+
+  local description
+  description="$(file -b "$candidate" || true)"
+
+  case "$description" in
+    *"script text executable"*|*"ASCII text"*|*"Unicode text"*)
+      cat >&2 <<EOF
+Invalid yt-dlp sidecar candidate: $candidate
+Detected file type: $description
+
+Use the official standalone yt-dlp binary instead of a brew/pip/uv wrapper script.
+EOF
+      exit 1
+      ;;
+  esac
+}
 
 echo "Target triple: $TARGET_TRIPLE"
 echo "Output dir: $BIN_DIR"
@@ -102,23 +161,32 @@ EOF
 }
 
 prepare_yt_dlp() {
-  if [[ -z "$YT_DLP_SOURCE" ]]; then
-    cat >&2 <<EOF
-YT_DLP_SOURCE is not set.
+  if [[ -n "$YT_DLP_SOURCE" ]]; then
+    if [[ ! -f "$YT_DLP_SOURCE" ]]; then
+      echo "YT_DLP_SOURCE does not exist: $YT_DLP_SOURCE" >&2
+      exit 1
+    fi
 
-Provide a prebuilt yt-dlp binary path, for example:
+    cp "$YT_DLP_SOURCE" "$YT_DLP_TARGET_PATH"
+  else
+    local download_url
+    download_url="$(default_yt_dlp_download_url)"
+    if [[ -z "$download_url" ]]; then
+      cat >&2 <<EOF
+Cannot determine a yt-dlp download URL for target: $TARGET_TRIPLE
+
+Provide a prebuilt standalone yt-dlp binary path, for example:
   YT_DLP_SOURCE=/absolute/path/to/yt-dlp scripts/build-sidecars.sh
 EOF
-    exit 1
+      exit 1
+    fi
+
+    require_command curl
+    curl -L --fail --retry 3 -o "$YT_DLP_TARGET_PATH" "$download_url"
   fi
 
-  if [[ ! -f "$YT_DLP_SOURCE" ]]; then
-    echo "YT_DLP_SOURCE does not exist: $YT_DLP_SOURCE" >&2
-    exit 1
-  fi
-
-  cp "$YT_DLP_SOURCE" "$YT_DLP_TARGET_PATH"
   chmod +x "$YT_DLP_TARGET_PATH" || true
+  validate_yt_dlp_candidate "$YT_DLP_TARGET_PATH"
   echo "Prepared yt-dlp sidecar: $YT_DLP_TARGET_PATH"
 }
 
@@ -133,7 +201,7 @@ Expected Tauri externalBin files:
   $YT_DLP_TARGET_PATH
 
 Next steps:
-  1. Verify both binaries run on the target platform.
+  1. Verify all binaries run on the target platform.
   2. Run: npm run tauri dev
   3. Build release: npm run tauri build
 EOF

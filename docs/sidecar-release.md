@@ -22,7 +22,7 @@ binary-name{-target-triple}{.system-extension}
 ```
 
 来源：
-- [Tauri externalBin 配置说明](https://v2.tauri.app/reference/config/)
+- [Tauri Embedding External Binaries](https://v2.tauri.app/develop/sidecar/)
 
 ## 命名规则
 
@@ -71,7 +71,7 @@ src-tauri/binaries/yt-dlp-x86_64-unknown-linux-gnu
 
 ```bash
 cd /Users/zhaodesen/Desktop/desktop-client
-FFMPEG_SOURCE=/absolute/path/to/ffmpeg YT_DLP_SOURCE=/absolute/path/to/yt-dlp ./scripts/build-sidecars.sh
+FFMPEG_SOURCE=/absolute/path/to/ffmpeg ./scripts/build-sidecars.sh
 ```
 
 脚本行为：
@@ -105,7 +105,7 @@ FFmpeg 官方主要提供源码，已编译二进制通常通过其下载页列�
 当前脚本不负责构建 ffmpeg，只负责把你准备好的 `ffmpeg` 复制到正确命名的位置：
 
 ```bash
-FFMPEG_SOURCE=/absolute/path/to/ffmpeg YT_DLP_SOURCE=/absolute/path/to/yt-dlp ./scripts/build-sidecars.sh
+FFMPEG_SOURCE=/absolute/path/to/ffmpeg ./scripts/build-sidecars.sh
 ```
 
 ## 3. yt-dlp
@@ -115,10 +115,13 @@ FFMPEG_SOURCE=/absolute/path/to/ffmpeg YT_DLP_SOURCE=/absolute/path/to/yt-dlp ./
 官方仓库：
 - [yt-dlp/yt-dlp](https://github.com/yt-dlp/yt-dlp)
 
-当前脚本支持两种方式：
+当前脚本默认会按目标平台下载官方 standalone 二进制：
 
-- Windows CI / 本地 PowerShell 脚本：自动通过 Chocolatey 安装 `yt-dlp`
-- 通用本地脚本：通过 `YT_DLP_SOURCE` 指向你已下载的 `yt-dlp` 二进制，再复制到 `src-tauri/binaries/`
+- macOS：`yt-dlp_macos`
+- Windows x64：`yt-dlp.exe`
+- Linux x64：`yt-dlp_linux`
+
+如果你要使用自定义文件，也可以显式传入 `YT_DLP_SOURCE`，但它必须是官方 standalone 二进制，不要传 `brew`、`pip`、`uv tool` 安装出来的包装脚本。
 
 ## 发布前检查
 

@@ -103,7 +103,7 @@ src-tauri/binaries/yt-dlp-x86_64-unknown-linux-gnu
 
 ```bash
 cd /Users/zhaodesen/Desktop/desktop-client
-FFMPEG_SOURCE=/absolute/path/to/ffmpeg YT_DLP_SOURCE=/absolute/path/to/yt-dlp ./scripts/build-sidecars.sh
+FFMPEG_SOURCE=/absolute/path/to/ffmpeg ./scripts/build-sidecars.sh
 ./scripts/verify-sidecars.sh
 ```
 
@@ -178,7 +178,7 @@ git push -u origin master
 构建过程中还会自动完成：
 
 - 在 CI 中安装 `ffmpeg`，并复制为 Tauri 需要的 sidecar 命名
-- 在 CI 中安装 `yt-dlp`，并复制为 Tauri 需要的 sidecar 命名
+- 在 CI 中下载官方 standalone `yt-dlp`，并复制为 Tauri 需要的 sidecar 命名
 - 在 CI 中编译 `whisper-cli`，并复制为 Tauri 需要的 sidecar 命名
 - 如果已配置 secrets，macOS 使用 `Developer ID Application` 证书签名，并提交公证
 - 如果已配置 secrets，Windows 使用 `.pfx` 证书签名
@@ -196,12 +196,18 @@ git push -u origin master
 
 ```bash
 cd /Users/zhaodesen/Desktop/desktop-client
+npm run set-version -- 0.1.12
 git add .
-git commit -m "release: v0.1.0"
+git commit -m "release: v0.1.12"
 git push origin master
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.1.12
+git push origin v0.1.12
 ```
+
+注意：
+
+- 用 `npm run set-version -- <版本号>` 只会更新真正需要同步的版本文件。
+- 不要对 [src-tauri/Cargo.lock](/Users/zhaodesen/Desktop/desktop-client/src-tauri/Cargo.lock) 做全局字符串替换，否则会把第三方依赖版本一并改坏。
 
 ### 重要说明
 
