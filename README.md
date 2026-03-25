@@ -198,6 +198,24 @@ git push origin v0.1.0
 - 没有签名时，macOS 首次打开可能需要右键打开或在系统设置里手动放行，Windows 也可能提示未知发布者。
 - 如果你想减少系统安全提示，再去 GitHub 仓库 `Settings -> Secrets and variables -> Actions` 中配置签名密钥。
 
+### macOS 首次打开说明
+
+如果你下载的是未签名或未公证的 `dmg`，macOS 可能提示“无法验证开发者”或直接建议移入废纸篓。可以按下面顺序处理：
+
+1. 把应用从 `dmg` 拖到 `Applications`
+2. 在“应用程序”里对 App 右键，选择“打开”
+3. 如果仍被拦截，打开：
+   `系统设置 -> 隐私与安全性`
+4. 在底部点击“仍要打开”
+
+如果还是被拦截，可以执行：
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/字幕工作台.app"
+```
+
+然后再次尝试打开。
+
 ### 必填 GitHub Secrets
 
 #### macOS 签名与公证
@@ -214,6 +232,24 @@ git push origin v0.1.0
   - Apple Developer Team ID
 - `KEYCHAIN_PASSWORD`
   - CI 临时 keychain 密码，可自定义一个强密码
+
+#### Apple 侧需要提前准备的内容
+
+- Apple Developer 会员账号
+- `Developer ID Application` 证书
+- 导出的 `.p12` 文件和导出密码
+- Apple 账号的 `app-specific password`
+- 你的 `Apple Team ID`
+
+#### Apple 准备步骤
+
+1. 登录 Apple Developer
+2. 创建或下载 `Developer ID Application` 证书
+3. 在“钥匙串访问”中导出为 `.p12`
+4. 为导出的 `.p12` 设置密码
+5. 在 Apple 账户安全页生成 `app-specific password`
+6. 记录你的 `Team ID`
+7. 把 `.p12` 转成 Base64 后填入 GitHub Secrets
 
 #### Windows 签名
 
