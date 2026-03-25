@@ -58,11 +58,38 @@ install_ffmpeg() {
       cp "$ffmpeg_bin" "$FFMPEG_TARGET_PATH"
       ;;
     x86_64-pc-windows-msvc)
-      if ! command -v ffmpeg >/dev/null 2>&1; then
-        choco install ffmpeg --yes
-        export PATH="/c/ProgramData/chocolatey/bin:$PATH"
+      local choco_bin=""
+      if [[ -x "/c/ProgramData/chocolatey/bin/choco.exe" ]]; then
+        choco_bin="/c/ProgramData/chocolatey/bin/choco.exe"
+      elif command -v choco.exe >/dev/null 2>&1; then
+        choco_bin="$(command -v choco.exe)"
+      elif command -v choco >/dev/null 2>&1; then
+        choco_bin="$(command -v choco)"
       fi
-      cp "$(command -v ffmpeg)" "$FFMPEG_TARGET_PATH"
+
+      if [[ -z "$choco_bin" ]]; then
+        echo "Cannot find Chocolatey on Windows runner." >&2
+        exit 1
+      fi
+
+      if ! command -v ffmpeg >/dev/null 2>&1; then
+        "$choco_bin" install ffmpeg --yes
+        export PATH="/c/ProgramData/chocolatey/bin:/c/tools/ffmpeg/bin:$PATH"
+      fi
+
+      local ffmpeg_bin=""
+      if command -v ffmpeg >/dev/null 2>&1; then
+        ffmpeg_bin="$(command -v ffmpeg)"
+      elif [[ -x "/c/tools/ffmpeg/bin/ffmpeg.exe" ]]; then
+        ffmpeg_bin="/c/tools/ffmpeg/bin/ffmpeg.exe"
+      fi
+
+      if [[ -z "$ffmpeg_bin" ]]; then
+        echo "Cannot locate ffmpeg after Chocolatey installation." >&2
+        exit 1
+      fi
+
+      cp "$ffmpeg_bin" "$FFMPEG_TARGET_PATH"
       ;;
     *)
       echo "Unsupported target for CI sidecar preparation: $TARGET_TRIPLE" >&2
