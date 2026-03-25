@@ -35,6 +35,13 @@ npm run tauri dev
 - 项目目录下的 `./bin/whisper-cli`
 - 项目目录下的 `./src-tauri/binaries/whisper-cli`
 
+### `yt-dlp`
+
+- 环境变量 `YT_DLP_BIN`
+- `PATH` 中的 `yt-dlp`
+- 项目目录下的 `./bin/yt-dlp`
+- 项目目录下的 `./src-tauri/binaries/yt-dlp`
+
 正式版请把平台对应的二进制放到：
 
 ```text
@@ -46,6 +53,7 @@ src-tauri/binaries/
 ```text
 src-tauri/binaries/ffmpeg-aarch64-apple-darwin
 src-tauri/binaries/whisper-cli-aarch64-apple-darwin
+src-tauri/binaries/yt-dlp-aarch64-apple-darwin
 ```
 
 macOS Intel：
@@ -53,6 +61,7 @@ macOS Intel：
 ```text
 src-tauri/binaries/ffmpeg-x86_64-apple-darwin
 src-tauri/binaries/whisper-cli-x86_64-apple-darwin
+src-tauri/binaries/yt-dlp-x86_64-apple-darwin
 ```
 
 Windows：
@@ -60,6 +69,7 @@ Windows：
 ```text
 src-tauri/binaries/ffmpeg-x86_64-pc-windows-msvc.exe
 src-tauri/binaries/whisper-cli-x86_64-pc-windows-msvc.exe
+src-tauri/binaries/yt-dlp-x86_64-pc-windows-msvc.exe
 ```
 
 Linux：
@@ -67,6 +77,7 @@ Linux：
 ```text
 src-tauri/binaries/ffmpeg-x86_64-unknown-linux-gnu
 src-tauri/binaries/whisper-cli-x86_64-unknown-linux-gnu
+src-tauri/binaries/yt-dlp-x86_64-unknown-linux-gnu
 ```
 
 ### Whisper 模型
@@ -92,7 +103,7 @@ src-tauri/binaries/whisper-cli-x86_64-unknown-linux-gnu
 
 ```bash
 cd /Users/zhaodesen/Desktop/desktop-client
-FFMPEG_SOURCE=/absolute/path/to/ffmpeg ./scripts/build-sidecars.sh
+FFMPEG_SOURCE=/absolute/path/to/ffmpeg YT_DLP_SOURCE=/absolute/path/to/yt-dlp ./scripts/build-sidecars.sh
 ./scripts/verify-sidecars.sh
 ```
 
@@ -167,6 +178,7 @@ git push -u origin master
 构建过程中还会自动完成：
 
 - 在 CI 中安装 `ffmpeg`，并复制为 Tauri 需要的 sidecar 命名
+- 在 CI 中安装 `yt-dlp`，并复制为 Tauri 需要的 sidecar 命名
 - 在 CI 中编译 `whisper-cli`，并复制为 Tauri 需要的 sidecar 命名
 - 如果已配置 secrets，macOS 使用 `Developer ID Application` 证书签名，并提交公证
 - 如果已配置 secrets，Windows 使用 `.pfx` 证书签名

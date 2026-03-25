@@ -27,15 +27,18 @@ target_suffix() {
 
 WHISPER="$BIN_DIR/$(target_suffix whisper-cli)"
 FFMPEG="$BIN_DIR/$(target_suffix ffmpeg)"
+YT_DLP="$BIN_DIR/$(target_suffix yt-dlp)"
 
 echo "Target triple: $TARGET_TRIPLE"
 echo "Checking sidecars in: $BIN_DIR"
 
 [[ -f "$WHISPER" ]] || { echo "Missing: $WHISPER" >&2; exit 1; }
 [[ -f "$FFMPEG" ]] || { echo "Missing: $FFMPEG" >&2; exit 1; }
+[[ -f "$YT_DLP" ]] || { echo "Missing: $YT_DLP" >&2; exit 1; }
 
 echo "Found whisper-cli: $WHISPER"
 echo "Found ffmpeg: $FFMPEG"
+echo "Found yt-dlp: $YT_DLP"
 
 "$WHISPER" --help >/dev/null 2>&1 || {
   echo "whisper-cli exists but failed to execute: $WHISPER" >&2
@@ -44,6 +47,11 @@ echo "Found ffmpeg: $FFMPEG"
 
 "$FFMPEG" -version >/dev/null 2>&1 || {
   echo "ffmpeg exists but failed to execute: $FFMPEG" >&2
+  exit 1
+}
+
+"$YT_DLP" --help >/dev/null 2>&1 || {
+  echo "yt-dlp exists but failed to execute: $YT_DLP" >&2
   exit 1
 }
 

@@ -9,6 +9,7 @@ $BinDir = Join-Path $RootDir "src-tauri/binaries"
 $CacheDir = Join-Path $RootDir ".cache"
 $WhisperDir = if ($env:WHISPER_CPP_DIR) { $env:WHISPER_CPP_DIR } else { Join-Path $CacheDir "whisper.cpp" }
 $WhisperRef = if ($env:WHISPER_CPP_REF) { $env:WHISPER_CPP_REF } else { "master" }
+$YtDlpSource = if ($env:YT_DLP_SOURCE) { $env:YT_DLP_SOURCE } else { "" }
 
 New-Item -ItemType Directory -Force -Path $BinDir | Out-Null
 New-Item -ItemType Directory -Force -Path $CacheDir | Out-Null
@@ -20,6 +21,7 @@ function Resolve-TargetName {
 
 $FfmpegTargetPath = Join-Path $BinDir (Resolve-TargetName "ffmpeg")
 $WhisperTargetPath = Join-Path $BinDir (Resolve-TargetName "whisper-cli")
+$YtDlpTargetPath = Join-Path $BinDir (Resolve-TargetName "yt-dlp")
 
 function Find-Ffmpeg {
   $candidates = @(
@@ -42,6 +44,27 @@ function Find-Ffmpeg {
   return $null
 }
 
+function Find-YtDlp {
+  $candidates = @(
+    $YtDlpSource,
+    "C:\ProgramData\chocolatey\bin\yt-dlp.exe",
+    "C:\ProgramData\chocolatey\lib\yt-dlp\tools\yt-dlp.exe"
+  ) | Where-Object { $_ }
+
+  foreach ($candidate in $candidates) {
+    if (Test-Path $candidate) {
+      return $candidate
+    }
+  }
+
+  $command = Get-Command yt-dlp -ErrorAction SilentlyContinue
+  if ($command) {
+    return $command.Source
+  }
+
+  return $null
+}
+
 $ffmpeg = Find-Ffmpeg
 if (-not $ffmpeg) {
   choco install ffmpeg --yes
@@ -54,6 +77,19 @@ if (-not $ffmpeg) {
 }
 
 Copy-Item $ffmpeg $FfmpegTargetPath -Force
+
+$ytDlp = Find-YtDlp
+if (-not $ytDlp) {
+  choco install yt-dlp --yes
+  $env:PATH = "C:\ProgramData\chocolatey\bin;C:\tools\ffmpeg\bin;$env:PATH"
+  $ytDlp = Find-YtDlp
+}
+
+if (-not $ytDlp) {
+  throw "Cannot locate yt-dlp after Chocolatey installation."
+}
+
+Copy-Item $ytDlp $YtDlpTargetPath -Force
 
 if (Test-Path (Join-Path $WhisperDir ".git")) {
   git -C $WhisperDir fetch --depth 1 origin $WhisperRef
@@ -95,5 +131,11 @@ if ($LASTEXITCODE -ne 0) {
   throw "ffmpeg verification failed with exit code $LASTEXITCODE."
 }
 
+& $YtDlpTargetPath --help *> $null
+if ($LASTEXITCODE -ne 0) {
+  throw "yt-dlp verification failed with exit code $LASTEXITCODE."
+}
+
 Write-Host "Prepared whisper sidecar: $WhisperTargetPath"
 Write-Host "Prepared ffmpeg sidecar: $FfmpegTargetPath"
+Write-Host "Prepared yt-dlp sidecar: $YtDlpTargetPath"

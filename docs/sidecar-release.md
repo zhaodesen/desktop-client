@@ -6,12 +6,13 @@
 
 - 不依赖系统 `ffmpeg`
 - 不依赖系统 `whisper-cli`
+- 不依赖系统 `yt-dlp`
 - 通过 Tauri `externalBin` 将二进制随应用一起打包
 
 当前配置已经在 [tauri.conf.json](/Users/zhaodesen/Desktop/desktop-client/src-tauri/tauri.conf.json) 中启用：
 
 ```json
-"externalBin": ["binaries/ffmpeg", "binaries/whisper-cli"]
+"externalBin": ["binaries/ffmpeg", "binaries/whisper-cli", "binaries/yt-dlp"]
 ```
 
 根据 Tauri 官方文档，外部二进制必须遵守：
@@ -30,6 +31,7 @@ binary-name{-target-triple}{.system-extension}
 ```text
 src-tauri/binaries/ffmpeg-aarch64-apple-darwin
 src-tauri/binaries/whisper-cli-aarch64-apple-darwin
+src-tauri/binaries/yt-dlp-aarch64-apple-darwin
 ```
 
 ### macOS Intel
@@ -37,6 +39,7 @@ src-tauri/binaries/whisper-cli-aarch64-apple-darwin
 ```text
 src-tauri/binaries/ffmpeg-x86_64-apple-darwin
 src-tauri/binaries/whisper-cli-x86_64-apple-darwin
+src-tauri/binaries/yt-dlp-x86_64-apple-darwin
 ```
 
 ### Windows
@@ -44,6 +47,7 @@ src-tauri/binaries/whisper-cli-x86_64-apple-darwin
 ```text
 src-tauri/binaries/ffmpeg-x86_64-pc-windows-msvc.exe
 src-tauri/binaries/whisper-cli-x86_64-pc-windows-msvc.exe
+src-tauri/binaries/yt-dlp-x86_64-pc-windows-msvc.exe
 ```
 
 ### Linux
@@ -51,6 +55,7 @@ src-tauri/binaries/whisper-cli-x86_64-pc-windows-msvc.exe
 ```text
 src-tauri/binaries/ffmpeg-x86_64-unknown-linux-gnu
 src-tauri/binaries/whisper-cli-x86_64-unknown-linux-gnu
+src-tauri/binaries/yt-dlp-x86_64-unknown-linux-gnu
 ```
 
 ## 获取策略
@@ -66,7 +71,7 @@ src-tauri/binaries/whisper-cli-x86_64-unknown-linux-gnu
 
 ```bash
 cd /Users/zhaodesen/Desktop/desktop-client
-FFMPEG_SOURCE=/absolute/path/to/ffmpeg ./scripts/build-sidecars.sh
+FFMPEG_SOURCE=/absolute/path/to/ffmpeg YT_DLP_SOURCE=/absolute/path/to/yt-dlp ./scripts/build-sidecars.sh
 ```
 
 脚本行为：
@@ -100,8 +105,20 @@ FFmpeg 官方主要提供源码，已编译二进制通常通过其下载页列�
 当前脚本不负责构建 ffmpeg，只负责把你准备好的 `ffmpeg` 复制到正确命名的位置：
 
 ```bash
-FFMPEG_SOURCE=/absolute/path/to/ffmpeg ./scripts/build-sidecars.sh
+FFMPEG_SOURCE=/absolute/path/to/ffmpeg YT_DLP_SOURCE=/absolute/path/to/yt-dlp ./scripts/build-sidecars.sh
 ```
+
+## 3. yt-dlp
+
+`yt-dlp` 直接使用官方发布的预编译二进制即可。
+
+官方仓库：
+- [yt-dlp/yt-dlp](https://github.com/yt-dlp/yt-dlp)
+
+当前脚本支持两种方式：
+
+- Windows CI / 本地 PowerShell 脚本：自动通过 Chocolatey 安装 `yt-dlp`
+- 通用本地脚本：通过 `YT_DLP_SOURCE` 指向你已下载的 `yt-dlp` 二进制，再复制到 `src-tauri/binaries/`
 
 ## 发布前检查
 
@@ -116,7 +133,8 @@ cd /Users/zhaodesen/Desktop/desktop-client
 
 - 当前平台对应的 `ffmpeg` 是否存在
 - 当前平台对应的 `whisper-cli` 是否存在
-- 两个二进制是否都能执行
+- 当前平台对应的 `yt-dlp` 是否存在
+- 三个二进制是否都能执行
 
 ## 构建流程建议
 

@@ -27,6 +27,7 @@ target_suffix() {
 
 FFMPEG_TARGET_PATH="$BIN_DIR/$(target_suffix ffmpeg)"
 WHISPER_TARGET_PATH="$BIN_DIR/$(target_suffix whisper-cli)"
+YT_DLP_TARGET_PATH="$BIN_DIR/$(target_suffix yt-dlp)"
 
 require_command() {
   command -v "$1" >/dev/null 2>&1 || {
@@ -101,6 +102,59 @@ install_ffmpeg() {
   echo "Prepared ffmpeg sidecar: $FFMPEG_TARGET_PATH"
 }
 
+install_yt_dlp() {
+  case "$TARGET_TRIPLE" in
+    aarch64-apple-darwin|x86_64-apple-darwin)
+      require_command brew
+      brew install yt-dlp
+      local yt_dlp_bin
+      yt_dlp_bin="$(command -v yt-dlp)"
+      cp "$yt_dlp_bin" "$YT_DLP_TARGET_PATH"
+      ;;
+    x86_64-pc-windows-msvc)
+      local choco_bin=""
+      if [[ -x "/c/ProgramData/chocolatey/bin/choco.exe" ]]; then
+        choco_bin="/c/ProgramData/chocolatey/bin/choco.exe"
+      elif command -v choco.exe >/dev/null 2>&1; then
+        choco_bin="$(command -v choco.exe)"
+      elif command -v choco >/dev/null 2>&1; then
+        choco_bin="$(command -v choco)"
+      fi
+
+      if [[ -z "$choco_bin" ]]; then
+        echo "Cannot find Chocolatey on Windows runner." >&2
+        exit 1
+      fi
+
+      if ! command -v yt-dlp >/dev/null 2>&1; then
+        "$choco_bin" install yt-dlp --yes
+        export PATH="/c/ProgramData/chocolatey/bin:$PATH"
+      fi
+
+      local yt_dlp_bin=""
+      if command -v yt-dlp >/dev/null 2>&1; then
+        yt_dlp_bin="$(command -v yt-dlp)"
+      elif [[ -x "/c/ProgramData/chocolatey/bin/yt-dlp.exe" ]]; then
+        yt_dlp_bin="/c/ProgramData/chocolatey/bin/yt-dlp.exe"
+      fi
+
+      if [[ -z "$yt_dlp_bin" ]]; then
+        echo "Cannot locate yt-dlp after Chocolatey installation." >&2
+        exit 1
+      fi
+
+      cp "$yt_dlp_bin" "$YT_DLP_TARGET_PATH"
+      ;;
+    *)
+      echo "Unsupported target for CI sidecar preparation: $TARGET_TRIPLE" >&2
+      exit 1
+      ;;
+  esac
+
+  chmod +x "$YT_DLP_TARGET_PATH" || true
+  echo "Prepared yt-dlp sidecar: $YT_DLP_TARGET_PATH"
+}
+
 build_whisper_cli() {
   ensure_whisper_source
   require_command cmake
@@ -131,14 +185,17 @@ verify_sidecars() {
   if [[ "$TARGET_TRIPLE" == *windows* ]]; then
     "$WHISPER_TARGET_PATH" --help > /dev/null
     "$FFMPEG_TARGET_PATH" -version > /dev/null
+    "$YT_DLP_TARGET_PATH" --help > /dev/null
   else
     "$WHISPER_TARGET_PATH" --help >/dev/null 2>&1
     "$FFMPEG_TARGET_PATH" -version >/dev/null 2>&1
+    "$YT_DLP_TARGET_PATH" --help >/dev/null 2>&1
   fi
 }
 
 echo "Preparing CI sidecars for: $TARGET_TRIPLE"
 install_ffmpeg
+install_yt_dlp
 build_whisper_cli
 verify_sidecars
 echo "CI sidecar preparation passed."

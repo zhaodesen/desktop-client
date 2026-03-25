@@ -8,6 +8,7 @@ CACHE_DIR="$ROOT_DIR/.cache"
 WHISPER_CPP_DIR="${WHISPER_CPP_DIR:-$CACHE_DIR/whisper.cpp}"
 WHISPER_CPP_REF="${WHISPER_CPP_REF:-master}"
 FFMPEG_SOURCE="${FFMPEG_SOURCE:-}"
+YT_DLP_SOURCE="${YT_DLP_SOURCE:-}"
 
 mkdir -p "$BIN_DIR"
 mkdir -p "$CACHE_DIR"
@@ -34,8 +35,10 @@ target_suffix() {
 
 WHISPER_TARGET_NAME="$(target_suffix whisper-cli)"
 FFMPEG_TARGET_NAME="$(target_suffix ffmpeg)"
+YT_DLP_TARGET_NAME="$(target_suffix yt-dlp)"
 WHISPER_TARGET_PATH="$BIN_DIR/$WHISPER_TARGET_NAME"
 FFMPEG_TARGET_PATH="$BIN_DIR/$FFMPEG_TARGET_NAME"
+YT_DLP_TARGET_PATH="$BIN_DIR/$YT_DLP_TARGET_NAME"
 
 echo "Target triple: $TARGET_TRIPLE"
 echo "Output dir: $BIN_DIR"
@@ -98,6 +101,27 @@ EOF
   echo "Prepared ffmpeg sidecar: $FFMPEG_TARGET_PATH"
 }
 
+prepare_yt_dlp() {
+  if [[ -z "$YT_DLP_SOURCE" ]]; then
+    cat >&2 <<EOF
+YT_DLP_SOURCE is not set.
+
+Provide a prebuilt yt-dlp binary path, for example:
+  YT_DLP_SOURCE=/absolute/path/to/yt-dlp scripts/build-sidecars.sh
+EOF
+    exit 1
+  fi
+
+  if [[ ! -f "$YT_DLP_SOURCE" ]]; then
+    echo "YT_DLP_SOURCE does not exist: $YT_DLP_SOURCE" >&2
+    exit 1
+  fi
+
+  cp "$YT_DLP_SOURCE" "$YT_DLP_TARGET_PATH"
+  chmod +x "$YT_DLP_TARGET_PATH" || true
+  echo "Prepared yt-dlp sidecar: $YT_DLP_TARGET_PATH"
+}
+
 print_summary() {
   cat <<EOF
 
@@ -106,6 +130,7 @@ Sidecars prepared successfully.
 Expected Tauri externalBin files:
   $WHISPER_TARGET_PATH
   $FFMPEG_TARGET_PATH
+  $YT_DLP_TARGET_PATH
 
 Next steps:
   1. Verify both binaries run on the target platform.
@@ -116,4 +141,5 @@ EOF
 
 build_whisper_cli
 prepare_ffmpeg
+prepare_yt_dlp
 print_summary
