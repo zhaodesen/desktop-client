@@ -25,7 +25,7 @@ jobs:
           - name: Windows x64
             platform: windows-latest
             target: x86_64-pc-windows-msvc
-            args: --target x86_64-pc-windows-msvc
+            args: --target x86_64-pc-windows-msvc --bundles nsis
 
     runs-on: ${{ matrix.platform }}
     name: ${{ matrix.name }}
