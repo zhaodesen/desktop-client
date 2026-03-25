@@ -7,9 +7,9 @@ on:
       - "v*"
 
 jobs:
-  release:
+  build:
     permissions:
-      contents: write
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -143,40 +143,50 @@ jobs:
           Remove-Item certificate/tempCert.txt
           Import-PfxCertificate -FilePath certificate/certificate.pfx -CertStoreLocation Cert:\CurrentUser\My -Password (ConvertTo-SecureString -String $env:WINDOWS_CERTIFICATE_PASSWORD -Force -AsPlainText) | Out-Null
 
-      - name: Build and publish Tauri app
+      - name: Build Tauri app
         if: env.ENABLE_MACOS_SIGNING == 'true' || !startsWith(matrix.target, 'aarch64-apple-darwin') && !startsWith(matrix.target, 'x86_64-apple-darwin')
-        uses: tauri-apps/tauri-action@v0
+        shell: bash
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_SIGNING_IDENTITY: ${{ env.APPLE_SIGNING_IDENTITY }}
-        with:
-          tagName: ${{ github.ref_name }}
-          releaseName: 字幕工作台 ${{ github.ref_name }}
-          releaseBody: |
-            自动构建产物如下：
-            - macOS Apple Silicon
-            - macOS Intel
-            - Windows x64
+        run: npm run tauri build -- ${{ matrix.args }}
 
-            当前工作流会在发布时自动准备 sidecar。
-            如果已配置证书 secrets，会自动启用 macOS / Windows 代码签名。
-            请在 Assets 中下载对应平台安装包。
-          releaseDraft: false
-          prerelease: false
-          args: ${{ matrix.args }}
-
-      - name: Build and publish Tauri app without signing
+      - name: Build Tauri app without signing
         if: env.ENABLE_MACOS_SIGNING != 'true' && (startsWith(matrix.target, 'aarch64-apple-darwin') || startsWith(matrix.target, 'x86_64-apple-darwin'))
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: npm run tauri build -- ${{ matrix.args }}
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: 字幕工作台 ${{ github.ref_name }}
-          releaseBody: |
+          name: bundle-${{ matrix.target }}
+          if-no-files-found: error
+          path: |
+            src-tauri/target/${{ matrix.target }}/release/bundle/**
+
+  publish:
+    name: Publish Release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+          pattern: bundle-*
+          merge-multiple: true
+
+      - name: Create or update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: 字幕工作台 ${{ github.ref_name }}
+          body: |
             自动构建产物如下：
             - macOS Apple Silicon
             - macOS Intel
@@ -185,6 +195,14 @@ jobs:
             当前工作流会在发布时自动准备 sidecar。
             如果已配置证书 secrets，会自动启用 macOS / Windows 代码签名。
             请在 Assets 中下载对应平台安装包。
-          releaseDraft: false
+          draft: false
           prerelease: false
-          args: ${{ matrix.args }}
+          files: |
+            release-artifacts/**/*.dmg
+            release-artifacts/**/*.app.tar.gz
+            release-artifacts/**/*.app.tar.gz.sig
+            release-artifacts/**/*.nsis.zip
+            release-artifacts/**/*.msi.zip
+            release-artifacts/**/*.exe
+            release-artifacts/**/*.msi
+            release-artifacts/**/*.sig
