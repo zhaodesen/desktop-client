@@ -56,8 +56,14 @@ jobs:
         run: npm ci
 
       - name: Prepare bundled sidecars
+        if: matrix.target != 'x86_64-pc-windows-msvc'
         shell: bash
         run: ./scripts/prepare-sidecars-ci.sh "${TARGET_TRIPLE}"
+
+      - name: Prepare bundled sidecars on Windows
+        if: matrix.target == 'x86_64-pc-windows-msvc'
+        shell: pwsh
+        run: ./scripts/prepare-sidecars-windows.ps1 -TargetTriple "${env:TARGET_TRIPLE}"
 
       - name: Detect macOS signing availability
         if: startsWith(matrix.target, 'aarch64-apple-darwin') || startsWith(matrix.target, 'x86_64-apple-darwin')
