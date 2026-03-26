@@ -330,7 +330,7 @@
   .import-error-bar {
     position: sticky;
     top: 0;
-    z-index: 10;
+    z-index: var(--z-sticky);
     display: flex;
     align-items: flex-start;
     gap: 10px;
@@ -531,7 +531,7 @@
     color: var(--success);
     font-size: 0.83rem; font-weight: 500;
     box-shadow: var(--shadow-md);
-    z-index: 100;
+    z-index: var(--z-toast);
     animation: toast-in 0.25s ease;
   }
 
@@ -546,7 +546,7 @@
     background: rgba(0, 0, 0, 0.45);
     backdrop-filter: blur(6px);
     -webkit-backdrop-filter: blur(6px);
-    z-index: 200;
+    z-index: var(--z-overlay);
   }
 
   .import-dialog {
@@ -561,14 +561,14 @@
     padding: 32px 28px 22px;
     display: flex; flex-direction: column;
     align-items: center; text-align: center; gap: 10px;
-    z-index: 201;
+    z-index: var(--z-modal);
     box-shadow: var(--shadow-lg);
     animation: dialog-in 0.2s ease;
   }
 
   @keyframes dialog-in {
-    from { opacity: 0; transform: translate(-50%, calc(-50% + 12px)); }
-    to   { opacity: 1; transform: translate(-50%, -50%); }
+    from { opacity: 0; transform: translate(-50%, calc(-50% + 8px)) scale(0.97); }
+    to   { opacity: 1; transform: translate(-50%, -50%) scale(1); }
   }
 
   .import-dialog-check {
