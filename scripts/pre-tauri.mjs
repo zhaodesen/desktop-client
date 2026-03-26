@@ -37,7 +37,11 @@ function targetSidecarName(name, targetTriple) {
 }
 
 function runCommand(command, args) {
-  const result = spawnSync(command, args, {
+  const isWindowsCmdScript = process.platform === 'win32' && command.toLowerCase().endsWith('.cmd');
+  const spawnCommand = isWindowsCmdScript ? process.env.ComSpec || 'cmd.exe' : command;
+  const spawnArgs = isWindowsCmdScript ? ['/d', '/s', '/c', command, ...args] : args;
+
+  const result = spawnSync(spawnCommand, spawnArgs, {
     cwd: rootDir,
     env: process.env,
     stdio: 'inherit',

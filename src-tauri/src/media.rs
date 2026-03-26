@@ -11,6 +11,9 @@ use std::{
 };
 use tauri::{AppHandle, Emitter, Manager};
 
+#[cfg(target_os = "windows")]
+use std::env;
+
 use crate::sidecar::{self, CommandTarget};
 use crate::state::ExternalProcessState;
 
@@ -567,19 +570,56 @@ fn bilibili_request_args() -> Vec<String> {
     ]
 }
 
-fn bilibili_cookie_browsers() -> &'static [&'static str] {
+fn bilibili_cookie_browsers() -> Vec<&'static str> {
     #[cfg(target_os = "macos")]
-    {
-        &["safari", "chrome", "edge", "firefox"]
-    }
+    let browsers = vec!["safari", "chrome", "edge", "firefox"];
     #[cfg(target_os = "windows")]
-    {
-        &["edge", "chrome", "firefox"]
-    }
+    let browsers = vec!["edge", "chrome", "chromium", "brave", "firefox"];
     #[cfg(all(unix, not(target_os = "macos")))]
-    {
-        &["chrome", "chromium", "firefox"]
+    let browsers = vec!["chrome", "chromium", "firefox"];
+
+    browsers
+        .into_iter()
+        .filter(|browser| browser_cookie_store_available(browser))
+        .collect()
+}
+
+#[cfg(target_os = "windows")]
+fn browser_cookie_store_available(browser: &str) -> bool {
+    let local_app_data = env::var_os("LOCALAPPDATA").map(PathBuf::from);
+    let roaming_app_data = env::var_os("APPDATA").map(PathBuf::from);
+
+    match browser {
+        "edge" => local_app_data
+            .as_ref()
+            .is_some_and(|path| path.join("Microsoft/Edge/User Data").exists()),
+        "chrome" => local_app_data
+            .as_ref()
+            .is_some_and(|path| path.join("Google/Chrome/User Data").exists()),
+        "chromium" => local_app_data
+            .as_ref()
+            .is_some_and(|path| path.join("Chromium/User Data").exists()),
+        "brave" => local_app_data.as_ref().is_some_and(|path| {
+            path.join("BraveSoftware/Brave-Browser/User Data").exists()
+        }),
+        "firefox" => {
+            roaming_app_data
+                .as_ref()
+                .is_some_and(|path| path.join("Mozilla/Firefox/Profiles").exists())
+                || local_app_data.as_ref().is_some_and(|path| {
+                    path.join(
+                        "Packages/Mozilla.Firefox_n80bbvh6b1yt2/LocalCache/Roaming/Mozilla/Firefox/Profiles",
+                    )
+                    .exists()
+                })
+        }
+        _ => true,
     }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn browser_cookie_store_available(_browser: &str) -> bool {
+    true
 }
 
 fn is_bilibili_url(url: &str) -> bool {
@@ -590,7 +630,7 @@ fn is_bilibili_url(url: &str) -> bool {
 fn select_preferred_download_error(previous: String, next: String) -> String {
     let previous_score = score_download_error(&previous);
     let next_score = score_download_error(&next);
-    if next_score >= previous_score {
+    if next_score > previous_score {
         next
     } else {
         previous
@@ -599,6 +639,11 @@ fn select_preferred_download_error(previous: String, next: String) -> String {
 
 fn score_download_error(message: &str) -> u8 {
     let lowered = message.to_ascii_lowercase();
+    if lowered.contains("could not find")
+        && (lowered.contains("cookies database") || lowered.contains("cookies file"))
+    {
+        return 0;
+    }
     if lowered.contains("http error")
         || lowered.contains("403")
         || lowered.contains("unable to download")
