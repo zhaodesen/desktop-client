@@ -1216,6 +1216,16 @@ input:focus-visible {
   .subtitle-editor-row { grid-template-columns: 1fr; }
 }
 
+@media (max-width: 600px) {
+  .sidebar { padding: 8px 10px; gap: 8px; }
+  .nav-item { padding: 7px 10px; font-size: var(--font-2xs); }
+  .brand h1 { font-size: var(--font-sm); }
+  .content { padding: 12px; }
+  .page { gap: 12px; }
+  .card { padding: 14px; }
+  .section-bar { padding: 6px 8px; }
+}
+
 /* ============================================================
    Reduced Motion
    ============================================================ */

@@ -419,4 +419,16 @@
       left: 0;
     }
   }
+
+  @media (max-width: 600px) {
+    .player-bar-inner {
+      padding: 10px 16px;
+    }
+    .player-bar-options {
+      gap: 8px;
+    }
+    .inline-field-volume {
+      min-width: 160px;
+    }
+  }
 </style>
