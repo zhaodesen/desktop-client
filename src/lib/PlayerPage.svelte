@@ -283,8 +283,8 @@
   .playlist-remove-btn {
     display: grid;
     place-items: center;
-    width: 28px;
-    height: 28px;
+    width: 34px;
+    height: 34px;
     border: 1px solid transparent;
     background: transparent;
     color: var(--text-dim);

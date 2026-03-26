@@ -360,7 +360,7 @@
 
   .import-error-close {
     display: grid; place-items: center;
-    width: 22px; height: 22px;
+    width: 30px; height: 30px;
     border: none; background: transparent;
     color: var(--danger); cursor: pointer;
     border-radius: 4px; flex-shrink: 0;

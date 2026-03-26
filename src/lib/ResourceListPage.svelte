@@ -143,8 +143,8 @@
 
 <style>
   :global(.btn-icon-sm) {
-    width: 30px;
-    height: 30px;
+    width: 34px;
+    height: 34px;
     padding: 0;
     justify-content: center;
     border-radius: 50%;
