@@ -48,7 +48,7 @@
     background: rgba(0, 0, 0, 0.45);
     backdrop-filter: blur(6px);
     -webkit-backdrop-filter: blur(6px);
-    z-index: 99;
+    z-index: var(--z-confirm);
     animation: backdrop-in 0.15s ease;
   }
 
@@ -62,7 +62,7 @@
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
-    z-index: 100;
+    z-index: calc(var(--z-confirm) + 1);
     border: none;
     border-radius: var(--radius-xl, 20px);
     background: var(--bg-raised);

@@ -49,3 +49,4 @@ src-tauri/binaries/*
 
 # ===================== Tauri Generated Schemas =====================
 src-tauri/gen/schemas/
+.gstack/
