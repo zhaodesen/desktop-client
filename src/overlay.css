@@ -61,8 +61,8 @@ body { padding: 12px; }
 
 /* ─── 控制按钮通用 ─── */
 .overlay-ctrl-btn {
-  width: 26px;
-  height: 26px;
+  width: 34px;
+  height: 34px;
   border: none;
   border-radius: 6px;
   background: rgba(0, 0, 0, 0.5);
