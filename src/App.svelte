@@ -26,6 +26,7 @@
   import { PlayerController } from "./main/player-controller";
   import { parseSubtitleText } from "./main/subtitle-parser";
   import { SubtitleEngine } from "./main/subtitle-engine";
+  import { formatDuration } from "./shared/utils";
 
   import Sidebar from "./lib/Sidebar.svelte";
   import ImportPage from "./lib/ImportPage.svelte";
@@ -239,16 +240,6 @@
   });
 
   /* ── Helpers ────────────────────────────────────────────── */
-
-  function formatDuration(ms: number): string {
-    const t = Math.max(0, Math.floor(ms / 1000));
-    const h = Math.floor(t / 3600);
-    const m = Math.floor((t % 3600) / 60);
-    const s = t % 60;
-    const mm = String(m).padStart(2, "0");
-    const ss = String(s).padStart(2, "0");
-    return h > 0 ? `${String(h).padStart(2, "0")}:${mm}:${ss}` : `${mm}:${ss}`;
-  }
 
   function setStatus(text: string, tone: StatusTone = "neutral") {
     statusText = text;

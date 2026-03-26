@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { SubtitleDocument, SubtitleCue } from "../shared/types";
+  import { formatDuration } from "../shared/utils";
 
   interface Props {
     document: SubtitleDocument | undefined;
@@ -10,16 +11,6 @@
   }
 
   const { document, lastMainPage, onBack, onSave, onCueChange }: Props = $props();
-
-  function formatDuration(ms: number): string {
-    const t = Math.max(0, Math.floor(ms / 1000));
-    const h = Math.floor(t / 3600);
-    const m = Math.floor((t % 3600) / 60);
-    const s = t % 60;
-    const mm = String(m).padStart(2, "0");
-    const ss = String(s).padStart(2, "0");
-    return h > 0 ? `${String(h).padStart(2, "0")}:${mm}:${ss}` : `${mm}:${ss}`;
-  }
 
   function formatCueTime(cue: SubtitleCue): string {
     return `${formatDuration(cue.startMs)} - ${formatDuration(cue.endMs)}`;

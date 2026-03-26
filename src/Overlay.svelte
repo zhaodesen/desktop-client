@@ -11,6 +11,7 @@
     OVERLAY_STYLE_EVENT,
   } from "./shared/events";
   import type { OverlayRenderPayload, OverlaySettings } from "./shared/types";
+  import { formatDuration } from "./shared/utils";
   import "./overlay.css";
 
   /* ── State ─────────────────────────────────────────────── */
@@ -33,13 +34,6 @@
   const tauriWindow = getCurrentWindow();
 
   /* ── Helpers ────────────────────────────────────────────── */
-
-  function formatDuration(ms: number): string {
-    const t = Math.max(0, Math.floor(ms / 1000));
-    const m = Math.floor(t / 60);
-    const s = t % 60;
-    return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
-  }
 
   function applyStyle(settings: OverlaySettings) {
     fontSize = settings.fontSize;

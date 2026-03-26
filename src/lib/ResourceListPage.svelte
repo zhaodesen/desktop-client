@@ -2,6 +2,7 @@
   import { onDestroy } from "svelte";
   import { convertFileSrc } from "@tauri-apps/api/core";
   import type { MediaItem } from "../shared/types";
+  import { formatDuration } from "../shared/utils";
 
   interface Props {
     items: MediaItem[];
@@ -21,17 +22,6 @@
     return new Date(ts).toLocaleString("zh-CN", {
       month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit",
     });
-  }
-
-  function formatDuration(ms: number): string {
-    const totalSeconds = Math.max(0, Math.round(ms / 1000));
-    const hours = Math.floor(totalSeconds / 3600);
-    const minutes = Math.floor((totalSeconds % 3600) / 60);
-    const seconds = totalSeconds % 60;
-    if (hours > 0) {
-      return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
-    }
-    return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
   }
 
   async function resolveDuration(item: MediaItem) {
