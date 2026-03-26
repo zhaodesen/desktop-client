@@ -378,7 +378,8 @@
     align-items: center;
     justify-content: center;
     text-align: center;
-    min-height: 65vh;
+    flex: 1;
+    min-height: 0;
     gap: 16px;
     padding: 28px;
   }
