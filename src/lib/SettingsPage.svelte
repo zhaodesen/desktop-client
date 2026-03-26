@@ -73,8 +73,8 @@
     if (!activeBtn) return;
     const barRect = stabBarEl.getBoundingClientRect();
     const btnRect = activeBtn.getBoundingClientRect();
-    indicatorX = btnRect.left - barRect.left + 8;
-    indicatorW = btnRect.width - 16;
+    indicatorX = btnRect.left - barRect.left;
+    indicatorW = btnRect.width;
   }
 
   $effect(() => {
@@ -135,7 +135,7 @@
     {/each}
     <span
       class="stab-indicator"
-      style="transform: translateX({indicatorX}px) scaleX({indicatorW}); transform-origin: left"
+      style="left: {indicatorX}px; width: {indicatorW}px"
     ></span>
   </div>
 
@@ -431,15 +431,12 @@
   .stab-indicator {
     position: absolute;
     bottom: -1px;
-    left: 0;
-    width: 1px;
     height: 2px;
     background: var(--accent);
     border-radius: 2px 2px 0 0;
-    transition: transform 260ms cubic-bezier(0.4, 0, 0.2, 1);
+    transition: left var(--transition-smooth), width var(--transition-smooth);
     pointer-events: none;
     box-shadow: 0 0 8px rgba(var(--accent-rgb), 0.3);
-    will-change: transform;
   }
 
   /* ── 面板内容区 ── */
