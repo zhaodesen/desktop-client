@@ -319,10 +319,12 @@
     z-index: 10;
   }
 
+  /* Top progress strip with glow effect */
   .player-bar-progress {
-    height: 2px;
+    height: 3px;
     background: var(--bg-inset);
     position: relative;
+    overflow: hidden;
   }
 
   .player-bar-progress-fill {
@@ -330,7 +332,22 @@
     inset: 0 auto 0 0;
     background: var(--accent);
     transition: width 0.3s ease;
-    border-radius: 0 1px 1px 0;
+    border-radius: 0 1.5px 1.5px 0;
+    box-shadow: 0 0 8px rgba(224, 149, 69, 0.4), 0 0 2px rgba(224, 149, 69, 0.6);
+  }
+
+  /* Glowing dot at the leading edge of progress */
+  .player-bar-progress-fill::after {
+    content: "";
+    position: absolute;
+    right: -2px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 6px 2px rgba(224, 149, 69, 0.5);
   }
 
   .player-bar-inner {
@@ -346,13 +363,42 @@
     gap: 14px;
   }
 
+  /* Play button with subtle pulse when playing */
   .player-play-btn {
     box-shadow: 0 2px 12px rgba(224, 149, 69, 0.2);
     transition: background var(--transition-fast), box-shadow var(--transition-fast), transform 80ms;
+    position: relative;
   }
 
   .player-play-btn:hover {
-    box-shadow: 0 4px 20px rgba(224, 149, 69, 0.3);
+    box-shadow: 0 4px 20px rgba(224, 149, 69, 0.35);
+  }
+
+  /* Seekbar (range input) enhanced styling */
+  .player-bar-controls .progress-wrap input[type="range"] {
+    height: 5px;
+    background: var(--bg-surface-hover);
+    border-radius: 2.5px;
+    position: relative;
+  }
+
+  .player-bar-controls .progress-wrap input[type="range"]::-webkit-slider-thumb {
+    width: 14px;
+    height: 14px;
+    background: var(--accent);
+    border: 2px solid var(--bg-base);
+    box-shadow: 0 0 0 0 rgba(224, 149, 69, 0), 0 1px 4px rgba(0, 0, 0, 0.3);
+    transition: transform 120ms ease, box-shadow 120ms ease;
+  }
+
+  .player-bar-controls .progress-wrap input[type="range"]:hover::-webkit-slider-thumb {
+    transform: scale(1.3);
+    box-shadow: 0 0 0 4px var(--accent-soft), 0 2px 8px rgba(0, 0, 0, 0.3);
+  }
+
+  .player-bar-controls .progress-wrap input[type="range"]:active::-webkit-slider-thumb {
+    transform: scale(1.15);
+    box-shadow: 0 0 0 6px var(--accent-soft), 0 2px 8px rgba(0, 0, 0, 0.3);
   }
 
   .player-bar-options {

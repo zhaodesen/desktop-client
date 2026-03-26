@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, tick } from "svelte";
+  import { fade } from "svelte/transition";
   import { convertFileSrc } from "@tauri-apps/api/core";
   import { emitTo, listen } from "@tauri-apps/api/event";
   import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -1375,6 +1376,7 @@
 
   <section class="content">
     {#if activePage === "import"}
+      <div class="page-transition" in:fade={{ duration: 160, delay: 40 }}>
       <ImportPage
         progress={importProgress}
         {importError}
@@ -1389,7 +1391,9 @@
         onImportSuccessClose={() => { showImportSuccess = false; importSuccessName = undefined; }}
         onGoToResources={() => setActivePage("resources")}
       />
+      </div>
     {:else if activePage === "resources"}
+      <div class="page-transition" in:fade={{ duration: 160, delay: 40 }}>
       <ResourceListPage
         items={libraryState.mediaItems}
         onRetryAsr={(id) => void retryAsrForMedia(id)}
@@ -1397,7 +1401,9 @@
         onDeleteMedia={(id) => void deleteMediaById(id)}
         onAddToPlaylist={(id) => void handleAddToPlaylist(id)}
       />
+      </div>
     {:else if activePage === "playlist"}
+      <div class="page-transition" in:fade={{ duration: 160, delay: 40 }}>
       <PlayerPage
         {snap}
         {hasMedia}
@@ -1431,7 +1437,9 @@
         onPlayItemNow={(id) => { void playPlaylistItem(id, true); }}
         onRemoveItem={(id) => { void removePlaybackItem(id); }}
       />
+      </div>
     {:else if activePage === "settings"}
+      <div class="page-transition" in:fade={{ duration: 160, delay: 40 }}>
       <SettingsPage
         {settings}
         {availableModels}
@@ -1456,7 +1464,9 @@
         onResetAppData={handleResetAppData}
         onThemeChange={handleThemeChange}
       />
+      </div>
     {:else if activePage === "subtitle-editor"}
+      <div class="page-transition" in:fade={{ duration: 160, delay: 40 }}>
       <SubtitleEditor
         document={activeSubtitleDocument}
         lastMainPage={lastMainPage}
@@ -1464,6 +1474,7 @@
         onSave={() => void saveSubtitleEditor()}
         onCueChange={handleCueChange}
       />
+      </div>
     {/if}
   </section>
 </main>

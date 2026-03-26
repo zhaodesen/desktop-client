@@ -439,8 +439,10 @@
     width: 34px; height: 34px;
     border: 3px solid var(--accent-soft);
     border-top-color: var(--accent);
+    border-right-color: var(--accent);
     border-radius: 50%;
-    animation: spin 0.8s linear infinite;
+    animation: spin 0.7s cubic-bezier(0.5, 0.1, 0.5, 0.9) infinite;
+    filter: drop-shadow(0 0 4px rgba(224, 149, 69, 0.3));
   }
 
   @keyframes spin { to { transform: rotate(360deg); } }
@@ -455,18 +457,38 @@
     flex: 1; height: 6px;
     background: var(--bg-inset);
     border-radius: 3px; overflow: hidden;
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.1);
   }
 
   .progress-bar-fill {
     height: 100%; background: var(--accent);
-    border-radius: 3px; transition: width 0.5s ease;
+    border-radius: 3px; transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
   }
 
-  .progress-bar-fill.progress-done { background: var(--success); }
+  .progress-bar-fill.progress-done {
+    background: var(--success);
+    box-shadow: 0 0 8px rgba(52, 211, 153, 0.4);
+  }
+
   .progress-bar-fill.progress-active {
     background-image: linear-gradient(90deg, var(--accent) 0%, var(--accent-hover) 50%, var(--accent) 100%);
     background-size: 200% 100%;
     animation: shimmer 1.8s ease-in-out infinite;
+    box-shadow: 0 0 8px rgba(224, 149, 69, 0.3);
+  }
+
+  /* Leading edge glow on active progress */
+  .progress-bar-fill.progress-active::after {
+    content: "";
+    position: absolute;
+    right: 0;
+    top: -1px;
+    bottom: -1px;
+    width: 24px;
+    background: linear-gradient(90deg, transparent, rgba(224, 149, 69, 0.6));
+    border-radius: 0 3px 3px 0;
+    filter: blur(2px);
   }
 
   @keyframes shimmer {
