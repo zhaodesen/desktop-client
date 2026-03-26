@@ -172,7 +172,7 @@ h4 { font-size: 0.78rem; font-weight: 600; letter-spacing: 0.04em; text-transfor
 .brand {
   display: flex;
   align-items: center;
-  gap: 11px;
+  gap: 12px;
   padding: 4px 2px;
 }
 
@@ -266,7 +266,7 @@ h4 { font-size: 0.78rem; font-weight: 600; letter-spacing: 0.04em; text-transfor
   display: flex;
   gap: 10px;
   align-items: flex-start;
-  padding: 11px 12px;
+  padding: 12px;
   border-radius: var(--radius-md);
   background: var(--bg-inset);
   border: 1px solid var(--border-subtle);
@@ -467,7 +467,7 @@ h4 { font-size: 0.78rem; font-weight: 600; letter-spacing: 0.04em; text-transfor
   justify-content: space-between;
   align-items: center;
   gap: 14px;
-  padding: 13px 16px;
+  padding: 14px 16px;
   border-radius: var(--radius-md);
   background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
@@ -720,7 +720,7 @@ h4 { font-size: 0.78rem; font-weight: 600; letter-spacing: 0.04em; text-transfor
   justify-content: space-between;
   align-items: center;
   gap: 12px;
-  padding: 11px 0;
+  padding: 12px 0;
   font-size: 0.86rem;
   color: var(--text-primary);
   border-bottom: 1px solid var(--border-subtle);
@@ -781,7 +781,7 @@ input[type="range"]:disabled::-webkit-slider-thumb { cursor: not-allowed; transf
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 11px 0;
+  padding: 12px 0;
   font-size: 0.86rem;
   cursor: pointer;
   border-bottom: 1px solid var(--border-subtle);
