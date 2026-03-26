@@ -142,14 +142,7 @@
 </section>
 
 <style>
-  :global(.btn-icon-sm) {
-    width: 34px;
-    height: 34px;
-    padding: 0;
-    justify-content: center;
-    border-radius: 50%;
-    flex-shrink: 0;
-  }
+  /* btn-icon-sm is now in styles.css */
 
   .add-btn-wrap {
     position: relative;

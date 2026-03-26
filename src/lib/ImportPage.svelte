@@ -227,7 +227,7 @@
       <p class="import-formats">
         视频：MP4、MOV、MKV、WebM、AVI &nbsp;·&nbsp; 音频：MP3、WAV、M4A、AAC、FLAC、OGG
       </p>
-      <button class="btn btn-primary btn-lg" type="button" onclick={onImportMedia}>
+      <button class="btn btn-primary btn-lg import-btn-lg" type="button" onclick={onImportMedia}>
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
         </svg>
@@ -414,10 +414,7 @@
     border: 1px solid var(--border-subtle);
   }
 
-  :global(.btn-lg) {
-    padding: 11px 28px;
-    font-size: var(--font-md);
-    border-radius: var(--radius-md);
+  .import-btn-lg {
     margin-top: 6px;
   }
 
