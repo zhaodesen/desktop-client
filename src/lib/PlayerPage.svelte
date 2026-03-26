@@ -13,6 +13,7 @@
     playbackRate: number;
     playlistMode: PlaylistMode;
     playlist: PlaybackHistoryItem[];
+    pendingPlaylistMediaId: string | undefined;
     currentMediaId: string | undefined;
     volume: number;
     onTogglePlayback: () => void;
@@ -29,7 +30,7 @@
   const {
     snap, hasMedia, audioFileLabel, subtitleFileLabel, cueTiming,
     currentText, currentSecondaryText, playbackRate, playlistMode,
-    playlist, currentMediaId, volume,
+    playlist, pendingPlaylistMediaId, currentMediaId, volume,
     onTogglePlayback, onToggleCurrentItem, onSeek, onRateChange, onPlaylistModeChange,
     onPlayItem, onRemoveItem, onVolumeChange, onVolumeCommit,
   }: Props = $props();
@@ -82,7 +83,9 @@
           <button
             class="playlist-item"
             class:playlist-item-active={entry.mediaId === currentMediaId}
+            disabled={pendingPlaylistMediaId === entry.mediaId}
             onclick={() => {
+              if (pendingPlaylistMediaId === entry.mediaId) return;
               if (entry.mediaId === currentMediaId) onToggleCurrentItem();
               else onPlayItem(entry.mediaId);
             }}

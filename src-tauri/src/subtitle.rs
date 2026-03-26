@@ -135,17 +135,24 @@ fn load_cues_from_path(path: &str) -> Result<Vec<SubtitleCue>, String> {
         return Err("字幕文件不存在".to_string());
     }
 
-    let content =
-        fs::read_to_string(&subtitle_path).map_err(|error| format!("读取字幕文件失败: {error}"))?;
-    match subtitle_path
+    let extension = subtitle_path
         .extension()
         .and_then(|value| value.to_str())
         .unwrap_or("")
-        .to_ascii_lowercase()
-        .as_str()
-    {
-        "json" => parse_json_subtitle(&content),
-        _ => parse_text_subtitle(&content),
+        .to_ascii_lowercase();
+
+    match extension.as_str() {
+        "json" => {
+            let content = fs::read_to_string(&subtitle_path)
+                .map_err(|error| format!("读取字幕文件失败: {error}"))?;
+            parse_json_subtitle(&content)
+        }
+        _ => {
+            let raw =
+                fs::read(&subtitle_path).map_err(|error| format!("读取字幕文件失败: {error}"))?;
+            let content = String::from_utf8_lossy(&raw);
+            parse_text_subtitle(&content)
+        }
     }
 }
 
@@ -165,6 +172,7 @@ fn parse_text_subtitle(content: &str) -> Result<Vec<SubtitleCue>, String> {
     let normalized = content
         .trim_start_matches('\u{feff}')
         .replace('\r', "")
+        .replace('\u{85}', "\n")
         .trim()
         .to_string();
 

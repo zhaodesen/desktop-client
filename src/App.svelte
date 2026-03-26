@@ -137,6 +137,7 @@
   let lastMainPage = $state<"import" | "resources" | "playlist" | "settings">("import");
 
   let currentMediaId = $state<string | undefined>(undefined);
+  let pendingPlaylistMediaId = $state<string | undefined>(undefined);
   let activeAsrJobId = $state<string | undefined>(undefined);
   let activeModelDownloadJobId = $state<string | undefined>(undefined);
   let pendingSubtitleMediaId = $state<string | undefined>(undefined);
@@ -197,6 +198,9 @@
   // 用 rAF 将状态更新推迟到下一个渲染帧，避免在高频事件回调中直接触发重排。
   let pendingProgressUpdate: ImportProgress | null = null;
   let progressRafId = 0;
+  let mediaLoadRequestId = 0;
+  let playlistPlayPromise: Promise<void> | null = null;
+  let playlistPlayTargetId: string | undefined;
 
   function scheduleProgressUpdate(next: ImportProgress) {
     pendingProgressUpdate = next;
@@ -463,11 +467,27 @@
     await overlayBridge.clear();
   }
 
-  async function loadMediaById(mediaId: string, record: boolean) {
+  function createMediaLoadRequestId() {
+    mediaLoadRequestId += 1;
+    return mediaLoadRequestId;
+  }
+
+  function isLatestMediaLoadRequest(requestId: number) {
+    return requestId === mediaLoadRequestId;
+  }
+
+  async function loadMediaById(mediaId: string, record: boolean, requestId = createMediaLoadRequestId()) {
     const media = libraryState.mediaItems.find((i) => i.id === mediaId);
-    if (!media) { setStatus("未找到对应素材", "warning"); return; }
+    if (!media) {
+      if (isLatestMediaLoadRequest(requestId)) {
+        setStatus("未找到对应素材", "warning");
+      }
+      return false;
+    }
 
     await player.loadUrl(convertFileSrc(media.audioPath));
+    if (!isLatestMediaLoadRequest(requestId)) return false;
+
     player.setPlaybackRate(settings.playbackRate);
     player.setVolume(settings.volume);
     currentMediaId = media.id;
@@ -478,19 +498,27 @@
     if (media.subtitlePath) {
       try {
         await loadSubtitleFromPath(media.subtitlePath);
+        if (!isLatestMediaLoadRequest(requestId)) return false;
       } catch (err) {
         console.error(err);
-        subtitleFileLabel = "字幕加载失败";
+        if (isLatestMediaLoadRequest(requestId)) {
+          subtitleFileLabel = "字幕加载失败";
+        }
       }
     }
 
+    if (!isLatestMediaLoadRequest(requestId)) return false;
     renderSubtitle(player.getSnapshot());
     await syncOverlay(player.getSnapshot());
+    if (!isLatestMediaLoadRequest(requestId)) return false;
 
     if (record) {
       await backend.recordPlayback(media.id);
+      if (!isLatestMediaLoadRequest(requestId)) return false;
       await refreshLibrary();
     }
+
+    return isLatestMediaLoadRequest(requestId);
   }
 
   async function deleteMediaById(mediaId: string) {
@@ -563,8 +591,34 @@
   }
 
   async function playPlaylistItem(mediaId: string, autoplay = false) {
-    await loadMediaById(mediaId, true);
-    if (autoplay) await player.play();
+    if (playlistPlayPromise && playlistPlayTargetId === mediaId) {
+      await playlistPlayPromise;
+      return;
+    }
+
+    const requestId = createMediaLoadRequestId();
+    pendingPlaylistMediaId = mediaId;
+    playlistPlayTargetId = mediaId;
+
+    const task = (async () => {
+      const loaded = await loadMediaById(mediaId, true, requestId);
+      if (autoplay && loaded && isLatestMediaLoadRequest(requestId)) {
+        await player.play();
+      }
+    })();
+
+    const guardedTask = task.finally(() => {
+      if (playlistPlayPromise === guardedTask) {
+        playlistPlayPromise = null;
+        playlistPlayTargetId = undefined;
+      }
+      if (pendingPlaylistMediaId === mediaId) {
+        pendingPlaylistMediaId = undefined;
+      }
+    });
+
+    playlistPlayPromise = guardedTask;
+    await playlistPlayPromise;
   }
 
   async function handleWindowMinimize() {
@@ -1481,6 +1535,7 @@
         playbackRate={settings.playbackRate}
         playlistMode={settings.playlistMode}
         playlist={libraryState.playbackHistory}
+        {pendingPlaylistMediaId}
         {currentMediaId}
         volume={settings.volume}
         onTogglePlayback={() => void player.togglePlayback()}
