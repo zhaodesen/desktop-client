@@ -1,6 +1,12 @@
 use std::{env, path::PathBuf, process::Command};
 use tauri::{path::BaseDirectory, AppHandle, Manager};
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
 #[derive(Debug, Clone)]
 pub enum CommandTarget {
     Program(String),
@@ -137,10 +143,15 @@ pub fn with_exe_suffix(name: &str) -> String {
 
 #[allow(dead_code)]
 pub fn build_command(target: &CommandTarget) -> Command {
-    match target {
+    let mut command = match target {
         CommandTarget::Program(program) => Command::new(program),
         CommandTarget::File(path) => Command::new(path),
-    }
+    };
+
+    #[cfg(windows)]
+    command.creation_flags(CREATE_NO_WINDOW);
+
+    command
 }
 
 /// 构建低优先级命令，避免 ffmpeg / whisper-cli 等 CPU 密集型子进程抢占 UI 线程。
