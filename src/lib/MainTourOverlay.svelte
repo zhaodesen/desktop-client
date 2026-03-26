@@ -77,7 +77,7 @@
   .tour-mask {
     position: fixed;
     inset: 0;
-    z-index: 80;
+    z-index: var(--z-tour);
     /* Allow clicks on the card but block outside */
     pointer-events: none;
   }
@@ -97,7 +97,7 @@
       0 0 0 9999px rgba(0, 0, 0, 0.55),
       0 0 0 6px rgba(212, 138, 66, 0.1);
     pointer-events: none;
-    z-index: 81;
+    z-index: calc(var(--z-tour) + 1);
   }
 
   .tour-card {
@@ -110,7 +110,7 @@
     color: var(--text-primary, #e4e2db);
     box-shadow: var(--shadow-lg, 0 12px 40px rgba(0, 0, 0, 0.45));
     pointer-events: auto;
-    z-index: 82;
+    z-index: calc(var(--z-tour) + 2);
   }
 
   .tour-card-head {

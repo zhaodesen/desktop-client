@@ -160,7 +160,7 @@
   .first-run-mask {
     position: fixed;
     inset: 0;
-    z-index: 90;
+    z-index: var(--z-onboarding);
     display: flex;
     align-items: stretch;
     justify-content: center;
