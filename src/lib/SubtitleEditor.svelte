@@ -59,17 +59,17 @@
           <div class="subtitle-editor-row">
             <div class="subtitle-editor-time">{formatCueTime(cue)}</div>
             <div class="subtitle-editor-field">
-              <!-- svelte-ignore a11y_label_has_associated_control -->
-              <label>原文</label>
+              <label for="cue-text-{index}">原文</label>
               <textarea
+                id="cue-text-{index}"
                 value={cue.text}
                 oninput={(e) => onCueChange(index, "text", (e.target as HTMLTextAreaElement).value)}
               ></textarea>
             </div>
             <div class="subtitle-editor-field">
-              <!-- svelte-ignore a11y_label_has_associated_control -->
-              <label>中文字幕</label>
+              <label for="cue-secondary-{index}">中文字幕</label>
               <textarea
+                id="cue-secondary-{index}"
                 value={cue.secondaryText ?? ""}
                 oninput={(e) => onCueChange(index, "secondaryText", (e.target as HTMLTextAreaElement).value)}
               ></textarea>
