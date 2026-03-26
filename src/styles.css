@@ -750,9 +750,9 @@ h4 { font-size: var(--font-xs); font-weight: 600; letter-spacing: 0.04em; text-t
 .range-group strong { font-size: var(--font-sm); color: var(--text-secondary); min-width: 42px; text-align: right; font-variant-numeric: tabular-nums; }
 
 select, input[type="color"] {
-  padding: 6px 10px;
+  padding: 7px 12px;
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   background: var(--bg-surface);
   color: var(--text-primary);
   font: inherit;

@@ -613,7 +613,7 @@
     border-radius: var(--radius-md);
     background: var(--bg-inset);
     color: var(--text-primary);
-    font: inherit; padding: 12px 14px;
+    font: inherit; padding: 10px 14px;
     outline: none;
     transition: border-color 150ms ease, background 150ms ease, box-shadow 150ms ease;
   }
