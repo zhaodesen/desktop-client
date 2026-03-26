@@ -18,7 +18,7 @@
 
   --text-primary: #e8e6e0;
   --text-secondary: rgba(232, 230, 224, 0.58);
-  --text-dim: rgba(232, 230, 224, 0.32);
+  --text-dim: rgba(232, 230, 224, 0.52);
 
   --accent: #e09545;
   --accent-hover: #eca45c;
@@ -58,8 +58,8 @@
   --border-subtle: rgba(0, 0, 0, 0.04);
 
   --text-primary: #1a1a1d;
-  --text-secondary: rgba(26, 26, 29, 0.58);
-  --text-dim: rgba(26, 26, 29, 0.34);
+  --text-secondary: rgba(26, 26, 29, 0.64);
+  --text-dim: rgba(26, 26, 29, 0.52);
 
   --accent: #c47d2c;
   --accent-hover: #b06f24;
