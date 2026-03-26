@@ -628,4 +628,15 @@
   }
 
   .online-input-error { color: var(--danger); font-size: 0.78rem; margin-top: -2px; }
+
+  @media (max-width: 900px) {
+    .import-dialog,
+    .import-online-dialog {
+      left: 50%;
+      width: min(360px, calc(100vw - 32px));
+    }
+    .import-online-dialog {
+      width: min(460px, calc(100vw - 32px));
+    }
+  }
 </style>
