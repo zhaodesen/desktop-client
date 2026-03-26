@@ -61,6 +61,29 @@
   let activeTab = $state<TabId>("appearance");
   let recordingField = $state<ShortcutField | null>(null);
 
+  /* Sliding tab indicator */
+  let stabBarEl = $state<HTMLElement | null>(null);
+  let indicatorX = $state(0);
+  let indicatorW = $state(0);
+  let indicatorRafId = 0;
+
+  function updateIndicator() {
+    if (!stabBarEl) return;
+    const activeBtn = stabBarEl.querySelector<HTMLElement>('.stab-btn.stab-active');
+    if (!activeBtn) return;
+    const barRect = stabBarEl.getBoundingClientRect();
+    const btnRect = activeBtn.getBoundingClientRect();
+    indicatorX = btnRect.left - barRect.left + 8;
+    indicatorW = btnRect.width - 16;
+  }
+
+  $effect(() => {
+    // Explicitly read to establish dependency tracking
+    void activeTab;
+    cancelAnimationFrame(indicatorRafId);
+    indicatorRafId = requestAnimationFrame(updateIndicator);
+  });
+
   const fontSizeDisplay = $derived(`${Math.round(settings.overlay.fontSize)}px`);
   const opacityDisplay = $derived(`${Math.round(settings.overlay.opacity * 100)}%`);
   const opacityPct = $derived(Math.round(settings.overlay.opacity * 100));
@@ -99,7 +122,7 @@
 
 <section class="page settings-page" data-active="true">
   <!-- Tab bar -->
-  <div class="stab-bar">
+  <div class="stab-bar" bind:this={stabBarEl}>
     {#each tabs as tab}
       <button
         class="stab-btn"
@@ -110,6 +133,10 @@
         {tab.label}
       </button>
     {/each}
+    <span
+      class="stab-indicator"
+      style="transform: translateX({indicatorX}px) scaleX({indicatorW}); transform-origin: left"
+    ></span>
   </div>
 
   <!-- Tab panels -->
@@ -400,21 +427,19 @@
     font-weight: 600;
   }
 
-  .stab-btn::after {
-    content: "";
+  /* Sliding indicator element — uses transform for GPU compositing */
+  .stab-indicator {
     position: absolute;
     bottom: -1px;
-    left: 8px;
-    right: 8px;
+    left: 0;
+    width: 1px;
     height: 2px;
     background: var(--accent);
     border-radius: 2px 2px 0 0;
-    opacity: 0;
-    transition: opacity var(--transition-fast);
-  }
-
-  .stab-btn.stab-active::after {
-    opacity: 1;
+    transition: transform 260ms cubic-bezier(0.4, 0, 0.2, 1);
+    pointer-events: none;
+    box-shadow: 0 0 8px rgba(224, 149, 69, 0.3);
+    will-change: transform;
   }
 
   /* ── 面板内容区 ── */
