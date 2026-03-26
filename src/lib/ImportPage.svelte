@@ -259,13 +259,13 @@
 {#if showOnlineDialog}
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
   <div class="import-dialog-backdrop" role="presentation" onclick={handleCloseOnlineDialog}></div>
-  <div class="import-dialog import-online-dialog" role="dialog" aria-modal="true">
+  <div class="import-dialog import-online-dialog" role="dialog" aria-modal="true" aria-labelledby="online-dialog-title">
     <div class="import-dialog-check import-dialog-check-accent">
       <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
         <path d="M5 12h14" /><path d="M12 5l7 7-7 7" />
       </svg>
     </div>
-    <h3 class="import-dialog-title">导入在线视频</h3>
+    <h3 id="online-dialog-title" class="import-dialog-title">导入在线视频</h3>
     <p class="import-dialog-desc">
       粘贴在线视频地址后，应用会通过 <code>yt-dlp</code> 下载原视频到你电脑的下载目录，再自动导入本应用继续生成字幕。
     </p>
@@ -300,13 +300,13 @@
 {#if showDialog}
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
   <div class="import-dialog-backdrop" role="presentation" onclick={handleDialogClose}></div>
-  <div class="import-dialog" role="dialog" aria-modal="true">
+  <div class="import-dialog" role="dialog" aria-modal="true" aria-labelledby="success-dialog-title">
     <div class="import-dialog-check">
       <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
         <polyline points="20 6 9 17 4 12"/>
       </svg>
     </div>
-    <h3 class="import-dialog-title">导入成功</h3>
+    <h3 id="success-dialog-title" class="import-dialog-title">导入成功</h3>
     <p class="import-dialog-desc">
       {#if importSuccessName}
         「{importSuccessName}」已导入，双语字幕已生成完毕。

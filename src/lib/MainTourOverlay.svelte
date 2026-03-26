@@ -53,13 +53,13 @@
   <div class="tour-backdrop"></div>
   <div class="tour-highlight" style={highlightStyle}></div>
 
-  <div class="tour-card" style={tooltipStyle} role="dialog" aria-modal="true">
+  <div class="tour-card" style={tooltipStyle} role="dialog" aria-modal="true" aria-labelledby="tour-step-title">
     <div class="tour-card-head">
       <span class="tour-step-index">步骤 {index + 1} / {total}</span>
       <button class="tour-skip" type="button" onclick={onSkip}>跳过</button>
     </div>
 
-    <h2>{step.title}</h2>
+    <h2 id="tour-step-title">{step.title}</h2>
     <p>{step.description}</p>
     <div class="tour-hint">{step.hint}</div>
 
