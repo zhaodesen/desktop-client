@@ -214,7 +214,7 @@
   .first-run-panel-ready p {
     max-width: 720px;
     color: var(--text-secondary);
-    font-size: 0.95rem;
+    font-size: var(--font-md);
     line-height: 1.75;
   }
 
@@ -226,7 +226,7 @@
     border-radius: var(--radius-pill);
     background: var(--accent-soft);
     color: var(--accent);
-    font-size: 0.8rem;
+    font-size: var(--font-xs);
     font-weight: 600;
     letter-spacing: 0.06em;
     text-transform: uppercase;
@@ -275,7 +275,7 @@
     flex-wrap: wrap;
     gap: 8px;
     align-items: center;
-    font-size: 1rem;
+    font-size: var(--font-lg);
     font-weight: 700;
     color: var(--text-primary);
   }
@@ -283,13 +283,13 @@
   .model-card-desc {
     margin-top: 6px;
     color: var(--text-secondary);
-    font-size: 0.86rem;
+    font-size: var(--font-base);
     line-height: 1.65;
   }
 
   .model-card-size {
     color: var(--text-dim);
-    font-size: 0.78rem;
+    font-size: var(--font-xs);
     white-space: nowrap;
   }
 
@@ -303,7 +303,7 @@
   }
 
   .guide-block h3 {
-    font-size: 0.74rem;
+    font-size: var(--font-2xs);
     text-transform: uppercase;
     letter-spacing: 0.06em;
     color: var(--text-dim);
@@ -311,13 +311,13 @@
 
   .guide-block p {
     color: var(--text-secondary);
-    font-size: 0.86rem;
+    font-size: var(--font-base);
     line-height: 1.65;
   }
 
   .model-card-action {
     margin-top: auto;
-    font-size: 0.84rem;
+    font-size: var(--font-sm);
     font-weight: 600;
     color: var(--accent);
   }
@@ -327,7 +327,7 @@
     align-items: center;
     padding: 3px 8px;
     border-radius: var(--radius-pill);
-    font-size: 0.72rem;
+    font-size: var(--font-2xs);
     font-weight: 600;
   }
 
@@ -383,7 +383,7 @@
 
   .progress-meta strong {
     color: var(--text-primary);
-    font-size: 1.05rem;
+    font-size: var(--font-lg);
   }
 
   .progress-track {
@@ -416,7 +416,7 @@
   .onboarding-start-btn {
     padding: 11px 26px;
     border-radius: var(--radius-md);
-    font-size: 0.92rem;
+    font-size: var(--font-md);
     margin-top: 10px;
   }
 

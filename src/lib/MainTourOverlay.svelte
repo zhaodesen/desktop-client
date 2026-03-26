@@ -123,7 +123,7 @@
 
   .tour-step-index {
     color: var(--text-dim, rgba(228, 226, 219, 0.36));
-    font-size: 0.78rem;
+    font-size: var(--font-xs);
     letter-spacing: 0.04em;
     text-transform: uppercase;
   }
@@ -133,7 +133,7 @@
     background: transparent;
     color: var(--text-secondary, rgba(228, 226, 219, 0.62));
     font: inherit;
-    font-size: 0.84rem;
+    font-size: var(--font-sm);
     cursor: pointer;
     padding: 4px 8px;
     border-radius: var(--radius-xs, 6px);
@@ -146,7 +146,7 @@
   }
 
   .tour-card h2 {
-    font-size: 1.12rem;
+    font-size: var(--font-xl);
     font-weight: 700;
     margin-bottom: 8px;
     color: var(--text-primary);
@@ -155,7 +155,7 @@
   .tour-card p {
     color: var(--text-secondary);
     line-height: 1.7;
-    font-size: 0.88rem;
+    font-size: var(--font-base);
   }
 
   .tour-hint {
@@ -164,7 +164,7 @@
     border-radius: var(--radius-md, 12px);
     background: var(--accent-soft, rgba(212, 138, 66, 0.1));
     color: var(--accent, #d48a42);
-    font-size: 0.84rem;
+    font-size: var(--font-sm);
     line-height: 1.65;
   }
 

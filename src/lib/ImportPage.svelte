@@ -339,7 +339,7 @@
     border: 1px solid var(--danger-border);
     border-radius: var(--radius-md);
     color: var(--danger);
-    font-size: 0.83rem;
+    font-size: var(--font-sm);
     line-height: 1.5;
     margin-bottom: 12px;
   }
@@ -353,7 +353,7 @@
     background: var(--danger-soft);
     border: 1px solid var(--danger-border);
     color: var(--danger);
-    font-size: 0.8rem;
+    font-size: var(--font-xs);
     line-height: 1.45;
     word-break: break-word;
   }
@@ -404,10 +404,10 @@
     opacity: 0.5;
   }
 
-  .import-title { font-size: 1.3rem; font-weight: 700; color: var(--text-primary); letter-spacing: -0.01em; }
-  .import-desc { font-size: 0.88rem; color: var(--text-secondary); max-width: 440px; line-height: 1.7; }
+  .import-title { font-size: var(--font-2xl); font-weight: 700; color: var(--text-primary); letter-spacing: -0.01em; }
+  .import-desc { font-size: var(--font-base); color: var(--text-secondary); max-width: 440px; line-height: 1.7; }
   .import-formats {
-    font-size: 0.74rem; color: var(--text-dim); max-width: 440px;
+    font-size: var(--font-2xs); color: var(--text-dim); max-width: 440px;
     padding: 8px 16px;
     border-radius: var(--radius-pill);
     background: var(--bg-inset);
@@ -416,13 +416,13 @@
 
   :global(.btn-lg) {
     padding: 11px 28px;
-    font-size: 0.92rem;
+    font-size: var(--font-md);
     border-radius: var(--radius-md);
     margin-top: 6px;
   }
 
   .import-online-btn { margin-top: 0; }
-  .import-online-hint { max-width: 460px; font-size: 0.78rem; color: var(--text-dim); line-height: 1.7; }
+  .import-online-hint { max-width: 460px; font-size: var(--font-xs); color: var(--text-dim); line-height: 1.7; }
 
   /* ── Progress icon ── */
   .import-progress-icon {
@@ -497,7 +497,7 @@
   }
 
   .progress-percent {
-    font-size: 0.82rem; font-weight: 600;
+    font-size: var(--font-sm); font-weight: 600;
     color: var(--text-secondary);
     min-width: 36px; text-align: right;
     font-variant-numeric: tabular-nums;
@@ -508,7 +508,7 @@
   .import-cancel-btn { margin-top: 16px; min-width: 112px; }
 
   .stage-dot {
-    font-size: 0.72rem; color: var(--text-dim);
+    font-size: var(--font-2xs); color: var(--text-dim);
     padding: 4px 10px; border-radius: var(--radius-pill);
     border: 1px solid transparent;
     transition: all 0.25s ease;
@@ -529,7 +529,7 @@
     border: 1px solid var(--border);
     border-radius: var(--radius-pill);
     color: var(--success);
-    font-size: 0.83rem; font-weight: 500;
+    font-size: var(--font-sm); font-weight: 500;
     box-shadow: var(--shadow-md);
     z-index: var(--z-toast);
     animation: toast-in 0.25s ease;
@@ -578,12 +578,12 @@
     display: grid; place-items: center; margin-bottom: 4px;
   }
 
-  .import-dialog-title { font-size: 1.05rem; font-weight: 700; color: var(--text-primary); }
-  .import-dialog-desc { font-size: 0.83rem; color: var(--text-secondary); line-height: 1.55; max-width: 290px; margin-top: 2px; }
+  .import-dialog-title { font-size: var(--font-lg); font-weight: 700; color: var(--text-primary); }
+  .import-dialog-desc { font-size: var(--font-sm); color: var(--text-secondary); line-height: 1.55; max-width: 290px; margin-top: 2px; }
 
   .import-dialog-suppress {
     display: flex; align-items: center; gap: 7px;
-    font-size: 0.8rem; color: var(--text-dim);
+    font-size: var(--font-xs); color: var(--text-dim);
     cursor: pointer; margin-top: 8px; user-select: none;
   }
   .import-dialog-suppress input { cursor: pointer; accent-color: var(--accent); }
@@ -598,7 +598,7 @@
   .import-dialog-check-accent { background: var(--accent-soft); color: var(--accent); align-self: center; }
 
   .import-dialog-tip {
-    font-size: 0.78rem; line-height: 1.65;
+    font-size: var(--font-xs); line-height: 1.65;
     color: var(--text-dim);
     background: var(--bg-inset);
     border: 1px solid var(--border-subtle);
@@ -607,7 +607,7 @@
 
   .online-input-block {
     display: flex; flex-direction: column; gap: 8px;
-    margin-top: 4px; font-size: 0.8rem; color: var(--text-secondary);
+    margin-top: 4px; font-size: var(--font-xs); color: var(--text-secondary);
   }
 
   .online-input-block input {
@@ -627,7 +627,7 @@
     box-shadow: 0 0 0 3px var(--accent-soft);
   }
 
-  .online-input-error { color: var(--danger); font-size: 0.78rem; margin-top: -2px; }
+  .online-input-error { color: var(--danger); font-size: var(--font-xs); margin-top: -2px; }
 
   @media (max-width: 900px) {
     .import-dialog,

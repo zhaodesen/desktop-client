@@ -229,7 +229,7 @@
     background: transparent;
     color: var(--text-primary);
     font: inherit;
-    font-size: 0.88rem;
+    font-size: var(--font-base);
     cursor: pointer;
     text-align: left;
     width: 100%;
@@ -276,7 +276,7 @@
   }
 
   .playlist-item-meta {
-    font-size: 0.72rem;
+    font-size: var(--font-2xs);
     color: var(--text-dim);
   }
 
@@ -316,7 +316,7 @@
     border-top: 1px solid var(--border);
     display: flex;
     flex-direction: column;
-    z-index: 10;
+    z-index: var(--z-sticky);
   }
 
   /* Top progress strip with glow effect */

@@ -185,7 +185,7 @@
     -webkit-backdrop-filter: blur(8px);
     border: 1px solid var(--border);
     color: var(--success);
-    font-size: 0.72rem;
+    font-size: var(--font-2xs);
     line-height: 1;
     box-shadow: var(--shadow-md);
     pointer-events: none;

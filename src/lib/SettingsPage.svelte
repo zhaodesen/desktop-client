@@ -396,7 +396,7 @@
     gap: 2px;
     position: sticky;
     top: -24px;
-    z-index: 10;
+    z-index: var(--z-sticky);
     background: var(--bg-base);
     border-bottom: 1px solid var(--border);
     margin: 0 -32px;
@@ -406,7 +406,7 @@
   .stab-btn {
     position: relative;
     padding: 9px 18px;
-    font-size: 0.86rem;
+    font-size: var(--font-base);
     font-weight: 500;
     color: var(--text-secondary);
     background: none;
@@ -462,7 +462,7 @@
   }
 
   .sform-section-title {
-    font-size: 0.7rem;
+    font-size: var(--font-2xs);
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.06em;
@@ -474,7 +474,7 @@
 
   .shortcut-tip {
     color: var(--text-dim);
-    font-size: 0.8rem;
+    font-size: var(--font-xs);
     margin: 0 0 8px;
     line-height: 1.5;
   }
@@ -509,7 +509,7 @@
     color: var(--text-primary);
     padding: 8px 12px;
     font: inherit;
-    font-size: 0.84rem;
+    font-size: var(--font-sm);
     cursor: pointer;
     text-align: center;
     transition: border-color var(--transition-fast), background var(--transition-fast), color var(--transition-fast), box-shadow var(--transition-fast);
@@ -551,7 +551,7 @@
     background: var(--bg-surface);
     color: var(--text-secondary);
     font: inherit;
-    font-size: 0.82rem;
+    font-size: var(--font-sm);
     cursor: pointer;
     transition: border-color var(--transition-normal), background var(--transition-normal), color var(--transition-normal), transform var(--transition-fast), box-shadow var(--transition-normal);
   }
