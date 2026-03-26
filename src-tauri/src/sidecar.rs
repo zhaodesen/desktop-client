@@ -54,8 +54,9 @@ pub fn resolve_local_candidates(app: &AppHandle, names: &[&str]) -> Result<Vec<P
         if let Ok(resource_path) = app.path().resolve(&binary_name, BaseDirectory::Resource) {
             candidates.push(resource_path);
         }
-        if let Ok(resource_path) =
-            app.path().resolve(with_exe_suffix(name), BaseDirectory::Resource)
+        if let Ok(resource_path) = app
+            .path()
+            .resolve(with_exe_suffix(name), BaseDirectory::Resource)
         {
             candidates.push(resource_path);
         }
@@ -74,8 +75,9 @@ pub fn resolve_local_candidates(app: &AppHandle, names: &[&str]) -> Result<Vec<P
         if let Ok(executable_path) = app.path().resolve(&binary_name, BaseDirectory::Executable) {
             candidates.push(executable_path);
         }
-        if let Ok(executable_path) =
-            app.path().resolve(with_exe_suffix(name), BaseDirectory::Executable)
+        if let Ok(executable_path) = app
+            .path()
+            .resolve(with_exe_suffix(name), BaseDirectory::Executable)
         {
             candidates.push(executable_path);
         }
