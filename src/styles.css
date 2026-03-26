@@ -352,14 +352,14 @@ h4 { font-size: 0.78rem; font-weight: 600; letter-spacing: 0.04em; text-transfor
 
 .btn-primary {
   background: var(--accent);
-  color: #fff;
+  color: #1a1a1d;
   border-color: transparent;
   font-weight: 600;
   box-shadow: 0 2px 8px rgba(224, 149, 69, 0.15);
 }
 .btn-primary:hover { background: var(--accent-hover); border-color: transparent; box-shadow: 0 4px 16px rgba(224, 149, 69, 0.2); }
 
-[data-theme="light"] .btn-primary { color: #fff; box-shadow: 0 2px 8px rgba(196, 125, 44, 0.12); }
+[data-theme="light"] .btn-primary { box-shadow: 0 2px 8px rgba(196, 125, 44, 0.12); }
 [data-theme="light"] .btn-primary:hover { box-shadow: 0 4px 16px rgba(196, 125, 44, 0.18); }
 
 .btn-outline { background: transparent; }
