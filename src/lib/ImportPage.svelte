@@ -509,7 +509,7 @@
     font-size: var(--font-2xs); color: var(--text-dim);
     padding: 4px 10px; border-radius: var(--radius-pill);
     border: 1px solid transparent;
-    transition: all 0.25s ease;
+    transition: color 0.25s ease, background 0.25s ease, border-color 0.25s ease;
   }
   .stage-dot.stage-active { color: var(--accent); background: var(--accent-soft); border-color: var(--accent-border); font-weight: 600; }
   .stage-dot.stage-done { color: var(--success); }
