@@ -51,6 +51,14 @@ pub fn resolve_local_candidates(app: &AppHandle, names: &[&str]) -> Result<Vec<P
 
     for name in names {
         let binary_name = with_target_triple(name);
+        if let Ok(resource_path) = app.path().resolve(&binary_name, BaseDirectory::Resource) {
+            candidates.push(resource_path);
+        }
+        if let Ok(resource_path) =
+            app.path().resolve(with_exe_suffix(name), BaseDirectory::Resource)
+        {
+            candidates.push(resource_path);
+        }
         if let Ok(resource_path) = app
             .path()
             .resolve(format!("binaries/{binary_name}"), BaseDirectory::Resource)
@@ -62,6 +70,14 @@ pub fn resolve_local_candidates(app: &AppHandle, names: &[&str]) -> Result<Vec<P
             BaseDirectory::Resource,
         ) {
             candidates.push(resource_path);
+        }
+        if let Ok(executable_path) = app.path().resolve(&binary_name, BaseDirectory::Executable) {
+            candidates.push(executable_path);
+        }
+        if let Ok(executable_path) =
+            app.path().resolve(with_exe_suffix(name), BaseDirectory::Executable)
+        {
+            candidates.push(executable_path);
         }
         candidates.push(current_dir.join("src-tauri/binaries").join(&binary_name));
         candidates.push(
