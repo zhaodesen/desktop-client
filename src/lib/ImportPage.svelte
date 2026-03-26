@@ -621,7 +621,7 @@
     transition: border-color 150ms ease, background 150ms ease, box-shadow 150ms ease;
   }
 
-  .online-input-block input:focus {
+  .online-input-block input:focus-visible {
     border-color: var(--accent);
     background: var(--bg-surface);
     box-shadow: 0 0 0 3px var(--accent-soft);
