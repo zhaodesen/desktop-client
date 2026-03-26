@@ -45,9 +45,18 @@
   .dialog-backdrop {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.6);
+    background: rgba(0, 0, 0, 0.45);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
     z-index: 99;
+    animation: backdrop-in 0.15s ease;
   }
+
+  @keyframes backdrop-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
   .confirm-dialog {
     position: fixed;
     top: 50%;
@@ -55,12 +64,18 @@
     transform: translate(-50%, -50%);
     z-index: 100;
     border: none;
-    border-radius: var(--radius-lg);
+    border-radius: var(--radius-xl, 20px);
     background: var(--bg-raised);
     color: var(--text-primary);
     padding: 0;
     max-width: 380px;
     width: 90vw;
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+    box-shadow: var(--shadow-lg);
+    animation: dialog-pop 0.2s ease;
+  }
+
+  @keyframes dialog-pop {
+    from { opacity: 0; transform: translate(-50%, calc(-50% + 8px)) scale(0.97); }
+    to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
   }
 </style>

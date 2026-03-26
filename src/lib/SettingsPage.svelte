@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { AppSettings, ModelInfo, ModelStatus, OverlaySettings, ShortcutSettings } from "../shared/types";
+  import type { AppSettings, ModelInfo, ModelStatus, OverlaySettings, ShortcutSettings, ThemeMode } from "../shared/types";
   import ModelList from "./ModelList.svelte";
 
   interface Props {
@@ -22,6 +22,7 @@
     onClearAllCache: () => void;
     onDeleteAllModels: () => void;
     onResetAppData: () => void;
+    onThemeChange: (mode: ThemeMode) => void;
   }
 
   const {
@@ -31,12 +32,14 @@
     onDownloadModel, onSelectModel, onDeleteModel,
     onShortcutChange, onShortcutCommit,
     onClearAllCache, onDeleteAllModels, onResetAppData,
+    onThemeChange,
   }: Props = $props();
 
-  type TabId = "overlay" | "shortcuts" | "models" | "data";
+  type TabId = "appearance" | "overlay" | "shortcuts" | "models" | "data";
   type ShortcutField = keyof ShortcutSettings;
 
   const tabs: { id: TabId; label: string }[] = [
+    { id: "appearance", label: "外观" },
     { id: "overlay", label: "悬浮窗" },
     { id: "shortcuts", label: "快捷键" },
     { id: "models", label: "离线模型" },
@@ -55,7 +58,7 @@
     { field: "showBilingual", label: "显示双字幕" },
   ];
 
-  let activeTab = $state<TabId>("overlay");
+  let activeTab = $state<TabId>("appearance");
   let recordingField = $state<ShortcutField | null>(null);
 
   const fontSizeDisplay = $derived(`${Math.round(settings.overlay.fontSize)}px`);
@@ -112,7 +115,54 @@
   <!-- Tab panels -->
   <div class="stab-panel">
 
-    {#if activeTab === "overlay"}
+    {#if activeTab === "appearance"}
+      <!-- 外观 -->
+      <div class="sform">
+        <div class="sform-section">
+          <div class="sform-section-title">主题模式</div>
+          <div class="theme-switcher">
+            <button
+              class="theme-option"
+              class:theme-option-active={settings.themeMode === "light"}
+              type="button"
+              onclick={() => onThemeChange("light")}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="5"/>
+                <line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/>
+                <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+                <line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/>
+                <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+              </svg>
+              <span>浅色</span>
+            </button>
+            <button
+              class="theme-option"
+              class:theme-option-active={settings.themeMode === "dark"}
+              type="button"
+              onclick={() => onThemeChange("dark")}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+              </svg>
+              <span>深色</span>
+            </button>
+            <button
+              class="theme-option"
+              class:theme-option-active={settings.themeMode === "system"}
+              type="button"
+              onclick={() => onThemeChange("system")}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
+              </svg>
+              <span>跟随系统</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+    {:else if activeTab === "overlay"}
       <!-- 悬浮窗 -->
       <div class="sform">
         <div class="sform-section">
@@ -308,37 +358,35 @@
 </section>
 
 <style>
-  /* ── 页面容器：gap 覆盖，让 tab bar 紧贴顶部 ── */
+  /* ── 页面容器 ── */
   .settings-page {
     gap: 0 !important;
   }
 
-  /* ── Tab 导航栏：sticky 固定在 .content 滚动容器顶部 ── */
+  /* ── Tab 导航栏 ── */
   .stab-bar {
     display: flex;
     gap: 2px;
-    /* 向上抵消 .content 的 24px padding，然后贴顶 */
     position: sticky;
     top: -24px;
     z-index: 10;
     background: var(--bg-base);
     border-bottom: 1px solid var(--border);
-    /* 向左右各延伸 28px 以覆盖 .content 的 padding */
-    margin: 0 -28px;
-    padding: 14px 28px 0;
+    margin: 0 -32px;
+    padding: 14px 32px 0;
   }
 
   .stab-btn {
     position: relative;
-    padding: 8px 18px;
-    font-size: 0.875rem;
+    padding: 9px 18px;
+    font-size: 0.86rem;
     font-weight: 500;
     color: var(--text-secondary);
     background: none;
     border: none;
     cursor: pointer;
     border-radius: var(--radius-sm) var(--radius-sm) 0 0;
-    transition: color 150ms, background 150ms;
+    transition: color var(--transition-fast), background var(--transition-fast);
     white-space: nowrap;
   }
 
@@ -352,18 +400,17 @@
     font-weight: 600;
   }
 
-  /* 底部指示线 */
   .stab-btn::after {
     content: "";
     position: absolute;
     bottom: -1px;
-    left: 0;
-    right: 0;
+    left: 8px;
+    right: 8px;
     height: 2px;
     background: var(--accent);
     border-radius: 2px 2px 0 0;
     opacity: 0;
-    transition: opacity 150ms;
+    transition: opacity var(--transition-fast);
   }
 
   .stab-btn.stab-active::after {
@@ -372,21 +419,21 @@
 
   /* ── 面板内容区 ── */
   .stab-panel {
-    padding-top: 20px;
+    padding-top: 24px;
   }
 
   /* ── 表单区块 ── */
   .sform {
     display: flex;
     flex-direction: column;
-    gap: 20px;
-    max-width: 480px;
+    gap: 24px;
+    max-width: 520px;
   }
 
   .sform-section {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 4px;
   }
 
   .sform-section-title {
@@ -395,21 +442,22 @@
     text-transform: uppercase;
     letter-spacing: 0.06em;
     color: var(--text-dim);
-    padding: 4px 0 2px;
-    border-bottom: 1px solid var(--border);
-    margin-bottom: 2px;
+    padding: 6px 0 4px;
+    border-bottom: 1px solid var(--border-subtle);
+    margin-bottom: 4px;
   }
 
   .shortcut-tip {
     color: var(--text-dim);
     font-size: 0.8rem;
-    margin: 0 0 6px;
+    margin: 0 0 8px;
+    line-height: 1.5;
   }
 
   .shortcut-list {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 6px;
   }
 
   .shortcut-row {
@@ -417,10 +465,15 @@
     align-items: center;
     justify-content: space-between;
     gap: 12px;
-    padding: 10px 12px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
+    padding: 10px 14px;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
     background: var(--bg-surface);
+    transition: border-color var(--transition-fast);
+  }
+
+  .shortcut-row:hover {
+    border-color: var(--border);
   }
 
   .shortcut-trigger {
@@ -431,14 +484,72 @@
     color: var(--text-primary);
     padding: 8px 12px;
     font: inherit;
+    font-size: 0.84rem;
     cursor: pointer;
-    transition: border-color 150ms, background 150ms, color 150ms;
+    text-align: center;
+    transition: border-color var(--transition-fast), background var(--transition-fast), color var(--transition-fast), box-shadow var(--transition-fast);
   }
 
-  .shortcut-trigger:hover,
+  .shortcut-trigger:hover {
+    border-color: var(--border-focus);
+  }
+
   .shortcut-trigger-recording {
     border-color: var(--accent);
     color: var(--accent);
     background: var(--accent-soft);
+    box-shadow: 0 0 0 3px var(--accent-soft-2, rgba(224, 149, 69, 0.06));
+    animation: pulse-ring 1.5s ease-in-out infinite;
+  }
+
+  @keyframes pulse-ring {
+    0%, 100% { box-shadow: 0 0 0 3px var(--accent-soft); }
+    50% { box-shadow: 0 0 0 6px transparent; }
+  }
+
+  /* ── Theme switcher ── */
+  .theme-switcher {
+    display: flex;
+    gap: 10px;
+    margin-top: 10px;
+  }
+
+  .theme-option {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    padding: 20px 12px 16px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--bg-surface);
+    color: var(--text-secondary);
+    font: inherit;
+    font-size: 0.82rem;
+    cursor: pointer;
+    transition: border-color var(--transition-normal), background var(--transition-normal), color var(--transition-normal), transform var(--transition-fast), box-shadow var(--transition-normal);
+  }
+
+  .theme-option:hover {
+    border-color: var(--border-focus);
+    background: var(--bg-surface-hover);
+    color: var(--text-primary);
+    transform: translateY(-1px);
+  }
+
+  .theme-option-active {
+    border-color: var(--accent-border);
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-weight: 600;
+    box-shadow: var(--shadow-glow);
+  }
+
+  .theme-option-active:hover {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+    color: var(--accent);
+    transform: translateY(-1px);
   }
 </style>

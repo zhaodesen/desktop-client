@@ -159,9 +159,9 @@
   @media (hover: hover) and (pointer: fine) {
     .list-item-actions {
       opacity: 0;
-      transform: translateX(8px);
+      transform: translateX(6px);
       pointer-events: none;
-      transition: opacity 160ms ease, transform 160ms ease;
+      transition: opacity var(--transition-normal, 180ms ease), transform var(--transition-normal, 180ms ease);
     }
 
     .list-item:hover .list-item-actions,
@@ -178,13 +178,22 @@
     left: 50%;
     transform: translateX(-50%);
     white-space: nowrap;
-    padding: 6px 10px;
-    border-radius: 999px;
-    background: rgba(17, 24, 39, 0.94);
-    color: #f8fafc;
+    padding: 6px 12px;
+    border-radius: var(--radius-pill);
+    background: var(--bg-glass, var(--bg-raised));
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: 1px solid var(--border);
+    color: var(--success);
     font-size: 0.72rem;
     line-height: 1;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
+    box-shadow: var(--shadow-md);
     pointer-events: none;
+    animation: tooltip-in 0.15s ease;
+  }
+
+  @keyframes tooltip-in {
+    from { opacity: 0; transform: translateX(-50%) translateY(-4px); }
+    to   { opacity: 1; transform: translateX(-50%) translateY(0); }
   }
 </style>

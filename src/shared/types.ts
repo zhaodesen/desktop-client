@@ -72,6 +72,8 @@ export type ShortcutSettings = {
 
 export type PlaylistMode = "single" | "sequential";
 
+export type ThemeMode = "dark" | "light" | "system";
+
 export type AppSettings = {
   playbackRate: number;
   volume: number;
@@ -83,6 +85,7 @@ export type AppSettings = {
   selectedModel: string;
   hasCompletedOnboarding: boolean;
   hasSeenMainTour: boolean;
+  themeMode: ThemeMode;
 };
 
 export type CommandError = {

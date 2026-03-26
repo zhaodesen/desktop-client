@@ -20,6 +20,7 @@
     ShutdownTaskSummary,
     SubtitleCue,
     SubtitleDocument,
+    ThemeMode,
   } from "./shared/types";
   import { PlayerController } from "./main/player-controller";
   import { parseSubtitleText } from "./main/subtitle-parser";
@@ -68,6 +69,7 @@
     selectedModel: "base",
     hasCompletedOnboarding: false,
     hasSeenMainTour: false,
+    themeMode: "dark" as ThemeMode,
   };
 
   const ONBOARDING_MODEL_GUIDES: Record<string, { pros: string[]; cons: string[]; recommended?: boolean }> = {
@@ -221,6 +223,19 @@
 
   // ConfirmDialog ref
   let confirmDialog: ConfirmDialog;
+
+  /* ── Theme ─────────────────────────────────────────────── */
+
+  function applyTheme(mode: ThemeMode) {
+    let resolved: "dark" | "light" = mode === "system"
+      ? (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")
+      : mode;
+    document.documentElement.setAttribute("data-theme", resolved);
+  }
+
+  $effect(() => {
+    applyTheme(settings.themeMode);
+  });
 
   /* ── Helpers ────────────────────────────────────────────── */
 
@@ -774,6 +789,11 @@
     await overlayBridge.updateStyle(overlay);
   }
 
+  async function handleThemeChange(mode: ThemeMode) {
+    settings = { ...settings, themeMode: mode };
+    await persistSettings();
+  }
+
   /* ── Model handlers ────────────────────────────────────── */
 
   async function handleDownloadModel(modelId: string, options?: { silent?: boolean }) {
@@ -1277,6 +1297,7 @@
     try {
       settings = await backend.getSettings();
       if (!settings.playlistMode) settings = { ...settings, playlistMode: "sequential" };
+      if (!settings.themeMode) settings = { ...settings, themeMode: "dark" };
       player.setPlaybackRate(settings.playbackRate);
       player.setVolume(settings.volume);
       await overlayBridge.updateStyle(settings.overlay);
@@ -1433,6 +1454,7 @@
         onClearAllCache={handleClearAllCache}
         onDeleteAllModels={handleDeleteAllModels}
         onResetAppData={handleResetAppData}
+        onThemeChange={handleThemeChange}
       />
     {:else if activePage === "subtitle-editor"}
       <SubtitleEditor

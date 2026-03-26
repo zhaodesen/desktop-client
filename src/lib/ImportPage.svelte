@@ -337,59 +337,40 @@
     padding: 12px 16px;
     background: var(--danger-soft);
     border: 1px solid var(--danger-border);
-    border-radius: var(--radius-sm);
+    border-radius: var(--radius-md);
     color: var(--danger);
     font-size: 0.83rem;
     line-height: 1.5;
     margin-bottom: 12px;
   }
 
-  .import-error-msg {
-    min-width: 0;
-    word-break: break-all;
-  }
-
-  .import-error-copy {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
+  .import-error-msg { min-width: 0; word-break: break-all; }
+  .import-error-copy { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
 
   .import-error-hint {
     padding: 8px 10px;
-    border-radius: 10px;
-    background: color-mix(in srgb, var(--danger-soft) 55%, white 45%);
-    border: 1px solid color-mix(in srgb, var(--danger-border) 60%, white 40%);
-    color: color-mix(in srgb, var(--danger) 82%, #6b1d1d 18%);
+    border-radius: var(--radius-sm);
+    background: var(--danger-soft);
+    border: 1px solid var(--danger-border);
+    color: var(--danger);
     font-size: 0.8rem;
     line-height: 1.45;
     word-break: break-word;
   }
 
   .import-error-close {
-    display: grid;
-    place-items: center;
-    width: 22px;
-    height: 22px;
-    border: none;
-    background: transparent;
-    color: var(--danger);
-    cursor: pointer;
-    border-radius: 4px;
-    flex-shrink: 0;
-    margin-top: -1px;
-    opacity: 0.75;
+    display: grid; place-items: center;
+    width: 22px; height: 22px;
+    border: none; background: transparent;
+    color: var(--danger); cursor: pointer;
+    border-radius: 4px; flex-shrink: 0;
+    margin-top: -1px; opacity: 0.75;
     transition: opacity 150ms;
   }
   .import-error-close:hover { opacity: 1; }
 
   /* ── 页面主体 ── */
-  .import-page {
-    display: flex !important;
-    flex-direction: column;
-  }
+  .import-page { display: flex !important; flex-direction: column; }
 
   .import-center {
     display: flex;
@@ -398,120 +379,92 @@
     justify-content: center;
     text-align: center;
     min-height: 65vh;
-    gap: 12px;
-    padding: 24px;
+    gap: 16px;
+    padding: 28px;
   }
 
   .import-icon {
-    width: 80px;
-    height: 80px;
-    display: grid;
-    place-items: center;
-    border-radius: 20px;
+    width: 80px; height: 80px;
+    display: grid; place-items: center;
+    border-radius: var(--radius-xl, 20px);
     background: var(--accent-soft);
     color: var(--accent);
-    margin-bottom: 8px;
+    margin-bottom: 6px;
+    box-shadow: var(--shadow-glow);
+    position: relative;
   }
 
-  .import-title {
-    font-size: 1.3rem;
-    font-weight: 700;
-    color: var(--text-primary);
+  /* Subtle ring */
+  .import-icon::after {
+    content: "";
+    position: absolute;
+    inset: -4px;
+    border-radius: inherit;
+    border: 1.5px solid var(--accent-border);
+    opacity: 0.5;
   }
 
-  .import-desc {
-    font-size: 0.9rem;
-    color: var(--text-secondary);
-    max-width: 420px;
-    line-height: 1.6;
-  }
-
+  .import-title { font-size: 1.3rem; font-weight: 700; color: var(--text-primary); letter-spacing: -0.01em; }
+  .import-desc { font-size: 0.88rem; color: var(--text-secondary); max-width: 440px; line-height: 1.7; }
   .import-formats {
-    font-size: 0.75rem;
-    color: var(--text-dim);
-    max-width: 420px;
+    font-size: 0.74rem; color: var(--text-dim); max-width: 440px;
+    padding: 8px 16px;
+    border-radius: var(--radius-pill);
+    background: var(--bg-inset);
+    border: 1px solid var(--border-subtle);
   }
 
   :global(.btn-lg) {
-    padding: 12px 28px;
-    font-size: 0.95rem;
+    padding: 11px 28px;
+    font-size: 0.92rem;
     border-radius: var(--radius-md);
-    margin-top: 8px;
+    margin-top: 6px;
   }
 
-  .import-online-btn {
-    margin-top: 0;
-  }
-
-  .import-online-hint {
-    max-width: 460px;
-    font-size: 0.78rem;
-    color: var(--text-dim);
-    line-height: 1.7;
-  }
+  .import-online-btn { margin-top: 0; }
+  .import-online-hint { max-width: 460px; font-size: 0.78rem; color: var(--text-dim); line-height: 1.7; }
 
   /* ── Progress icon ── */
   .import-progress-icon {
-    width: 80px;
-    height: 80px;
-    display: grid;
-    place-items: center;
-    border-radius: 20px;
+    width: 80px; height: 80px;
+    display: grid; place-items: center;
+    border-radius: var(--radius-xl, 20px);
     background: var(--accent-soft);
     color: var(--accent);
-    margin-bottom: 8px;
+    margin-bottom: 6px;
+    box-shadow: var(--shadow-glow);
   }
 
   .import-spinner {
-    width: 36px;
-    height: 36px;
-    border: 3px solid rgba(232, 148, 78, 0.25);
+    width: 34px; height: 34px;
+    border: 3px solid var(--accent-soft);
     border-top-color: var(--accent);
     border-radius: 50%;
     animation: spin 0.8s linear infinite;
   }
 
-  @keyframes spin {
-    to { transform: rotate(360deg); }
-  }
+  @keyframes spin { to { transform: rotate(360deg); } }
 
   /* ── Progress bar ── */
   .progress-bar-wrapper {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    width: 100%;
-    max-width: 360px;
-    margin-top: 8px;
+    display: flex; align-items: center; gap: 12px;
+    width: 100%; max-width: 380px; margin-top: 10px;
   }
 
   .progress-bar-track {
-    flex: 1;
-    height: 6px;
-    background: var(--bg-inset, rgba(255, 255, 255, 0.06));
-    border-radius: 3px;
-    overflow: hidden;
+    flex: 1; height: 6px;
+    background: var(--bg-inset);
+    border-radius: 3px; overflow: hidden;
   }
 
   .progress-bar-fill {
-    height: 100%;
-    background: var(--accent);
-    border-radius: 3px;
-    transition: width 0.5s ease;
+    height: 100%; background: var(--accent);
+    border-radius: 3px; transition: width 0.5s ease;
   }
 
-  .progress-bar-fill.progress-done {
-    background: var(--success, #4ade80);
-  }
-
-  /* 活跃状态：流光动画，让用户知道进程仍在运行 */
+  .progress-bar-fill.progress-done { background: var(--success); }
   .progress-bar-fill.progress-active {
-    background-image: linear-gradient(
-      90deg,
-      var(--accent) 0%,
-      color-mix(in srgb, var(--accent) 70%, white) 50%,
-      var(--accent) 100%
-    );
+    background-image: linear-gradient(90deg, var(--accent) 0%, var(--accent-hover) 50%, var(--accent) 100%);
     background-size: 200% 100%;
     animation: shimmer 1.8s ease-in-out infinite;
   }
@@ -522,72 +475,42 @@
   }
 
   .progress-percent {
-    font-size: 0.8rem;
-    font-weight: 600;
+    font-size: 0.82rem; font-weight: 600;
     color: var(--text-secondary);
-    min-width: 36px;
-    text-align: right;
+    min-width: 36px; text-align: right;
     font-variant-numeric: tabular-nums;
   }
 
   /* ── Stage indicators ── */
-  .progress-stages {
-    display: flex;
-    align-items: center;
-    gap: 0;
-    margin-top: 12px;
-  }
-
-  .import-cancel-btn {
-    margin-top: 14px;
-    min-width: 112px;
-  }
+  .progress-stages { display: flex; align-items: center; gap: 0; margin-top: 14px; }
+  .import-cancel-btn { margin-top: 16px; min-width: 112px; }
 
   .stage-dot {
-    font-size: 0.72rem;
-    color: var(--text-dim);
-    padding: 3px 8px;
-    border-radius: var(--radius-pill, 999px);
+    font-size: 0.72rem; color: var(--text-dim);
+    padding: 4px 10px; border-radius: var(--radius-pill);
     border: 1px solid transparent;
     transition: all 0.25s ease;
   }
-
-  .stage-dot.stage-active {
-    color: var(--accent);
-    background: var(--accent-soft);
-    border-color: var(--accent);
-    font-weight: 600;
-  }
-
-  .stage-dot.stage-done {
-    color: var(--success, #4ade80);
-  }
-
-  .stage-line {
-    width: 16px;
-    height: 1px;
-    background: var(--border);
-  }
+  .stage-dot.stage-active { color: var(--accent); background: var(--accent-soft); border-color: var(--accent-border); font-weight: 600; }
+  .stage-dot.stage-done { color: var(--success); }
+  .stage-line { width: 18px; height: 1px; background: var(--border); }
 
   /* ── Toast ── */
   .import-toast {
-    position: fixed;
-    bottom: 28px;
-    left: 50%;
+    position: fixed; bottom: 28px; left: 50%;
     transform: translateX(-50%);
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 10px 18px;
-    background: var(--bg-surface);
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 20px;
+    background: var(--bg-glass);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
     border: 1px solid var(--border);
     border-radius: var(--radius-pill);
     color: var(--success);
-    font-size: 0.83rem;
-    font-weight: 500;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+    font-size: 0.83rem; font-weight: 500;
+    box-shadow: var(--shadow-md);
     z-index: 100;
-    animation: toast-in 0.2s ease;
+    animation: toast-in 0.25s ease;
   }
 
   @keyframes toast-in {
@@ -597,10 +520,10 @@
 
   /* ── 成功弹框 ── */
   .import-dialog-backdrop {
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.5);
-    backdrop-filter: blur(2px);
+    position: fixed; inset: 0;
+    background: rgba(0, 0, 0, 0.45);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
     z-index: 200;
   }
 
@@ -609,122 +532,78 @@
     top: 50%;
     left: calc(var(--sidebar-w, 220px) + (100vw - var(--sidebar-w, 220px)) / 2);
     transform: translate(-50%, -50%);
-    width: 340px;
+    width: 360px;
     background: var(--bg-raised);
     border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    padding: 28px 24px 20px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    text-align: center;
-    gap: 8px;
+    border-radius: var(--radius-xl, 20px);
+    padding: 32px 28px 22px;
+    display: flex; flex-direction: column;
+    align-items: center; text-align: center; gap: 10px;
     z-index: 201;
-    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
-    animation: dialog-in 0.18s ease;
+    box-shadow: var(--shadow-lg);
+    animation: dialog-in 0.2s ease;
   }
 
   @keyframes dialog-in {
-    from { opacity: 0; transform: translate(-50%, calc(-50% + 10px)); }
+    from { opacity: 0; transform: translate(-50%, calc(-50% + 12px)); }
     to   { opacity: 1; transform: translate(-50%, -50%); }
   }
 
   .import-dialog-check {
-    width: 56px;
-    height: 56px;
+    width: 56px; height: 56px;
     border-radius: 50%;
-    background: var(--success-soft);
-    color: var(--success);
-    display: grid;
-    place-items: center;
-    margin-bottom: 4px;
+    background: var(--success-soft); color: var(--success);
+    display: grid; place-items: center; margin-bottom: 4px;
   }
 
-  .import-dialog-title {
-    font-size: 1.05rem;
-    font-weight: 700;
-    color: var(--text-primary);
-  }
-
-  .import-dialog-desc {
-    font-size: 0.83rem;
-    color: var(--text-secondary);
-    line-height: 1.55;
-    max-width: 280px;
-    margin-top: 2px;
-  }
+  .import-dialog-title { font-size: 1.05rem; font-weight: 700; color: var(--text-primary); }
+  .import-dialog-desc { font-size: 0.83rem; color: var(--text-secondary); line-height: 1.55; max-width: 290px; margin-top: 2px; }
 
   .import-dialog-suppress {
-    display: flex;
-    align-items: center;
-    gap: 7px;
-    font-size: 0.8rem;
-    color: var(--text-dim);
-    cursor: pointer;
-    margin-top: 8px;
-    user-select: none;
+    display: flex; align-items: center; gap: 7px;
+    font-size: 0.8rem; color: var(--text-dim);
+    cursor: pointer; margin-top: 8px; user-select: none;
   }
   .import-dialog-suppress input { cursor: pointer; accent-color: var(--accent); }
   .import-dialog-suppress:hover { color: var(--text-secondary); }
 
   .import-dialog-actions {
-    display: flex;
-    gap: 8px;
-    margin-top: 8px;
-    width: 100%;
-    justify-content: flex-end;
+    display: flex; gap: 8px; margin-top: 10px;
+    width: 100%; justify-content: flex-end;
   }
 
-  .import-online-dialog {
-    width: 440px;
-    align-items: stretch;
-    text-align: left;
-  }
-
-  .import-dialog-check-accent {
-    background: var(--accent-soft);
-    color: var(--accent);
-    align-self: center;
-  }
+  .import-online-dialog { width: 460px; align-items: stretch; text-align: left; }
+  .import-dialog-check-accent { background: var(--accent-soft); color: var(--accent); align-self: center; }
 
   .import-dialog-tip {
-    font-size: 0.78rem;
-    line-height: 1.65;
+    font-size: 0.78rem; line-height: 1.65;
     color: var(--text-dim);
-    background: rgba(255, 255, 255, 0.03);
-    border-radius: 12px;
-    padding: 10px 12px;
+    background: var(--bg-inset);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md); padding: 12px 14px;
   }
 
   .online-input-block {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    margin-top: 4px;
-    font-size: 0.8rem;
-    color: var(--text-secondary);
+    display: flex; flex-direction: column; gap: 8px;
+    margin-top: 4px; font-size: 0.8rem; color: var(--text-secondary);
   }
 
   .online-input-block input {
     width: 100%;
     border: 1px solid var(--border);
-    border-radius: 12px;
-    background: rgba(255, 255, 255, 0.03);
+    border-radius: var(--radius-md);
+    background: var(--bg-inset);
     color: var(--text-primary);
-    font: inherit;
-    padding: 12px 14px;
+    font: inherit; padding: 12px 14px;
     outline: none;
-    transition: border-color 150ms ease, background 150ms ease;
+    transition: border-color 150ms ease, background 150ms ease, box-shadow 150ms ease;
   }
 
   .online-input-block input:focus {
     border-color: var(--accent);
-    background: rgba(255, 255, 255, 0.05);
+    background: var(--bg-surface);
+    box-shadow: 0 0 0 3px var(--accent-soft);
   }
 
-  .online-input-error {
-    color: var(--danger);
-    font-size: 0.78rem;
-    margin-top: -2px;
-  }
+  .online-input-error { color: var(--danger); font-size: 0.78rem; margin-top: -2px; }
 </style>

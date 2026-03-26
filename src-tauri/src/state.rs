@@ -102,6 +102,8 @@ pub struct AppSettings {
     pub selected_model: String,
     pub has_completed_onboarding: bool,
     pub has_seen_main_tour: bool,
+    /// UI theme: "dark", "light", or "system"
+    pub theme_mode: String,
 }
 
 impl Default for AppSettings {
@@ -117,6 +119,7 @@ impl Default for AppSettings {
             selected_model: "base".to_string(),
             has_completed_onboarding: false,
             has_seen_main_tour: false,
+            theme_mode: "dark".to_string(),
         }
     }
 }

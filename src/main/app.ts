@@ -44,6 +44,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   selectedModel: "base",
   hasCompletedOnboarding: false,
   hasSeenMainTour: false,
+  themeMode: "dark",
   shortcuts: {
     playPause: "Space",
     previousTrack: "Comma",
