@@ -222,16 +222,15 @@ pub fn record_playback(app: &AppHandle, media_id: &str) -> Result<PlaybackHistor
         .ok_or_else(|| "未找到对应素材".to_string())?;
 
     let now = now_millis();
-    if let Some(index) = state
+    if let Some(entry) = state
         .playback_history
-        .iter()
-        .position(|entry| entry.media_id == media_id)
+        .iter_mut()
+        .find(|entry| entry.media_id == media_id)
     {
-        let mut entry = state.playback_history.remove(index);
         entry.played_at = now;
         entry.play_count += 1;
         entry.subtitle_path = item.subtitle_path.clone();
-        state.playback_history.insert(0, entry.clone());
+        let entry = entry.clone();
         save_library_state(app, &state)?;
         return Ok(entry);
     }
@@ -245,7 +244,7 @@ pub fn record_playback(app: &AppHandle, media_id: &str) -> Result<PlaybackHistor
         play_count: 1,
     };
 
-    state.playback_history.insert(0, entry.clone());
+    state.playback_history.push(entry.clone());
     save_library_state(app, &state)?;
     Ok(entry)
 }

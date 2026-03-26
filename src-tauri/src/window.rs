@@ -1,5 +1,5 @@
 use crate::state::AppSettings;
-use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri::{window::Color, AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 
 pub fn ensure_overlay_window(app: &AppHandle, settings: &AppSettings) -> Result<(), String> {
     if app.get_webview_window("overlay").is_some() {
@@ -11,10 +11,12 @@ pub fn ensure_overlay_window(app: &AppHandle, settings: &AppSettings) -> Result<
         .visible(settings.overlay_visible)
         .always_on_top(true)
         .decorations(false)
+        .shadow(false)
         .skip_taskbar(true)
         .resizable(true)
         .maximizable(false)
         .transparent(true)
+        .background_color(Color(0, 0, 0, 0))
         .inner_size(760.0, 190.0)
         .min_inner_size(420.0, 120.0);
 

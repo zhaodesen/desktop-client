@@ -176,6 +176,8 @@
   let cueTiming = $state("--:-- ~ --:--");
   let currentText = $state("等待播放");
   let currentSecondaryText = $state("");
+  let useWindowsCustomFrame = $state(false);
+  let windowMaximized = $state(false);
 
   // Status bar
   let statusText = $state("导入媒体后自动生成双语字幕");
@@ -562,9 +564,22 @@
 
   async function playPlaylistItem(mediaId: string, autoplay = false) {
     await loadMediaById(mediaId, true);
-    if (autoplay) {
-      await player.play();
-    }
+    if (autoplay) await player.play();
+  }
+
+  async function handleWindowMinimize() {
+    if (!useWindowsCustomFrame) return;
+    await tauriWindow.minimize();
+  }
+
+  async function handleWindowToggleMaximize() {
+    if (!useWindowsCustomFrame) return;
+    await tauriWindow.toggleMaximize();
+    windowMaximized = await tauriWindow.isMaximized();
+  }
+
+  async function handleWindowClose() {
+    await tauriWindow.close();
   }
 
   async function startAutoAsr(
@@ -994,9 +1009,18 @@
   onMount(async () => {
     let closingConfirmVisible = false;
     let closingApp = false;
+    let unlistenWindowResized: (() => void) | undefined;
     // Init services
     subtitleEngine = new SubtitleEngine();
     player = new PlayerController(audioEl);
+
+    useWindowsCustomFrame = navigator.userAgent.toLowerCase().includes("windows");
+    if (useWindowsCustomFrame) {
+      windowMaximized = await tauriWindow.isMaximized();
+      unlistenWindowResized = await tauriWindow.onResized(async () => {
+        windowMaximized = await tauriWindow.isMaximized();
+      });
+    }
 
     // Player subscription
     player.subscribe((s) => {
@@ -1333,6 +1357,7 @@
       unlistenAppClose();
       unlistenClose();
       unlistenWindowClose();
+      unlistenWindowResized?.();
       window.removeEventListener("resize", handleViewportUpdate);
       document.removeEventListener("scroll", handleViewportUpdate, true);
       unImportProgress();
@@ -1357,8 +1382,58 @@
 <audio bind:this={audioEl} preload="metadata" style="display:none"></audio>
 
 <main class="app-shell">
-  <!-- 专用拖拽条：横跨两列，data-tauri-drag-region 是 Tauri 2 官方机制 -->
-  <div class="window-drag-bar" data-tauri-drag-region></div>
+  <div class="window-drag-bar" class:window-drag-bar-with-controls={useWindowsCustomFrame}>
+    <div class="window-drag-region" data-tauri-drag-region>
+      {#if useWindowsCustomFrame}
+        <span class="window-caption">字幕工作台</span>
+      {/if}
+    </div>
+    {#if useWindowsCustomFrame}
+      <div class="window-controls">
+        <button
+          class="window-control-btn"
+          type="button"
+          title="最小化"
+          aria-label="最小化"
+          onclick={() => { void handleWindowMinimize(); }}
+        >
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
+            <line x1="1.5" y1="5" x2="8.5" y2="5" />
+          </svg>
+        </button>
+        <button
+          class="window-control-btn"
+          type="button"
+          title={windowMaximized ? "还原" : "最大化"}
+          aria-label={windowMaximized ? "还原" : "最大化"}
+          onclick={() => { void handleWindowToggleMaximize(); }}
+        >
+          {#if windowMaximized}
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.2">
+              <path d="M2.5 1.5h5v5h-5z" />
+              <path d="M1.5 3.5v5h5" />
+            </svg>
+          {:else}
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.2">
+              <rect x="1.75" y="1.75" width="6.5" height="6.5" />
+            </svg>
+          {/if}
+        </button>
+        <button
+          class="window-control-btn window-control-btn-close"
+          type="button"
+          title="关闭"
+          aria-label="关闭"
+          onclick={() => { void handleWindowClose(); }}
+        >
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
+            <line x1="2" y1="2" x2="8" y2="8" />
+            <line x1="8" y1="2" x2="2" y2="8" />
+          </svg>
+        </button>
+      </div>
+    {/if}
+  </div>
 
   <Sidebar
     {activePage}
@@ -1424,8 +1499,7 @@
         }}
         onVolumeChange={(volume) => applyVolume(volume)}
         onVolumeCommit={() => { void commitVolume(); }}
-        onPlayItem={(id) => { void playPlaylistItem(id, false); }}
-        onPlayItemNow={(id) => { void playPlaylistItem(id, true); }}
+        onPlayItem={(id) => { void playPlaylistItem(id, true); }}
         onRemoveItem={(id) => { void removePlaybackItem(id); }}
       />
       </div>

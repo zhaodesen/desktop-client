@@ -21,7 +21,6 @@
     onRateChange: (rate: number) => void;
     onPlaylistModeChange: (mode: PlaylistMode) => void;
     onPlayItem: (id: string) => void;
-    onPlayItemNow: (id: string) => void;
     onRemoveItem: (id: string) => void;
     onVolumeChange: (volume: number) => void;
     onVolumeCommit: () => void;
@@ -32,7 +31,7 @@
     currentText, currentSecondaryText, playbackRate, playlistMode,
     playlist, currentMediaId, volume,
     onTogglePlayback, onToggleCurrentItem, onSeek, onRateChange, onPlaylistModeChange,
-    onPlayItem, onPlayItemNow, onRemoveItem, onVolumeChange, onVolumeCommit,
+    onPlayItem, onRemoveItem, onVolumeChange, onVolumeCommit,
   }: Props = $props();
 
   const dur = $derived(Math.max(snap.durationMs, 0));
@@ -83,10 +82,9 @@
           <button
             class="playlist-item"
             class:playlist-item-active={entry.mediaId === currentMediaId}
-            onclick={() => onPlayItem(entry.mediaId)}
-            ondblclick={() => {
+            onclick={() => {
               if (entry.mediaId === currentMediaId) onToggleCurrentItem();
-              else onPlayItemNow(entry.mediaId);
+              else onPlayItem(entry.mediaId);
             }}
           >
             <div class="playlist-item-indicator">

@@ -32,6 +32,16 @@ pub fn run() {
 
             app.manage(AppState::new(settings.clone()));
 
+            #[cfg(target_os = "windows")]
+            if let Some(main_window) = app_handle.get_webview_window("main") {
+                main_window
+                    .set_decorations(false)
+                    .map_err(std::io::Error::other)?;
+                main_window
+                    .set_shadow(false)
+                    .map_err(std::io::Error::other)?;
+            }
+
             window::ensure_overlay_window(&app_handle, &settings).map_err(std::io::Error::other)?;
 
             Ok(())

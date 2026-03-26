@@ -158,9 +158,60 @@ h4 { font-size: var(--font-xs); font-weight: 600; letter-spacing: 0.04em; text-t
 .window-drag-bar {
   grid-column: 1 / -1;
   grid-row: 1;
-  cursor: default;
+  display: flex;
+  align-items: stretch;
+  min-height: 48px;
+  background: var(--bg-base);
+  border-bottom: 1px solid var(--border-subtle);
   user-select: none;
-  -webkit-app-region: drag;
+}
+
+.window-drag-region {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+}
+
+.window-caption {
+  font-size: var(--font-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.window-controls {
+  display: flex;
+  align-items: stretch;
+  margin-left: auto;
+  -webkit-app-region: no-drag;
+}
+
+.window-control-btn {
+  width: 46px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.window-control-btn:hover {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+}
+
+.window-control-btn-close:hover {
+  background: #dc2626;
+  color: #fff;
+}
+
+.window-drag-bar-with-controls .window-drag-region {
+  padding-left: 18px;
 }
 
 /* ── Sidebar ── */

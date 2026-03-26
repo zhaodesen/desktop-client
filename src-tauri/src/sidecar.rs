@@ -143,7 +143,14 @@ pub fn with_exe_suffix(name: &str) -> String {
 
 #[allow(dead_code)]
 pub fn build_command(target: &CommandTarget) -> Command {
+    #[cfg(windows)]
     let mut command = match target {
+        CommandTarget::Program(program) => Command::new(program),
+        CommandTarget::File(path) => Command::new(path),
+    };
+
+    #[cfg(not(windows))]
+    let command = match target {
         CommandTarget::Program(program) => Command::new(program),
         CommandTarget::File(path) => Command::new(path),
     };
