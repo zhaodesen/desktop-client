@@ -333,7 +333,7 @@
     background: var(--accent);
     transition: width 0.3s ease;
     border-radius: 0 1.5px 1.5px 0;
-    box-shadow: 0 0 8px rgba(224, 149, 69, 0.4), 0 0 2px rgba(224, 149, 69, 0.6);
+    box-shadow: 0 0 8px rgba(var(--accent-rgb), 0.4), 0 0 2px rgba(var(--accent-rgb), 0.6);
   }
 
   /* Glowing dot at the leading edge of progress */
@@ -347,7 +347,7 @@
     height: 6px;
     border-radius: 50%;
     background: var(--accent);
-    box-shadow: 0 0 6px 2px rgba(224, 149, 69, 0.5);
+    box-shadow: 0 0 6px 2px rgba(var(--accent-rgb), 0.5);
   }
 
   .player-bar-inner {
@@ -365,13 +365,13 @@
 
   /* Play button with subtle pulse when playing */
   .player-play-btn {
-    box-shadow: 0 2px 12px rgba(224, 149, 69, 0.2);
+    box-shadow: 0 2px 12px rgba(var(--accent-rgb), 0.2);
     transition: background var(--transition-fast), box-shadow var(--transition-fast), transform 80ms;
     position: relative;
   }
 
   .player-play-btn:hover {
-    box-shadow: 0 4px 20px rgba(224, 149, 69, 0.35);
+    box-shadow: 0 4px 20px rgba(var(--accent-rgb), 0.35);
   }
 
   /* Seekbar (range input) enhanced styling */
@@ -387,7 +387,7 @@
     height: 14px;
     background: var(--accent);
     border: 2px solid var(--bg-base);
-    box-shadow: 0 0 0 0 rgba(224, 149, 69, 0), 0 1px 4px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 0 0 0 rgba(var(--accent-rgb), 0), 0 1px 4px rgba(0, 0, 0, 0.3);
     transition: transform 120ms ease, box-shadow 120ms ease;
   }
 

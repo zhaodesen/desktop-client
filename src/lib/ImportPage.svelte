@@ -442,7 +442,7 @@
     border-right-color: var(--accent);
     border-radius: 50%;
     animation: spin 0.7s cubic-bezier(0.5, 0.1, 0.5, 0.9) infinite;
-    filter: drop-shadow(0 0 4px rgba(224, 149, 69, 0.3));
+    filter: drop-shadow(0 0 4px rgba(var(--accent-rgb), 0.3));
   }
 
   @keyframes spin { to { transform: rotate(360deg); } }
@@ -475,7 +475,7 @@
     background-image: linear-gradient(90deg, var(--accent) 0%, var(--accent-hover) 50%, var(--accent) 100%);
     background-size: 200% 100%;
     animation: shimmer 1.8s ease-in-out infinite;
-    box-shadow: 0 0 8px rgba(224, 149, 69, 0.3);
+    box-shadow: 0 0 8px rgba(var(--accent-rgb), 0.3);
   }
 
   /* Leading edge glow on active progress */
@@ -486,7 +486,7 @@
     top: -1px;
     bottom: -1px;
     width: 24px;
-    background: linear-gradient(90deg, transparent, rgba(224, 149, 69, 0.6));
+    background: linear-gradient(90deg, transparent, rgba(var(--accent-rgb), 0.6));
     border-radius: 0 3px 3px 0;
     filter: blur(2px);
   }

@@ -22,10 +22,11 @@
 
   --accent: #e09545;
   --accent-hover: #eca45c;
-  --accent-soft: rgba(224, 149, 69, 0.1);
-  --accent-soft-2: rgba(224, 149, 69, 0.06);
-  --accent-border: rgba(224, 149, 69, 0.22);
-  --accent-glow: rgba(224, 149, 69, 0.08);
+  --accent-rgb: 224, 149, 69;
+  --accent-soft: rgba(var(--accent-rgb), 0.1);
+  --accent-soft-2: rgba(var(--accent-rgb), 0.06);
+  --accent-border: rgba(var(--accent-rgb), 0.22);
+  --accent-glow: rgba(var(--accent-rgb), 0.08);
 
   --success: #34d399;
   --success-soft: rgba(52, 211, 153, 0.1);
@@ -38,7 +39,7 @@
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.03);
   --shadow-md: 0 4px 20px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.03);
   --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.04);
-  --shadow-glow: 0 0 24px rgba(224, 149, 69, 0.06);
+  --shadow-glow: 0 0 24px rgba(var(--accent-rgb), 0.06);
 
   --sidebar-gradient: linear-gradient(180deg, #13161e 0%, #10131a 100%);
 
@@ -63,10 +64,11 @@
 
   --accent: #c47d2c;
   --accent-hover: #b06f24;
-  --accent-soft: rgba(196, 125, 44, 0.08);
-  --accent-soft-2: rgba(196, 125, 44, 0.04);
-  --accent-border: rgba(196, 125, 44, 0.2);
-  --accent-glow: rgba(196, 125, 44, 0.05);
+  --accent-rgb: 196, 125, 44;
+  --accent-soft: rgba(var(--accent-rgb), 0.08);
+  --accent-soft-2: rgba(var(--accent-rgb), 0.04);
+  --accent-border: rgba(var(--accent-rgb), 0.2);
+  --accent-glow: rgba(var(--accent-rgb), 0.05);
 
   --success: #16a34a;
   --success-soft: rgba(22, 163, 74, 0.07);
@@ -79,7 +81,7 @@
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.05), 0 0 0 1px rgba(0, 0, 0, 0.04);
   --shadow-md: 0 4px 20px rgba(0, 0, 0, 0.07), 0 0 0 1px rgba(0, 0, 0, 0.04);
   --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.1), 0 0 0 1px rgba(0, 0, 0, 0.05);
-  --shadow-glow: 0 0 24px rgba(196, 125, 44, 0.04);
+  --shadow-glow: 0 0 24px rgba(var(--accent-rgb), 0.04);
 
   --sidebar-gradient: linear-gradient(180deg, #ffffff 0%, #fafafa 100%);
 
@@ -189,7 +191,7 @@ h4 { font-size: 0.78rem; font-weight: 600; letter-spacing: 0.04em; text-transfor
 
 .brand-icon:hover {
   transform: scale(1.06);
-  box-shadow: 0 0 32px rgba(224, 149, 69, 0.12);
+  box-shadow: 0 0 32px rgba(var(--accent-rgb), 0.12);
 }
 
 .brand h1 {
@@ -355,12 +357,12 @@ h4 { font-size: 0.78rem; font-weight: 600; letter-spacing: 0.04em; text-transfor
   color: #1a1a1d;
   border-color: transparent;
   font-weight: 600;
-  box-shadow: 0 2px 8px rgba(224, 149, 69, 0.15);
+  box-shadow: 0 2px 8px rgba(var(--accent-rgb), 0.15);
 }
-.btn-primary:hover { background: var(--accent-hover); border-color: transparent; box-shadow: 0 4px 16px rgba(224, 149, 69, 0.2); }
+.btn-primary:hover { background: var(--accent-hover); border-color: transparent; box-shadow: 0 4px 16px rgba(var(--accent-rgb), 0.2); }
 
-[data-theme="light"] .btn-primary { box-shadow: 0 2px 8px rgba(196, 125, 44, 0.12); }
-[data-theme="light"] .btn-primary:hover { box-shadow: 0 4px 16px rgba(196, 125, 44, 0.18); }
+[data-theme="light"] .btn-primary { box-shadow: 0 2px 8px rgba(var(--accent-rgb), 0.12); }
+[data-theme="light"] .btn-primary:hover { box-shadow: 0 4px 16px rgba(var(--accent-rgb), 0.18); }
 
 .btn-outline { background: transparent; }
 .btn-outline:hover { background: var(--bg-surface); }
@@ -1123,12 +1125,12 @@ input:focus-visible {
 
 @keyframes brand-breathe {
   0%, 100% { box-shadow: var(--shadow-glow); }
-  50% { box-shadow: 0 0 20px rgba(224, 149, 69, 0.12); }
+  50% { box-shadow: 0 0 20px rgba(var(--accent-rgb), 0.12); }
 }
 
 /* Button press ink effect */
 .btn-primary:active {
-  box-shadow: 0 1px 4px rgba(224, 149, 69, 0.1);
+  box-shadow: 0 1px 4px rgba(var(--accent-rgb), 0.1);
 }
 
 /* Import dialog backdrop animation */

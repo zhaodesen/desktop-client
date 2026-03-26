@@ -438,7 +438,7 @@
     border-radius: 2px 2px 0 0;
     transition: transform 260ms cubic-bezier(0.4, 0, 0.2, 1);
     pointer-events: none;
-    box-shadow: 0 0 8px rgba(224, 149, 69, 0.3);
+    box-shadow: 0 0 8px rgba(var(--accent-rgb), 0.3);
     will-change: transform;
   }
 
@@ -523,7 +523,7 @@
     border-color: var(--accent);
     color: var(--accent);
     background: var(--accent-soft);
-    box-shadow: 0 0 0 3px var(--accent-soft-2, rgba(224, 149, 69, 0.06));
+    box-shadow: 0 0 0 3px var(--accent-soft-2);
     animation: pulse-ring 1.5s ease-in-out infinite;
   }
 
