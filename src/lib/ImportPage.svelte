@@ -9,7 +9,7 @@
     showSuccess: boolean;
     canCancel: boolean;
     isCancellingAsr: boolean;
-    onImportMedia: () => void;
+    onImportMedia: () => Promise<void> | void;
     onImportOnline: (url: string) => Promise<void> | void;
     onCancel: () => void;
     onDismissError: () => void;
@@ -41,6 +41,8 @@
   let onlineUrl = $state("");
   let onlineUrlError = $state<string | undefined>(undefined);
   let isSubmittingOnline = $state(false);
+  let importViewBeforeStart = $state<{ type: "default" } | { type: "online"; url: string } | undefined>(undefined);
+  let hadActiveImport = $state(false);
   let toastTimer: ReturnType<typeof setTimeout> | undefined;
 
   onMount(() => {
@@ -61,6 +63,24 @@
         onImportSuccessClose();
       }, 3000);
     }
+  });
+
+  $effect(() => {
+    if (progress.active) {
+      hadActiveImport = true;
+      return;
+    }
+
+    if (!hadActiveImport) return;
+    hadActiveImport = false;
+
+    const restoreState = importViewBeforeStart;
+    importViewBeforeStart = undefined;
+    if (!importError || !restoreState) return;
+
+    showOnlineDialog = restoreState.type === "online";
+    onlineUrl = restoreState.type === "online" ? restoreState.url : "";
+    onlineUrlError = undefined;
   });
 
   const showDialog = $derived(showSuccess && !suppressDialog);
@@ -113,6 +133,16 @@
     return "可先在本机浏览器里登录一次 B 站，再回到这里重试。应用会自动尝试读取浏览器 Cookie。";
   }
 
+  async function handleLocalImport() {
+    importViewBeforeStart = { type: "default" };
+    try {
+      await onImportMedia();
+      importViewBeforeStart = undefined;
+    } catch {
+      // 具体错误由父组件统一显示在导入页顶部错误条。
+    }
+  }
+
   async function handleOnlineImportSubmit() {
     const trimmedUrl = onlineUrl.trim();
     if (!trimmedUrl) {
@@ -122,10 +152,12 @@
 
     isSubmittingOnline = true;
     onlineUrlError = undefined;
+    importViewBeforeStart = { type: "online", url: trimmedUrl };
     showOnlineDialog = false;
     onlineUrl = "";
     try {
       await onImportOnline(trimmedUrl);
+      importViewBeforeStart = undefined;
     } catch {
       // 具体错误由父组件统一显示在导入页顶部错误条。
     } finally {
@@ -227,7 +259,7 @@
       <p class="import-formats">
         视频：MP4、MOV、MKV、WebM、AVI &nbsp;·&nbsp; 音频：MP3、WAV、M4A、AAC、FLAC、OGG
       </p>
-      <button class="btn btn-primary btn-lg import-btn-lg" type="button" onclick={onImportMedia}>
+      <button class="btn btn-primary btn-lg" type="button" onclick={() => { void handleLocalImport(); }}>
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
         </svg>
