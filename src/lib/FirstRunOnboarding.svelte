@@ -10,6 +10,7 @@
   };
 
   interface Props {
+    topInset: number;
     step: OnboardingStep;
     models: ModelInfo[];
     modelsStatusMap: Map<string, ModelStatus>;
@@ -21,10 +22,12 @@
     onSelectModel: (id: string) => void;
     onRetry: () => void;
     onBack: () => void;
+    onSkip: () => void;
     onStart: () => void;
   }
 
   const {
+    topInset,
     step,
     models,
     modelsStatusMap,
@@ -36,124 +39,98 @@
     onSelectModel,
     onRetry,
     onBack,
+    onSkip,
     onStart,
   }: Props = $props();
 
   const selectedModel = $derived(models.find((model) => model.id === selectedModelId));
+
+  const modelHints: Record<string, string> = {
+    tiny: "最快最轻，低配优先",
+    base: "日常首选，均衡稳定",
+    small: "更高准确率",
+    medium: "长音频更稳",
+    "large-v3-turbo": "最高质量",
+  };
 </script>
 
-<section class="first-run-mask" aria-label="首次启动引导">
-  {#if step === "select-model"}
-    <div class="first-run-panel">
-      <div class="hero-copy">
-        <span class="eyebrow">已准备就绪</span>
-        <h1>在开始之前，请先选择一个识别模型</h1>
-        <p>
-          这里选择的就是设置里的离线模型，后续会用它对音视频进行解析。首次选择后会自动下载到本机，
-          稍后也可以在设置里重新切换。
-        </p>
-      </div>
+<section class="first-run-mask" style={`--top-inset: ${topInset}px;`} aria-label="首次启动引导">
+  <div class="first-run-stage">
+    {#if step === "select-model"}
+      <div class="first-run-panel first-run-panel-select">
+        <div class="first-run-head">
+          <div class="hero-copy">
+          <h1>开始之前，请先选择一个识别模型</h1>
+          <p>先选一个默认模型。之后仍可在设置里切换或重新下载。</p>
+          </div>
+          <button class="skip-button" type="button" onclick={onSkip}>跳过</button>
+        </div>
 
-      <div class="model-grid">
-        {#each models as model (model.id)}
-          {@const guide = modelGuides[model.id]}
-          {@const status = modelsStatusMap.get(model.id)}
-          <button
-            class="model-card"
-            class:model-card-recommended={guide?.recommended}
-            type="button"
-            onclick={() => onSelectModel(model.id)}
-          >
-            <div class="model-card-head">
-              <div>
-                <div class="model-card-title">
-                  {model.label}
-                  {#if guide?.recommended}
-                    <span class="pill pill-accent">推荐</span>
-                  {/if}
+        <div class="model-grid">
+          {#each models as model (model.id)}
+            {@const guide = modelGuides[model.id]}
+            {@const status = modelsStatusMap.get(model.id)}
+            <button
+              class="model-card"
+              type="button"
+              onclick={() => onSelectModel(model.id)}
+            >
+              <div class="model-card-top">
+                <div class="model-card-title-row">
+                  <div class="model-card-title">{model.label}</div>
                   {#if status?.installed}
                     <span class="pill pill-success">已下载</span>
                   {/if}
                 </div>
-                <p class="model-card-desc">{model.description}</p>
               </div>
-              <span class="model-card-size">{model.sizeMb} MB</span>
-            </div>
 
-            <div class="guide-block">
-              <h3>优点</h3>
-              <p>{guide?.pros?.join(" · ") ?? "速度和效果均衡"}</p>
-            </div>
+              <p class="model-card-hint">{modelHints[model.id] ?? "离线识别模型"}</p>
+              <p class="model-card-desc">{model.description}</p>
 
-            <div class="guide-block">
-              <h3>缺点</h3>
-              <p>{guide?.cons?.join(" · ") ?? "模型越大，占用空间越高"}</p>
-            </div>
-
-            <div class="model-card-action">
-              {#if status?.installed}
-                直接使用这个模型
-              {:else}
-                选择并开始下载
-              {/if}
-            </div>
-          </button>
-        {/each}
+            </button>
+          {/each}
+        </div>
       </div>
-    </div>
-  {:else if step === "downloading"}
-    <div class="first-run-panel first-run-panel-narrow">
-      <div class="download-stage">
-        <span class="eyebrow">正在下载</span>
-        <h1>{selectedModel?.label ?? "识别模型"}</h1>
-        <p>{downloadMessage}</p>
+    {:else if step === "downloading"}
+      <div class="first-run-panel first-run-panel-narrow">
+        <div class="download-stage">
+          <h1>{selectedModel?.label ?? "识别模型"}</h1>
+          <p>{downloadMessage}</p>
 
-        {#if error}
-          <div class="download-error">
-            <p>{error}</p>
-            <div class="download-actions">
-              <button class="btn btn-ghost" type="button" onclick={onBack}>返回重选</button>
-              <button class="btn btn-primary" type="button" onclick={onRetry}>重新下载</button>
+          {#if error}
+            <div class="download-error">
+              <p>{error}</p>
+              <div class="download-actions">
+                <button class="btn btn-ghost" type="button" onclick={onBack}>返回重选</button>
+                <button class="btn btn-primary" type="button" onclick={onRetry}>重新下载</button>
+              </div>
             </div>
+          {/if}
+        </div>
+
+        <div class="progress-footer">
+          <div class="progress-meta">
+            <span>下载进度</span>
+            <strong>{Math.round(downloadPercent)}%</strong>
           </div>
-        {/if}
-      </div>
-
-      <div class="progress-footer">
-        <div class="progress-meta">
-          <span>下载进度</span>
-          <strong>{Math.round(downloadPercent)}%</strong>
-        </div>
-        <div class="progress-track">
-          <div class="progress-fill" style={`width: ${Math.max(0, Math.min(100, downloadPercent))}%`}></div>
+          <div class="progress-track">
+            <div class="progress-fill" style={`width: ${Math.max(0, Math.min(100, downloadPercent))}%`}></div>
+          </div>
         </div>
       </div>
-    </div>
-  {:else}
-    <div class="first-run-panel first-run-panel-narrow first-run-panel-ready">
-      <div class="ready-icon" aria-hidden="true">
-        <svg width="38" height="38" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="20 6 9 17 4 12" />
-        </svg>
-      </div>
-      <span class="eyebrow">已准备就绪</span>
-      <h1>{selectedModel?.label ?? "识别模型"} 已下载完成</h1>
-      <p>
-        现在可以开始导入音频或视频生成字幕了。后续若要更换模型，随时可以到“设置 / 离线模型”里调整。
-      </p>
-      <button class="btn btn-primary onboarding-start-btn" type="button" onclick={onStart}>开始使用</button>
-
-      <div class="progress-footer">
-        <div class="progress-meta">
-          <span>下载进度</span>
-          <strong>100%</strong>
+    {:else}
+      <div class="first-run-panel first-run-panel-narrow first-run-panel-ready">
+        <div class="ready-icon" aria-hidden="true">
+          <svg width="38" height="38" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="20 6 9 17 4 12" />
+          </svg>
         </div>
-        <div class="progress-track">
-          <div class="progress-fill" style="width: 100%"></div>
-        </div>
+        <h1>{selectedModel?.label ?? "识别模型"} 已下载完成</h1>
+        <p>现在可以开始导入音频或视频生成字幕了，后续仍可在设置中切换模型。</p>
+        <button class="btn btn-primary onboarding-start-btn" type="button" onclick={onStart}>开始使用</button>
       </div>
-    </div>
-  {/if}
+    {/if}
+  </div>
 </section>
 
 <style>
@@ -161,31 +138,42 @@
     position: fixed;
     inset: 0;
     z-index: var(--z-onboarding);
+    pointer-events: none;
+  }
+
+  .first-run-stage {
+    position: absolute;
+    top: var(--top-inset, 0px);
+    right: 0;
+    bottom: 0;
+    left: 0;
     display: flex;
-    align-items: stretch;
     justify-content: center;
-    padding: 28px;
+    padding: 24px;
     background: var(--bg-base, #0c0e14);
     backdrop-filter: blur(22px);
     -webkit-backdrop-filter: blur(22px);
+    overflow: auto;
+    pointer-events: auto;
   }
 
   .first-run-panel {
-    width: min(1180px, 100%);
-    min-height: 100%;
+    width: min(1440px, 100%);
     display: flex;
     flex-direction: column;
-    gap: 32px;
-    padding: 48px;
+    gap: 24px;
+    padding: 32px 34px;
     border-radius: var(--radius-xl, 20px);
-    border: 1px solid var(--border);
-    background: var(--bg-raised);
-    box-shadow: var(--shadow-lg);
+  }
+
+  .first-run-panel-select {
+    gap: 22px;
   }
 
   .first-run-panel-narrow {
     max-width: 780px;
     justify-content: space-between;
+    min-height: min(560px, 100%);
   }
 
   .first-run-panel-ready {
@@ -197,15 +185,44 @@
   .hero-copy {
     display: flex;
     flex-direction: column;
-    gap: 14px;
+    gap: 10px;
     max-width: 760px;
+  }
+
+  .first-run-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+  }
+
+  .skip-button {
+    flex-shrink: 0;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-secondary);
+    font: inherit;
+    font-size: var(--font-sm);
+    padding: 8px 14px;
+    border-radius: var(--radius-pill);
+    cursor: pointer;
+    transition:
+      background var(--transition-fast),
+      border-color var(--transition-fast),
+      color var(--transition-fast);
+  }
+
+  .skip-button:hover {
+    background: var(--bg-surface);
+    border-color: var(--border-focus);
+    color: var(--text-primary);
   }
 
   .hero-copy h1,
   .download-stage h1 {
-    font-size: clamp(1.8rem, 4vw, 2.8rem);
-    line-height: 1.1;
-    letter-spacing: -0.02em;
+    font-size: clamp(1.7rem, 3.6vw, 2.7rem);
+    line-height: 1.08;
+    letter-spacing: -0.03em;
     color: var(--text-primary);
   }
 
@@ -214,112 +231,75 @@
   .first-run-panel-ready p {
     max-width: 720px;
     color: var(--text-secondary);
-    font-size: var(--font-md);
-    line-height: 1.75;
-  }
-
-  .eyebrow {
-    display: inline-flex;
-    align-items: center;
-    width: fit-content;
-    padding: 5px 12px;
-    border-radius: var(--radius-pill);
-    background: var(--accent-soft);
-    color: var(--accent);
-    font-size: var(--font-xs);
-    font-weight: 600;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
+    font-size: var(--font-sm);
+    line-height: 1.65;
   }
 
   .model-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 12px;
+    margin-top: 20px;
   }
 
   .model-card {
     display: flex;
     flex-direction: column;
-    gap: 14px;
-    padding: 20px;
+    gap: 10px;
+    padding: 16px 14px;
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
     background: var(--bg-surface);
     color: inherit;
     text-align: left;
     cursor: pointer;
-    transition: transform var(--transition-normal, 180ms ease), border-color var(--transition-normal, 180ms ease), background var(--transition-normal, 180ms ease), box-shadow var(--transition-normal, 180ms ease);
+    transition:
+      transform var(--transition-normal, 180ms ease),
+      border-color var(--transition-normal, 180ms ease),
+      background var(--transition-normal, 180ms ease),
+      box-shadow var(--transition-normal, 180ms ease);
   }
 
   .model-card:hover {
-    transform: translateY(-3px);
+    transform: translateY(-2px);
     border-color: var(--accent-border);
     background: var(--bg-surface-hover);
     box-shadow: var(--shadow-md);
   }
 
-  .model-card-recommended {
-    border-color: var(--accent-border);
-  }
-
-  .model-card-head {
+  .model-card-top {
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
-    gap: 16px;
+    gap: 8px;
+  }
+
+  .model-card-title-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+    min-width: 0;
   }
 
   .model-card-title {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    align-items: center;
     font-size: var(--font-lg);
     font-weight: 700;
     color: var(--text-primary);
+    letter-spacing: -0.01em;
+  }
+
+  .model-card-hint {
+    color: var(--accent);
+    font-size: var(--font-xs);
+    font-weight: 600;
+    line-height: 1.45;
   }
 
   .model-card-desc {
-    margin-top: 6px;
     color: var(--text-secondary);
-    font-size: var(--font-base);
-    line-height: 1.65;
-  }
-
-  .model-card-size {
-    color: var(--text-dim);
-    font-size: var(--font-xs);
-    white-space: nowrap;
-  }
-
-  .guide-block {
-    display: flex;
-    flex-direction: column;
-    gap: 5px;
-    padding: 10px 12px;
-    border-radius: var(--radius-md);
-    background: var(--bg-inset);
-  }
-
-  .guide-block h3 {
     font-size: var(--font-2xs);
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--text-dim);
-  }
-
-  .guide-block p {
-    color: var(--text-secondary);
-    font-size: var(--font-base);
-    line-height: 1.65;
-  }
-
-  .model-card-action {
-    margin-top: auto;
-    font-size: var(--font-sm);
-    font-weight: 600;
-    color: var(--accent);
+    line-height: 1.55;
   }
 
   .pill {
@@ -329,11 +309,6 @@
     border-radius: var(--radius-pill);
     font-size: var(--font-2xs);
     font-weight: 600;
-  }
-
-  .pill-accent {
-    background: var(--accent-soft);
-    color: var(--accent);
   }
 
   .pill-success {
@@ -420,9 +395,37 @@
     margin-top: 10px;
   }
 
-  @media (max-width: 920px) {
-    .first-run-mask { padding: 16px; }
-    .first-run-panel { padding: 28px 22px; }
-    .model-grid { grid-template-columns: 1fr; }
+  @media (max-width: 820px) {
+    .first-run-stage {
+      align-items: stretch;
+      padding: 18px;
+    }
+
+    .first-run-panel {
+      padding: 24px 22px;
+    }
+
+    .model-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .first-run-head {
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    .skip-button {
+      align-self: flex-end;
+    }
+  }
+
+  @media (max-width: 640px) {
+    .first-run-stage {
+      padding: 14px;
+    }
+
+    .model-grid {
+      grid-template-columns: 1fr;
+    }
   }
 </style>

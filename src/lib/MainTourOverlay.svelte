@@ -85,7 +85,7 @@
   .tour-backdrop {
     position: absolute;
     inset: 0;
-    background: rgba(0, 0, 0, 0.55);
+    background: rgba(6, 8, 12, 0.24);
     pointer-events: auto;
   }
 
@@ -94,8 +94,9 @@
     border-radius: var(--radius-lg, 16px);
     border: 2px solid var(--accent, #d48a42);
     box-shadow:
-      0 0 0 9999px rgba(0, 0, 0, 0.55),
-      0 0 0 6px rgba(212, 138, 66, 0.1);
+      0 0 0 9999px rgba(6, 8, 12, 0.14),
+      0 0 0 6px rgba(212, 138, 66, 0.12),
+      0 10px 28px rgba(0, 0, 0, 0.18);
     pointer-events: none;
     z-index: calc(var(--z-tour) + 1);
   }

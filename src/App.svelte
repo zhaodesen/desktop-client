@@ -372,6 +372,22 @@
     }
   }
 
+  async function handleOnboardingSkip() {
+    const ok = await confirmDialog.show(
+      "跳过模型选择",
+      "如果不选择模型，将无法进行音视频识别。你仍可以稍后在设置页面下载模型。",
+    );
+    if (!ok) return;
+
+    showFirstRunOnboarding = false;
+    onboardingError = undefined;
+    onboardingStep = "select-model";
+    settings = { ...settings, hasCompletedOnboarding: true };
+    await persistSettings();
+    setActivePage("import");
+    setStatus("已跳过模型选择，可稍后在设置页面下载模型", "warning");
+  }
+
   /* ── Persist settings ──────────────────────────────────── */
 
   async function persistSettings() {
@@ -1606,6 +1622,7 @@
 
 {#if showFirstRunOnboarding}
   <FirstRunOnboarding
+    topInset={useWindowsCustomFrame ? 48 : 0}
     step={onboardingStep}
     models={availableModels}
     {modelsStatusMap}
@@ -1617,6 +1634,7 @@
     onSelectModel={(id) => { void handleOnboardingModelSelect(id); }}
     onRetry={() => { void handleRetryOnboardingDownload(); }}
     onBack={handleBackToOnboardingSelection}
+    onSkip={() => { void handleOnboardingSkip(); }}
     onStart={() => { void handleOnboardingStart(); }}
   />
 {/if}
