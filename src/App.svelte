@@ -177,6 +177,7 @@
   let cueTiming = $state("--:-- ~ --:--");
   let currentText = $state("等待播放");
   let currentSecondaryText = $state("");
+  let subtitleCues = $state<SubtitleCue[]>([]);
   let useWindowsCustomFrame = $state(false);
   let windowMaximized = $state(false);
 
@@ -450,6 +451,7 @@
     const cues = parseSubtitleText(content);
     if (cues.length === 0) throw new Error("未解析出有效字幕");
     subtitleEngine.load(cues);
+    subtitleCues = cues;
     subtitleFileLabel = `${path.split(/[\\/]/).pop() ?? "字幕"} · ${cues.length} 句`;
   }
 
@@ -457,6 +459,7 @@
 
   async function resetPlaybackUi() {
     subtitleEngine.clear();
+    subtitleCues = [];
     currentMediaId = undefined;
     player.pause();
     audioFileLabel = "未选择素材";
@@ -1532,6 +1535,7 @@
         {cueTiming}
         {currentText}
         {currentSecondaryText}
+        {subtitleCues}
         playbackRate={settings.playbackRate}
         playlistMode={settings.playlistMode}
         playlist={libraryState.playbackHistory}
