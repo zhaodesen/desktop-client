@@ -659,8 +659,7 @@
       const message = formatError(err);
       if (syncImportUi) {
         importError = message;
-        importProgress = { ...IMPORT_IDLE };
-        activeImportSource = undefined;
+        resetImportFlowState();
       }
       setStatus(message, "warning");
     }
@@ -758,6 +757,14 @@
     };
   }
 
+  function resetImportFlowState() {
+    resetScheduledProgressUpdate();
+    clearTimeout(importSuccessTimer);
+    importProgress = { ...IMPORT_IDLE };
+    activeImportSource = undefined;
+    isCancellingAsr = false;
+  }
+
   async function handleImportMedia() {
     const selected = await open({
       multiple: false,
@@ -784,8 +791,7 @@
     } catch (err) {
       console.error(err);
       importError = formatError(err);
-      importProgress = { ...IMPORT_IDLE };
-      activeImportSource = undefined;
+      resetImportFlowState();
     }
   }
 
@@ -801,8 +807,7 @@
     } catch (err) {
       console.error(err);
       importError = formatError(err);
-      importProgress = { ...IMPORT_IDLE };
-      activeImportSource = undefined;
+      resetImportFlowState();
       throw err;
     }
   }
@@ -1288,9 +1293,7 @@
       } catch (err) {
         console.error(err);
         setStatus("识别完成，但字幕绑定失败", "warning");
-        resetScheduledProgressUpdate();
-        importProgress = { ...IMPORT_IDLE };
-        activeImportSource = undefined;
+        resetImportFlowState();
       } finally {
         pendingSubtitleMediaId = undefined;
       }
@@ -1303,18 +1306,14 @@
       pendingSubtitleMediaId = undefined;
       if (code === "asr_cancelled") {
         setStatus("已取消当前识别任务", "warning");
-        resetScheduledProgressUpdate();
-        importProgress = { ...IMPORT_IDLE };
-        activeImportSource = undefined;
+        resetImportFlowState();
         importError = undefined;
         return;
       }
 
       setStatus(`[${code}] ${message}`, "warning");
       if (importProgress.active) {
-        resetScheduledProgressUpdate();
-        importProgress = { ...IMPORT_IDLE };
-        activeImportSource = undefined;
+        resetImportFlowState();
         importError = `字幕生成失败: [${code}] ${message}`;
       }
     });
