@@ -1457,7 +1457,7 @@
   <div class="window-drag-bar" class:window-drag-bar-with-controls={useWindowsCustomFrame}>
     <div class="window-drag-region" data-tauri-drag-region>
       {#if useWindowsCustomFrame}
-        <span class="window-caption">字幕工作台</span>
+        <span class="window-caption">muyu</span>
       {/if}
     </div>
     {#if useWindowsCustomFrame}

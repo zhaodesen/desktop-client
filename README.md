@@ -258,7 +258,7 @@ git push origin v0.1.12
 如果还是被拦截，可以执行：
 
 ```bash
-xattr -dr com.apple.quarantine "/Applications/字幕工作台.app"
+xattr -dr com.apple.quarantine "/Applications/muyu.app"
 ```
 
 然后再次尝试打开。
