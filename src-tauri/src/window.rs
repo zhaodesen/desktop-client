@@ -65,3 +65,29 @@ pub fn toggle_overlay(app: &AppHandle) -> Result<bool, String> {
         show_overlay(app)
     }
 }
+
+pub fn show_main_window(app: &AppHandle) -> Result<(), String> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "未找到主窗口".to_string())?;
+
+    let _ = window.unminimize();
+    window
+        .show()
+        .map_err(|error| format!("显示主窗口失败: {error}"))?;
+    window
+        .set_focus()
+        .map_err(|error| format!("聚焦主窗口失败: {error}"))?;
+
+    Ok(())
+}
+
+pub fn hide_main_window(app: &AppHandle) -> Result<(), String> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "未找到主窗口".to_string())?;
+
+    window
+        .hide()
+        .map_err(|error| format!("隐藏主窗口失败: {error}"))
+}

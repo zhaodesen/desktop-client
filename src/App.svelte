@@ -16,6 +16,7 @@
     ModelInfo,
     ModelStatus,
     OverlaySettings,
+    PlaybackState,
     PlaybackSnapshot,
     PlaylistMode,
     ShutdownTaskSummary,
@@ -98,6 +99,9 @@
     },
   };
 
+  const PLAYBACK_STATE_SAVE_DEBOUNCE_MS = 250;
+  const PLAYBACK_STATE_PROGRESS_THRESHOLD_MS = 1000;
+
   const MAIN_TOUR_STEPS = [
     {
       id: "import",
@@ -178,6 +182,13 @@
   let currentText = $state("等待播放");
   let currentSecondaryText = $state("");
   let subtitleCues = $state<SubtitleCue[]>([]);
+  let lastAudibleVolume = $state(DEFAULT_SETTINGS.volume);
+  let lastSavedPlaybackState: PlaybackState | undefined;
+  let pendingPlaybackState: PlaybackState | undefined;
+  let playbackStateSaveTimer: ReturnType<typeof setTimeout> | undefined;
+  let playbackStateSavePromise: Promise<void> | null = null;
+  let restoringPlaybackState = false;
+  let playbackStateHydrated = false;
   let useWindowsCustomFrame = $state(false);
   let windowMaximized = $state(false);
 
@@ -276,6 +287,154 @@
     return libraryState.mediaItems.find((i) => i.id === currentMediaId);
   }
 
+  function getSavedPlaybackState(): PlaybackState | undefined {
+    return settings.playbackState
+      ? normalizePlaybackState(settings.playbackState)
+      : undefined;
+  }
+
+  function normalizePlaybackState(playbackState: PlaybackState): PlaybackState {
+    return {
+      mediaId: playbackState.mediaId,
+      currentTimeMs: Math.max(0, Math.round(playbackState.currentTimeMs)),
+      wasPlaying: playbackState.wasPlaying,
+    };
+  }
+
+  function isSamePlaybackState(
+    left: PlaybackState | undefined,
+    right: PlaybackState | undefined,
+    toleranceMs = 0,
+  ) {
+    if (!left && !right) return true;
+    if (!left || !right) return false;
+    return left.mediaId === right.mediaId
+      && left.wasPlaying === right.wasPlaying
+      && Math.abs(left.currentTimeMs - right.currentTimeMs) <= toleranceMs;
+  }
+
+  function getPlaybackStateFromSnapshot(snapshot = player.getSnapshot()): PlaybackState | undefined {
+    if (!currentMediaId || !player.hasMedia()) return undefined;
+    return normalizePlaybackState({
+      mediaId: currentMediaId,
+      currentTimeMs: snapshot.currentTimeMs,
+      wasPlaying: snapshot.playing,
+    });
+  }
+
+  function getPlaybackStateForPersist(snapshot = player.getSnapshot()): PlaybackState | undefined {
+    const currentPlaybackState = getPlaybackStateFromSnapshot(snapshot);
+    if (currentPlaybackState) return currentPlaybackState;
+    if (!playbackStateHydrated) return getSavedPlaybackState();
+    return undefined;
+  }
+
+  async function flushPlaybackState() {
+    if (playbackStateSaveTimer) {
+      clearTimeout(playbackStateSaveTimer);
+      playbackStateSaveTimer = undefined;
+    }
+
+    if (playbackStateSavePromise) {
+      await playbackStateSavePromise;
+      if (pendingPlaybackState === undefined) return;
+    }
+
+    const nextPlaybackState = pendingPlaybackState;
+    pendingPlaybackState = undefined;
+
+    playbackStateSavePromise = (async () => {
+      try {
+        const saved = await backend.updatePlaybackState(nextPlaybackState);
+        const normalized = saved ? normalizePlaybackState(saved) : undefined;
+        settings = { ...settings, playbackState: normalized };
+        lastSavedPlaybackState = normalized;
+      } catch (err) {
+        console.error(err);
+      } finally {
+        playbackStateSavePromise = null;
+        if (pendingPlaybackState !== undefined) {
+          void flushPlaybackState();
+        }
+      }
+    })();
+
+    await playbackStateSavePromise;
+  }
+
+  function queuePlaybackStatePersist(playbackState: PlaybackState | undefined, immediate = false) {
+    if (!playbackStateHydrated && !immediate) return;
+
+    const normalized = playbackState ? normalizePlaybackState(playbackState) : undefined;
+    const baseline = pendingPlaybackState ?? lastSavedPlaybackState ?? settings.playbackState;
+    const toleranceMs = immediate ? 0 : PLAYBACK_STATE_PROGRESS_THRESHOLD_MS;
+    if (isSamePlaybackState(baseline, normalized, toleranceMs)) return;
+
+    pendingPlaybackState = normalized;
+    settings = { ...settings, playbackState: normalized };
+
+    if (playbackStateSaveTimer) {
+      clearTimeout(playbackStateSaveTimer);
+      playbackStateSaveTimer = undefined;
+    }
+
+    if (immediate) {
+      void flushPlaybackState();
+      return;
+    }
+
+    playbackStateSaveTimer = setTimeout(() => {
+      playbackStateSaveTimer = undefined;
+      void flushPlaybackState();
+    }, PLAYBACK_STATE_SAVE_DEBOUNCE_MS);
+  }
+
+  async function restorePlaybackState() {
+    const playbackState = getSavedPlaybackState();
+    if (!playbackState?.mediaId) return;
+
+    const media = libraryState.mediaItems.find((item) => item.id === playbackState.mediaId);
+    if (!media) {
+      queuePlaybackStatePersist(undefined, true);
+      return;
+    }
+
+    restoringPlaybackState = true;
+    try {
+      setActivePage("playlist");
+      const loaded = await loadMediaById(playbackState.mediaId, false);
+      if (!loaded) return;
+
+      const snapshotAfterLoad = player.getSnapshot();
+      const maxSeekMs = snapshotAfterLoad.durationMs > 0
+        ? Math.max(snapshotAfterLoad.durationMs - 250, 0)
+        : playbackState.currentTimeMs;
+      const targetTimeMs = Math.max(0, Math.min(playbackState.currentTimeMs, maxSeekMs));
+
+      if (targetTimeMs > 0) {
+        player.seek(targetTimeMs);
+        renderSubtitle(player.getSnapshot());
+        await syncOverlay(player.getSnapshot());
+      }
+
+      if (playbackState.wasPlaying) {
+        try {
+          await player.play();
+          setStatus("已恢复上次播放", "success");
+        } catch (err) {
+          console.error(err);
+          setStatus("已恢复上次播放位置，请手动继续播放", "warning");
+        }
+      } else {
+        setStatus("已恢复上次播放位置", "success");
+      }
+
+      queuePlaybackStatePersist(getPlaybackStateFromSnapshot(), true);
+    } finally {
+      restoringPlaybackState = false;
+    }
+  }
+
   function buildAppExitWarning(summary: ShutdownTaskSummary): string {
     return [
       `当前仍有后台任务正在进行：${summary.tasks.join("、")}。`,
@@ -290,6 +449,9 @@
       const ok = await confirmDialog.show("退出应用", buildAppExitWarning(closeSummary));
       if (!ok) return false;
     }
+
+    queuePlaybackStatePersist(getPlaybackStateForPersist(), true);
+    await flushPlaybackState();
 
     const result = await backend.shutdownAndExit();
     if (result.cancelledTasks.length > 0) {
@@ -390,8 +552,16 @@
 
   /* ── Persist settings ──────────────────────────────────── */
 
+  function buildSettingsForPersist(nextSettings: AppSettings = settings): AppSettings {
+    if (nextSettings.playbackState) return nextSettings;
+    const playbackState = pendingPlaybackState ?? lastSavedPlaybackState ?? getSavedPlaybackState();
+    return playbackState
+      ? { ...nextSettings, playbackState }
+      : nextSettings;
+  }
+
   async function persistSettings() {
-    settings = await backend.updateSettings(settings);
+    settings = await backend.updateSettings(buildSettingsForPersist());
     await overlayBridge.updateStyle(settings.overlay);
   }
 
@@ -484,6 +654,7 @@
     currentSecondaryText = "";
     cueTiming = "--:-- ~ --:--";
     await overlayBridge.clear();
+    queuePlaybackStatePersist(undefined, true);
   }
 
   function createMediaLoadRequestId() {
@@ -507,9 +678,9 @@
     await player.loadUrl(convertFileSrc(media.audioPath));
     if (!isLatestMediaLoadRequest(requestId)) return false;
 
+    currentMediaId = media.id;
     player.setPlaybackRate(settings.playbackRate);
     player.setVolume(settings.volume);
-    currentMediaId = media.id;
     audioFileLabel = media.title;
     subtitleEngine.clear();
     subtitleFileLabel = media.subtitlePath ? "正在加载字幕…" : "未生成字幕";
@@ -537,6 +708,10 @@
       await refreshLibrary();
     }
 
+    if (!restoringPlaybackState) {
+      queuePlaybackStatePersist(getPlaybackStateFromSnapshot(), true);
+    }
+
     return isLatestMediaLoadRequest(requestId);
   }
 
@@ -557,6 +732,20 @@
     const nextVolume = Math.max(0, Math.min(1, volume));
     settings = { ...settings, volume: nextVolume };
     player.setVolume(nextVolume);
+  }
+
+  async function toggleMute() {
+    if (settings.volume > 0) {
+      applyVolume(0);
+      await commitVolume(false);
+      setStatus("已静音", "success");
+      return;
+    }
+
+    const restoredVolume = Math.max(0.05, Math.min(1, lastAudibleVolume || DEFAULT_SETTINGS.volume));
+    applyVolume(restoredVolume);
+    await commitVolume(false);
+    setStatus(`已恢复音量 ${Math.round(restoredVolume * 100)}%`, "success");
   }
 
   async function commitVolume(showFeedback = true) {
@@ -581,6 +770,12 @@
       setStatus(labelMap[mode], "success");
     }
   }
+
+  $effect(() => {
+    if (settings.volume > 0) {
+      lastAudibleVolume = settings.volume;
+    }
+  });
 
   async function playHistoryDirection(direction: -1 | 1) {
     if (libraryState.playbackHistory.length === 0) return;
@@ -859,9 +1054,16 @@
   async function handleOverlayVisibleChange(visible: boolean) {
     settings = { ...settings, overlayVisible: visible };
     await persistSettings();
-    if (visible) await backend.showOverlay();
-    else await backend.hideOverlay();
+    if (visible) {
+      await backend.showOverlay();
+    } else {
+      await backend.hideOverlay();
+    }
     await syncOverlay(player.getSnapshot());
+    if (visible) {
+      // Showing the always-on-top overlay can steal focus from the main window.
+      await tauriWindow.setFocus();
+    }
   }
 
   async function handleOverlayLockToggle() {
@@ -1106,6 +1308,9 @@
       hasMedia = player.hasMedia();
       renderSubtitle(s);
       void syncOverlay(s);
+      if (!restoringPlaybackState) {
+        queuePlaybackStatePersist(getPlaybackStateFromSnapshot(s));
+      }
     });
 
     player.onEnded(() => {
@@ -1135,6 +1340,11 @@
       if (closingApp || closingConfirmVisible) return;
       closingConfirmVisible = true;
       try {
+        if (summary.hasActiveTasks) {
+          await tauriWindow.show();
+          await tauriWindow.unminimize();
+          await tauriWindow.setFocus();
+        }
         closingApp = true;
         const shouldExit = await handleAppCloseRequest(summary);
         if (!shouldExit) {
@@ -1147,24 +1357,6 @@
         closingConfirmVisible = false;
       }
     });
-    const unlistenWindowClose = await tauriWindow.onCloseRequested(async (event) => {
-      event.preventDefault();
-      if (closingApp || closingConfirmVisible) return;
-      closingConfirmVisible = true;
-      try {
-        closingApp = true;
-        const shouldExit = await handleAppCloseRequest();
-        if (!shouldExit) {
-          closingApp = false;
-        }
-      } catch (err) {
-        closingApp = false;
-        setStatus(formatError(err), "warning");
-      } finally {
-        closingConfirmVisible = false;
-      }
-    });
-
     const handleViewportUpdate = () => {
       updateMainTourTargetRect();
     };
@@ -1386,6 +1578,10 @@
       settings = await backend.getSettings();
       if (!settings.playlistMode) settings = { ...settings, playlistMode: "sequential" };
       if (!settings.themeMode) settings = { ...settings, themeMode: "dark" };
+      const normalizedPlaybackState = getSavedPlaybackState();
+      settings = { ...settings, playbackState: normalizedPlaybackState };
+      lastSavedPlaybackState = normalizedPlaybackState;
+      pendingPlaybackState = undefined;
       player.setPlaybackRate(settings.playbackRate);
       player.setVolume(settings.volume);
       await overlayBridge.updateStyle(settings.overlay);
@@ -1405,6 +1601,15 @@
     } catch (err) {
       console.error(err);
       setStatus("读取素材库失败", "warning");
+    }
+
+    try {
+      await restorePlaybackState();
+    } catch (err) {
+      console.error(err);
+      setStatus("恢复上次播放失败", "warning");
+    } finally {
+      playbackStateHydrated = true;
     }
 
     // Load model status
@@ -1428,7 +1633,6 @@
       unlistenLock();
       unlistenAppClose();
       unlistenClose();
-      unlistenWindowClose();
       unlistenWindowResized?.();
       window.removeEventListener("resize", handleViewportUpdate);
       document.removeEventListener("scroll", handleViewportUpdate, true);
@@ -1512,7 +1716,7 @@
     onNavigate={setActivePage}
   />
 
-  <section class="content">
+  <section class="content" class:content-player={activePage === "playlist"}>
     {#if activePage === "import"}
       <div class="page-transition" in:fade={{ duration: 160, delay: 40 }}>
       <ImportPage
@@ -1551,6 +1755,7 @@
         {currentText}
         {currentSecondaryText}
         {subtitleCues}
+        overlayVisible={settings.overlayVisible}
         playbackRate={settings.playbackRate}
         playlistMode={settings.playlistMode}
         playlist={libraryState.playbackHistory}
@@ -1571,10 +1776,14 @@
           await persistSettings();
           setStatus(mode === "single" ? "已切换为单曲循环" : "已切换为顺序播放", "success");
         }}
+        onToggleOverlayVisible={() => { void handleOverlayVisibleChange(!settings.overlayVisible); }}
+        onToggleMute={() => { void toggleMute(); }}
         onVolumeChange={(volume) => applyVolume(volume)}
         onVolumeCommit={() => { void commitVolume(); }}
         onPlayItem={(id) => { void playPlaylistItem(id, true); }}
         onRemoveItem={(id) => { void removePlaybackItem(id); }}
+        onPrevTrack={() => { void playHistoryDirection(-1); }}
+        onNextTrack={() => { void playHistoryDirection(1); }}
       />
       </div>
     {:else if activePage === "settings"}

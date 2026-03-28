@@ -88,6 +88,14 @@ impl Default for ShortcutSettings {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PlaybackState {
+    pub media_id: String,
+    pub current_time_ms: u64,
+    pub was_playing: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct AppSettings {
@@ -104,6 +112,7 @@ pub struct AppSettings {
     pub has_seen_main_tour: bool,
     /// UI theme: "dark", "light", or "system"
     pub theme_mode: String,
+    pub playback_state: Option<PlaybackState>,
 }
 
 impl Default for AppSettings {
@@ -120,6 +129,7 @@ impl Default for AppSettings {
             has_completed_onboarding: false,
             has_seen_main_tour: false,
             theme_mode: "dark".to_string(),
+            playback_state: None,
         }
     }
 }

@@ -11,12 +11,35 @@ mod store;
 mod subtitle;
 mod window;
 
+use std::sync::atomic::Ordering;
 use state::{AppSettings, AppState};
-use tauri::Manager;
+use tauri::{
+    menu::{Menu, MenuItem},
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    Emitter, Manager,
+};
+
+const TRAY_SHOW_MAIN_ID: &str = "tray_show_main";
+const TRAY_EXIT_APP_ID: &str = "tray_exit_app";
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app = tauri::Builder::default()
+        .on_window_event(|window, event| {
+            if window.label() != "main" {
+                return;
+            }
+
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                let state = window.state::<AppState>();
+                if state.shutdown_confirmed.load(Ordering::SeqCst) {
+                    return;
+                }
+
+                api.prevent_close();
+                let _ = window::hide_main_window(&window.app_handle());
+            }
+        })
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let app_handle = app.handle().clone();
@@ -44,11 +67,57 @@ pub fn run() {
 
             window::ensure_overlay_window(&app_handle, &settings).map_err(std::io::Error::other)?;
 
+            let tray_show_main =
+                MenuItem::with_id(&app_handle, TRAY_SHOW_MAIN_ID, "显示主窗口", true, None::<&str>)
+                    .map_err(std::io::Error::other)?;
+            let tray_exit_app =
+                MenuItem::with_id(&app_handle, TRAY_EXIT_APP_ID, "退出", true, None::<&str>)
+                    .map_err(std::io::Error::other)?;
+            let tray_menu = Menu::with_items(&app_handle, &[&tray_show_main, &tray_exit_app])
+                .map_err(std::io::Error::other)?;
+            let tray_icon = app_handle
+                .default_window_icon()
+                .cloned()
+                .ok_or_else(|| std::io::Error::other("未找到应用图标"))?;
+
+            if app_handle.tray_by_id("main-tray").is_none() {
+                TrayIconBuilder::with_id("main-tray")
+                    .icon(tray_icon)
+                    .tooltip("muyu")
+                    .menu(&tray_menu)
+                    .show_menu_on_left_click(false)
+                    .on_menu_event(|app, event| {
+                        if event.id() == TRAY_SHOW_MAIN_ID {
+                            let _ = window::show_main_window(app);
+                            return;
+                        }
+
+                        if event.id() == TRAY_EXIT_APP_ID {
+                            let state = app.state::<AppState>();
+                            let summary = shutdown::get_task_summary(&state);
+                            let _ = app.emit_to("main", shutdown::APP_CLOSE_REQUESTED_EVENT, summary);
+                        }
+                    })
+                    .on_tray_icon_event(|tray, event| {
+                        if let TrayIconEvent::Click {
+                            button: MouseButton::Left,
+                            button_state: MouseButtonState::Up,
+                            ..
+                        } = event
+                        {
+                            let _ = window::show_main_window(tray.app_handle());
+                        }
+                    })
+                    .build(&app_handle)
+                    .map_err(std::io::Error::other)?;
+            }
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_settings,
             commands::update_settings,
+            commands::update_playback_state,
             commands::show_overlay,
             commands::hide_overlay,
             commands::toggle_overlay,

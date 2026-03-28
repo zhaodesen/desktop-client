@@ -4,9 +4,9 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
-use tauri::{AppHandle, Emitter, Manager, RunEvent};
+use tauri::{AppHandle, Manager, RunEvent};
 
-use crate::{asr, sidecar, state::AppState};
+use crate::{asr, sidecar, state::AppState, window};
 
 pub const APP_CLOSE_REQUESTED_EVENT: &str = "app://close-requested";
 
@@ -81,11 +81,16 @@ pub fn handle_run_event(app: &AppHandle, event: &RunEvent) {
                 return;
             }
 
-            let summary = get_task_summary(&state);
-            if summary.has_active_tasks {
-                api.prevent_exit();
-                let _ = app.emit_to("main", APP_CLOSE_REQUESTED_EVENT, summary);
+            api.prevent_exit();
+            let _ = window::hide_main_window(app);
+        }
+        RunEvent::Reopen { .. } => {
+            let state = app.state::<AppState>();
+            if state.shutdown_confirmed.load(Ordering::SeqCst) {
+                return;
             }
+
+            let _ = window::show_main_window(app);
         }
         RunEvent::Exit => {
             let state = app.state::<AppState>();

@@ -52,7 +52,7 @@ export class SubtitleEngine {
 
       if (currentTimeMs < cue.startMs) {
         high = mid - 1;
-      } else if (currentTimeMs > cue.endMs) {
+      } else if (currentTimeMs >= cue.endMs) {
         low = mid + 1;
       } else {
         return mid;
