@@ -87,6 +87,12 @@
   const fontSizeDisplay = $derived(`${Math.round(settings.overlay.fontSize)}px`);
   const opacityDisplay = $derived(`${Math.round(settings.overlay.opacity * 100)}%`);
   const opacityPct = $derived(Math.round(settings.overlay.opacity * 100));
+  const fontSizeProgress = $derived(
+    `${Math.max(0, Math.min(100, ((settings.overlay.fontSize - 24) / (60 - 24)) * 100))}%`,
+  );
+  const opacityProgress = $derived(
+    `${Math.max(0, Math.min(100, ((opacityPct - 60) / (100 - 60)) * 100))}%`,
+  );
 
   function formatShortcut(code: string): string {
     const labelMap: Record<string, string> = {
@@ -236,6 +242,7 @@
                 max="60"
                 step="1"
                 value={settings.overlay.fontSize}
+                style={`--range-progress: ${fontSizeProgress};`}
                 oninput={(e) => onOverlayStyleChange({ ...settings.overlay, fontSize: Number((e.target as HTMLInputElement).value) })}
                 onchange={onOverlayStyleCommit}
               />
@@ -251,6 +258,7 @@
                 max="100"
                 step="1"
                 value={opacityPct}
+                style={`--range-progress: ${opacityProgress};`}
                 oninput={(e) => onOverlayStyleChange({ ...settings.overlay, opacity: Number((e.target as HTMLInputElement).value) / 100 })}
                 onchange={onOverlayStyleCommit}
               />

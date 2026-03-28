@@ -159,6 +159,13 @@
   let availableModels = $state<ModelInfo[]>([]);
   let modelsStatusMap = $state<Map<string, ModelStatus>>(new Map());
   let activeSubtitleDocument = $state<SubtitleDocument | undefined>(undefined);
+  let subtitleEditorNotice = $state<string | undefined>(undefined);
+  let subtitleEditorSaving = $state(false);
+  let retryAsrProgress = $state<{ mediaId: string; percent: number; message: string } | undefined>(undefined);
+  let retryAsrCompletedMediaId = $state<string | undefined>(undefined);
+  let retryAsrCompletedMessage = $state<string | undefined>(undefined);
+  let retryAsrNoticeTimer: ReturnType<typeof setTimeout> | undefined;
+  let retryAsrProgressDriftTimer: ReturnType<typeof setInterval> | undefined;
   let activeImportSource = $state<"local" | "online" | undefined>(undefined);
   let showFirstRunOnboarding = $state(false);
   let onboardingStep = $state<"select-model" | "downloading" | "ready">("select-model");
@@ -281,6 +288,58 @@
     return new Promise<void>((resolve) => {
       requestAnimationFrame(() => resolve());
     });
+  }
+
+  function clearRetryAsrCompletionNotice() {
+    clearTimeout(retryAsrNoticeTimer);
+    retryAsrNoticeTimer = undefined;
+    retryAsrCompletedMediaId = undefined;
+    retryAsrCompletedMessage = undefined;
+  }
+
+  function stopRetryAsrProgressDrift() {
+    clearInterval(retryAsrProgressDriftTimer);
+    retryAsrProgressDriftTimer = undefined;
+  }
+
+  function startRetryAsrProgressDrift(mediaId: string) {
+    stopRetryAsrProgressDrift();
+    retryAsrProgressDriftTimer = setInterval(() => {
+      if (!retryAsrProgress || retryAsrProgress.mediaId !== mediaId) {
+        stopRetryAsrProgressDrift();
+        return;
+      }
+      const currentPercent = retryAsrProgress.percent;
+      if (currentPercent >= 88) return;
+      const nextStep = currentPercent < 40 ? 3 : currentPercent < 70 ? 2 : 1;
+      retryAsrProgress = {
+        ...retryAsrProgress,
+        percent: Math.min(currentPercent + nextStep, 88),
+      };
+    }, 900);
+  }
+
+  function updateRetryAsrProgress(mediaId: string, percent: number, message: string) {
+    const previousPercent = retryAsrProgress?.mediaId === mediaId ? retryAsrProgress.percent : 0;
+    retryAsrProgress = {
+      mediaId,
+      percent: Math.max(previousPercent, Math.max(0, Math.min(100, Math.round(percent)))),
+      message,
+    };
+  }
+
+  function finishRetryAsrNotice(mediaId: string, message = "重新识别完成") {
+    stopRetryAsrProgressDrift();
+    retryAsrProgress = undefined;
+    retryAsrCompletedMediaId = mediaId;
+    retryAsrCompletedMessage = message;
+    clearTimeout(retryAsrNoticeTimer);
+    retryAsrNoticeTimer = setTimeout(() => {
+      if (retryAsrCompletedMediaId === mediaId) {
+        retryAsrCompletedMediaId = undefined;
+        retryAsrCompletedMessage = undefined;
+      }
+    }, 2200);
   }
 
   function getCurrentMedia(): MediaItem | undefined {
@@ -852,21 +911,33 @@
 
   async function startAutoAsr(
     media: MediaItem,
-    options: { statusMessage?: string; syncImportUi?: boolean } = {},
+    options: { statusMessage?: string; syncImportUi?: boolean; trackRetryProgress?: boolean } = {},
   ) {
     pendingSubtitleMediaId = media.id;
     isCancellingAsr = false;
     const {
       statusMessage = "素材已导入，正在离线生成字幕…",
       syncImportUi = true,
+      trackRetryProgress = false,
     } = options;
+    if (trackRetryProgress) {
+      clearRetryAsrCompletionNotice();
+      updateRetryAsrProgress(media.id, 6, "正在准备重新识别…");
+    }
     try {
       const { jobId } = await backend.startAsrJob({ audioPath: media.audioPath });
       activeAsrJobId = jobId;
+      if (trackRetryProgress) {
+        startRetryAsrProgressDrift(media.id);
+      }
       setStatus(statusMessage, "neutral");
     } catch (err) {
       console.error(err);
       pendingSubtitleMediaId = undefined;
+      if (trackRetryProgress && retryAsrProgress?.mediaId === media.id) {
+        stopRetryAsrProgressDrift();
+        retryAsrProgress = undefined;
+      }
       const message = formatError(err);
       if (syncImportUi) {
         importError = message;
@@ -877,6 +948,11 @@
   }
 
   async function retryAsrForMedia(mediaId: string) {
+    if (activeAsrJobId) {
+      setStatus("已有识别任务正在运行，请等待当前任务完成", "warning");
+      return;
+    }
+
     const media = libraryState.mediaItems.find((item) => item.id === mediaId);
     if (!media) {
       setStatus("未找到对应素材", "warning");
@@ -899,6 +975,7 @@
     await startAutoAsr(media, {
       statusMessage: `正在重新识别《${media.title}》字幕…`,
       syncImportUi: false,
+      trackRetryProgress: true,
     });
   }
 
@@ -919,6 +996,8 @@
 
   async function openSubtitleEditor(mediaId: string) {
     try {
+      subtitleEditorNotice = undefined;
+      subtitleEditorSaving = false;
       activeSubtitleDocument = await backend.getSubtitleDocument(mediaId);
       setActivePage("subtitle-editor");
     } catch (err) {
@@ -937,18 +1016,34 @@
 
   async function saveSubtitleEditor() {
     if (!activeSubtitleDocument) { setStatus("没有可保存的字幕内容", "warning"); return; }
-    const saved = await backend.saveSubtitleDocument(
-      activeSubtitleDocument.mediaId,
-      activeSubtitleDocument.cues,
-    );
-    activeSubtitleDocument = saved;
-    await refreshLibrary();
-    if (currentMediaId === saved.mediaId) {
-      await loadSubtitleFromPath(saved.subtitlePath);
-      renderSubtitle(player.getSnapshot());
-      await syncOverlay(player.getSnapshot());
+    if (subtitleEditorSaving) return;
+    subtitleEditorSaving = true;
+    subtitleEditorNotice = undefined;
+    try {
+      const saved = await backend.saveSubtitleDocument(
+        activeSubtitleDocument.mediaId,
+        activeSubtitleDocument.cues,
+      );
+      activeSubtitleDocument = saved;
+      await refreshLibrary();
+      if (currentMediaId === saved.mediaId) {
+        await loadSubtitleFromPath(saved.subtitlePath);
+        renderSubtitle(player.getSnapshot());
+        await syncOverlay(player.getSnapshot());
+      }
+      subtitleEditorNotice = "字幕校对已保存，正在返回上一页…";
+      setStatus("字幕校对已保存", "success");
+      await waitForNextPaint();
+      await new Promise((resolve) => setTimeout(resolve, 700));
+      setActivePage(lastMainPage);
+      subtitleEditorNotice = undefined;
+    } catch (err) {
+      console.error(err);
+      subtitleEditorNotice = undefined;
+      setStatus(formatError(err), "warning");
+    } finally {
+      subtitleEditorSaving = false;
     }
-    setStatus("字幕校对已保存", "success");
   }
 
   /* ── Import handlers ───────────────────────────────────── */
@@ -1413,6 +1508,23 @@
     const unAsrProgress = await asrEvents.onProgress(({ jobId, stage, message, percent }) => {
       if (activeAsrJobId && activeAsrJobId !== jobId) return;
       console.debug("[ASR]", stage, message, percent);
+
+      if (retryAsrProgress && pendingSubtitleMediaId === retryAsrProgress.mediaId) {
+        if (stage === "preparing") {
+          updateRetryAsrProgress(retryAsrProgress.mediaId, 12, "正在准备识别环境…");
+        } else if (stage === "recognizing") {
+          updateRetryAsrProgress(
+            retryAsrProgress.mediaId,
+            percent != null && percent > 0 ? 18 + (percent / 100) * 68 : 24,
+            percent != null && percent > 0
+              ? `正在重新识别… ${Math.round(percent)}%`
+              : "正在重新识别…",
+          );
+        } else if (stage === "writing") {
+          updateRetryAsrProgress(retryAsrProgress.mediaId, 92, "识别完成，正在写入字幕…");
+        }
+      }
+
       // 仅在导入流程进行中时更新进度条
       if (!importProgress.active) return;
 
@@ -1441,14 +1553,18 @@
       if (activeAsrJobId !== jobId) return;
       activeAsrJobId = undefined;
       isCancellingAsr = false;
+      const mediaIdForSubtitle = pendingSubtitleMediaId;
+      const isRetryFlow = Boolean(mediaIdForSubtitle && retryAsrProgress?.mediaId === mediaIdForSubtitle);
       try {
         let finalSubtitlePath = subtitlePath;
         let translationError: string | undefined;
         const shouldTranslateToChinese = !isChineseLanguage(detectedLanguage);
-        const mediaIdForSubtitle = pendingSubtitleMediaId;
         if (mediaIdForSubtitle) {
           await backend.updateMediaSubtitle(mediaIdForSubtitle, subtitlePath);
           if (shouldTranslateToChinese) {
+            if (isRetryFlow) {
+              updateRetryAsrProgress(mediaIdForSubtitle, 96, "正在生成中文字幕…");
+            }
             if (importProgress.active) {
               resetScheduledProgressUpdate();
               importProgress = { active: true, stage: "translating", message: "正在生成中文翻译…", percent: 85 };
@@ -1466,11 +1582,15 @@
 
         // 先更新状态文字（轻量操作），再延迟执行重量级 IPC + 渲染
         setStatus(
-          translationError
-            ? `离线识别完成，但中文字幕生成失败：${translationError}`
-            : shouldTranslateToChinese
-              ? "离线识别完成，双语字幕已绑定"
-              : "离线识别完成，原文字幕已绑定",
+          isRetryFlow
+            ? translationError
+              ? `重新识别完成，但中文字幕生成失败：${translationError}`
+              : "重新识别完成"
+            : translationError
+              ? `离线识别完成，但中文字幕生成失败：${translationError}`
+              : shouldTranslateToChinese
+                ? "离线识别完成，双语字幕已绑定"
+                : "离线识别完成，原文字幕已绑定",
           translationError ? "warning" : "success",
         );
 
@@ -1489,6 +1609,13 @@
           await loadSubtitleFromPath(finalSubtitlePath);
         }
 
+        if (isRetryFlow && mediaIdForSubtitle) {
+          finishRetryAsrNotice(
+            mediaIdForSubtitle,
+            translationError ? "重新识别完成，但中文字幕生成失败" : "重新识别完成",
+          );
+        }
+
         if (importProgress.active) {
           // 短暂显示 100% 后弹出成功提示
           clearTimeout(importSuccessTimer);
@@ -1500,6 +1627,10 @@
         }
       } catch (err) {
         console.error(err);
+        if (isRetryFlow) {
+          stopRetryAsrProgressDrift();
+          retryAsrProgress = undefined;
+        }
         setStatus("识别完成，但字幕绑定失败", "warning");
         resetImportFlowState();
       } finally {
@@ -1511,6 +1642,8 @@
       if (activeAsrJobId && activeAsrJobId !== jobId) return;
       activeAsrJobId = undefined;
       isCancellingAsr = false;
+      stopRetryAsrProgressDrift();
+      retryAsrProgress = undefined;
       pendingSubtitleMediaId = undefined;
       if (code === "asr_cancelled") {
         setStatus("已取消当前识别任务", "warning");
@@ -1646,6 +1779,8 @@
       unModelCompleted();
       unModelFailed();
       clearTimeout(importSuccessTimer);
+      clearTimeout(retryAsrNoticeTimer);
+      clearInterval(retryAsrProgressDriftTimer);
       resetScheduledProgressUpdate();
     };
   });
@@ -1738,6 +1873,12 @@
       <div class="page-transition" in:fade={{ duration: 160, delay: 40 }}>
       <ResourceListPage
         items={libraryState.mediaItems}
+        retryingMediaId={retryAsrProgress?.mediaId}
+        retryingProgress={retryAsrProgress?.percent ?? 0}
+        retryingMessage={retryAsrProgress?.message}
+        retryCompletedMediaId={retryAsrCompletedMediaId}
+        retryCompletedMessage={retryAsrCompletedMessage}
+        asrBusy={Boolean(activeAsrJobId)}
         onRetryAsr={(id) => void retryAsrForMedia(id)}
         onEditSubtitle={(id) => void openSubtitleEditor(id)}
         onDeleteMedia={(id) => void deleteMediaById(id)}
@@ -1818,7 +1959,13 @@
       <SubtitleEditor
         document={activeSubtitleDocument}
         lastMainPage={lastMainPage}
-        onBack={() => setActivePage(lastMainPage)}
+        saveNotice={subtitleEditorNotice}
+        isSaving={subtitleEditorSaving}
+        onBack={() => {
+          subtitleEditorNotice = undefined;
+          subtitleEditorSaving = false;
+          setActivePage(lastMainPage);
+        }}
         onSave={() => void saveSubtitleEditor()}
         onCueChange={handleCueChange}
       />

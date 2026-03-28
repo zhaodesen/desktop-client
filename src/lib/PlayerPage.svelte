@@ -56,6 +56,12 @@
   const dur = $derived(Math.max(snap.durationMs, 0));
   const progress = $derived(Math.min(snap.currentTimeMs, dur || snap.currentTimeMs));
   const isMuted = $derived(volume <= 0.001);
+  const seekProgressPercent = $derived(
+    dur > 0 ? `${Math.max(0, Math.min(100, (progress / dur) * 100))}%` : "0%",
+  );
+  const volumeProgressPercent = $derived(
+    `${Math.max(0, Math.min(100, volume * 100))}%`,
+  );
 
   const activeCueIndex = $derived.by(() => {
     const t = snap.currentTimeMs;
@@ -365,6 +371,7 @@
               min="0"
               max={Math.max(dur, 1)}
               value={progress}
+              style={`--range-progress: ${seekProgressPercent};`}
               disabled={!hasMedia}
               oninput={(e) => onSeek(Number((e.target as HTMLInputElement).value))}
             />
@@ -419,6 +426,7 @@
           max="1"
           step="0.01"
           value={volume}
+          style={`--range-progress: ${volumeProgressPercent};`}
           oninput={(e) => onVolumeChange(Number((e.target as HTMLInputElement).value))}
           onchange={onVolumeCommit}
         />
@@ -967,7 +975,13 @@
   .bar-seek-wrap input[type="range"] {
     width: 100%;
     height: 4px;
-    background: var(--bg-surface-hover);
+    background: linear-gradient(
+      90deg,
+      var(--accent) 0%,
+      var(--accent) var(--range-progress, 0%),
+      var(--bg-surface-hover) var(--range-progress, 0%),
+      var(--bg-surface-hover) 100%
+    );
     border-radius: 2px;
     -webkit-appearance: none;
     appearance: none;
@@ -1027,7 +1041,13 @@
     height: 4px;
     -webkit-appearance: none;
     appearance: none;
-    background: var(--bg-surface-hover);
+    background: linear-gradient(
+      90deg,
+      var(--accent) 0%,
+      var(--accent) var(--range-progress, 0%),
+      var(--bg-surface-hover) var(--range-progress, 0%),
+      var(--bg-surface-hover) 100%
+    );
     border-radius: 2px;
     cursor: pointer;
   }

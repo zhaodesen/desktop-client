@@ -832,7 +832,13 @@ input[type="range"] {
   width: 100%;
   height: 4px;
   appearance: none;
-  background: var(--bg-surface-hover);
+  background: linear-gradient(
+    90deg,
+    var(--accent) 0%,
+    var(--accent) var(--range-progress, 0%),
+    var(--bg-surface-hover) var(--range-progress, 0%),
+    var(--bg-surface-hover) 100%
+  );
   border-radius: 2px;
   outline: none;
   cursor: pointer;

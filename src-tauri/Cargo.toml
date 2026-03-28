@@ -1,5 +1,5 @@
 [package]
-name = "tauri-app"
+name = "muyu"
 version = "0.1.16"
 description = "Floating subtitle player desktop client"
 authors = ["zhaodesen"]
