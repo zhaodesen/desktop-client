@@ -136,7 +136,7 @@
 }
 
 *, *::before, *::after { box-sizing: border-box; }
-html, body { margin: 0; min-height: 100vh; }
+html, body { margin: 0; }
 
 h1, h2, h3, h4, p { margin: 0; }
 h1 { font-size: var(--font-lg); font-weight: 700; letter-spacing: -0.01em; }
@@ -219,7 +219,6 @@ h4 { font-size: var(--font-xs); font-weight: 600; letter-spacing: 0.04em; text-t
 .sidebar {
   grid-row: 2;
   padding: 16px 14px 18px;
-  background: var(--sidebar-gradient);
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;

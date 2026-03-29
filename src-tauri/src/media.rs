@@ -47,6 +47,21 @@ pub struct PlaybackHistoryItem {
     pub play_count: u32,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MediaDebugProbe {
+    pub requested_path: String,
+    pub exists: bool,
+    pub is_file: bool,
+    pub file_size_bytes: Option<u64>,
+    pub extension: Option<String>,
+    pub canonical_path: Option<String>,
+    pub app_data_dir: String,
+    pub media_dir: String,
+    pub library_file_path: String,
+    pub inside_app_data: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase", default)]
 pub struct LibraryState {
@@ -259,6 +274,39 @@ pub fn remove_playback_item(app: &AppHandle, media_id: &str) -> Result<(), Strin
         return Ok(());
     }
     save_library_state(app, &state)
+}
+
+pub fn probe_media_path(app: &AppHandle, path: &str) -> Result<MediaDebugProbe, String> {
+    let requested_path = PathBuf::from(path);
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("读取应用数据目录失败: {error}"))?;
+    let media_dir = app_data_dir.join("media");
+    let library_file_path = app_data_dir.join("library.json");
+
+    let metadata = fs::metadata(&requested_path).ok();
+    let canonical_path = fs::canonicalize(&requested_path).ok();
+    let inside_app_data = canonical_path
+        .as_ref()
+        .map(|resolved| resolved.starts_with(&app_data_dir))
+        .unwrap_or_else(|| requested_path.starts_with(&app_data_dir));
+
+    Ok(MediaDebugProbe {
+        requested_path: requested_path.display().to_string(),
+        exists: requested_path.exists(),
+        is_file: metadata.as_ref().is_some_and(|value| value.is_file()),
+        file_size_bytes: metadata.map(|value| value.len()),
+        extension: requested_path
+            .extension()
+            .and_then(|value| value.to_str())
+            .map(|value| value.to_string()),
+        canonical_path: canonical_path.map(|value| value.display().to_string()),
+        app_data_dir: app_data_dir.display().to_string(),
+        media_dir: media_dir.display().to_string(),
+        library_file_path: library_file_path.display().to_string(),
+        inside_app_data,
+    })
 }
 
 fn load_library_state(app: &AppHandle) -> Result<LibraryState, String> {

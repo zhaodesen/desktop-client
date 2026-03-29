@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { LogicalSize } from "@tauri-apps/api/dpi";
   import { emitTo, listen } from "@tauri-apps/api/event";
   import { getCurrentWebview } from "@tauri-apps/api/webview";
   import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -14,8 +15,6 @@
   import { formatDuration } from "./shared/utils";
   import "./overlay.css";
 
-  /* ── State ─────────────────────────────────────────────── */
-
   let locked = $state(false);
   let position = $state("bottom");
 
@@ -23,17 +22,55 @@
   let currentText = $state("等待字幕内容");
   let secondaryText = $state("");
 
-  // CSS custom property values (applied via inline style on :root)
   let fontSize = $state(34);
   let opacity = $state(1.0);
   let color = $state("#ffffff");
   let strokeColor = $state("#000000");
   let secondaryColor = $state("#ffffff");
   let secondaryStroke = $state("#000000");
+  let shellElement: HTMLElement | undefined;
 
   const tauriWindow = getCurrentWindow();
+  const overlayVerticalPadding = 24;
+  const minOverlayHeight = 72;
+  let resizeObserver: ResizeObserver | undefined;
+  let resizeRaf = 0;
+  let lastAppliedHeight = 0;
 
-  /* ── Helpers ────────────────────────────────────────────── */
+  async function syncWindowHeight() {
+    if (!shellElement) return;
+
+    const desiredHeight = Math.max(
+      minOverlayHeight,
+      Math.ceil(shellElement.getBoundingClientRect().height + overlayVerticalPadding),
+    );
+
+    if (Math.abs(desiredHeight - lastAppliedHeight) < 1) {
+      return;
+    }
+
+    const scaleFactor = await tauriWindow.scaleFactor();
+    const logicalSize = (await tauriWindow.innerSize()).toLogical(scaleFactor);
+
+    if (Math.abs(logicalSize.height - desiredHeight) < 1) {
+      lastAppliedHeight = desiredHeight;
+      return;
+    }
+
+    await tauriWindow.setSize(new LogicalSize(logicalSize.width, desiredHeight));
+    lastAppliedHeight = desiredHeight;
+  }
+
+  function scheduleWindowHeightSync() {
+    if (resizeRaf) {
+      cancelAnimationFrame(resizeRaf);
+    }
+
+    resizeRaf = requestAnimationFrame(() => {
+      resizeRaf = 0;
+      void syncWindowHeight();
+    });
+  }
 
   function applyStyle(settings: OverlaySettings) {
     fontSize = settings.fontSize;
@@ -66,8 +103,6 @@
     await tauriWindow.setIgnoreCursorEvents(newLocked);
   }
 
-  /* ── Drag handling ─────────────────────────────────────── */
-
   function handleMousedown(e: MouseEvent) {
     if (locked) return;
     const target = e.target as HTMLElement;
@@ -82,8 +117,6 @@
     e.stopPropagation();
   }
 
-  /* ── Close / lock ──────────────────────────────────────── */
-
   async function handleClose() {
     await emitTo("main", OVERLAY_CLOSE_EVENT, {});
     await tauriWindow.hide();
@@ -94,13 +127,9 @@
     void emitTo("main", OVERLAY_LOCK_EVENT, { locked: true });
   }
 
-  /* ── onMount ───────────────────────────────────────────── */
-
   onMount(async () => {
-    // Transparent background
     void getCurrentWebview().setBackgroundColor({ red: 0, green: 0, blue: 0, alpha: 0 });
 
-    // Default unlock state
     await applyLockState(false);
 
     const unlistenRender = await listen<OverlayRenderPayload>(OVERLAY_RENDER_EVENT, ({ payload }) => render(payload));
@@ -110,7 +139,18 @@
       void applyLockState(payload.locked);
     });
 
+    if (shellElement) {
+      resizeObserver = new ResizeObserver(() => scheduleWindowHeightSync());
+      resizeObserver.observe(shellElement);
+    }
+
+    scheduleWindowHeightSync();
+
     return () => {
+      resizeObserver?.disconnect();
+      if (resizeRaf) {
+        cancelAnimationFrame(resizeRaf);
+      }
       unlistenRender();
       unlistenStyle();
       unlistenClear();
@@ -121,6 +161,7 @@
 
 <!-- svelte-ignore a11y_no_static_element_interactions a11y_no_noninteractive_element_interactions -->
 <section
+  bind:this={shellElement}
   class="overlay-shell"
   data-position={position}
   data-locked={locked}
@@ -137,18 +178,18 @@
   <div class="overlay-controls">
     <button class="overlay-ctrl-btn" title="锁定窗口" onclick={handleLock}>
       <svg class="icon-unlocked" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-        <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
-        <path d="M7 11V7a5 5 0 0 1 9.9-1"/>
+        <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+        <path d="M7 11V7a5 5 0 0 1 9.9-1" />
       </svg>
       <svg class="icon-locked" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-        <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
-        <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+        <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+        <path d="M7 11V7a5 5 0 0 1 10 0v4" />
       </svg>
     </button>
     <button class="overlay-ctrl-btn overlay-close-btn" title="隐藏悬浮窗" onclick={handleClose}>
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
-        <line x1="18" y1="6" x2="6" y2="18"/>
-        <line x1="6" y1="6" x2="18" y2="18"/>
+        <line x1="18" y1="6" x2="6" y2="18" />
+        <line x1="6" y1="6" x2="18" y2="18" />
       </svg>
     </button>
   </div>

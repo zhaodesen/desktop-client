@@ -16,7 +16,6 @@ body { padding: 12px; background: transparent !important; overflow: hidden; }
 /* ─── 整个 shell ─── */
 .overlay-shell {
   width: 100%;
-  min-height: calc(100vh - 24px);
   display: flex;
   flex-direction: column;
   gap: 6px;

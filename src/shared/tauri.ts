@@ -29,6 +29,7 @@ import type {
   DownloadModelOutput,
   ImportMediaProgressPayload,
   LibraryState,
+  MediaDebugProbe,
   MediaItem,
   ModelDownloadCompletedPayload,
   ModelDownloadFailedPayload,
@@ -116,6 +117,9 @@ export const backend = {
   },
   getLibraryState() {
     return callCommand<LibraryState>("get_library_state");
+  },
+  probeMediaPath(path: string) {
+    return callCommand<MediaDebugProbe>("probe_media_path", { path });
   },
   importMedia(sourcePath: string) {
     return callCommand<MediaItem>("import_media", { sourcePath });

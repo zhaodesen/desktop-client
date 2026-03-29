@@ -11,8 +11,8 @@ mod store;
 mod subtitle;
 mod window;
 
-use std::sync::atomic::Ordering;
 use state::{AppSettings, AppState};
+use std::sync::atomic::Ordering;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -24,6 +24,11 @@ const TRAY_EXIT_APP_ID: &str = "tray_exit_app";
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(target_os = "windows")]
+    if std::env::var_os("WEBVIEW2_DEFAULT_BACKGROUND_COLOR").is_none() {
+        std::env::set_var("WEBVIEW2_DEFAULT_BACKGROUND_COLOR", "00000000");
+    }
+
     let app = tauri::Builder::default()
         .on_window_event(|window, event| {
             if window.label() != "main" {
@@ -67,9 +72,14 @@ pub fn run() {
 
             window::ensure_overlay_window(&app_handle, &settings).map_err(std::io::Error::other)?;
 
-            let tray_show_main =
-                MenuItem::with_id(&app_handle, TRAY_SHOW_MAIN_ID, "显示主窗口", true, None::<&str>)
-                    .map_err(std::io::Error::other)?;
+            let tray_show_main = MenuItem::with_id(
+                &app_handle,
+                TRAY_SHOW_MAIN_ID,
+                "显示主窗口",
+                true,
+                None::<&str>,
+            )
+            .map_err(std::io::Error::other)?;
             let tray_exit_app =
                 MenuItem::with_id(&app_handle, TRAY_EXIT_APP_ID, "退出", true, None::<&str>)
                     .map_err(std::io::Error::other)?;
@@ -95,7 +105,8 @@ pub fn run() {
                         if event.id() == TRAY_EXIT_APP_ID {
                             let state = app.state::<AppState>();
                             let summary = shutdown::get_task_summary(&state);
-                            let _ = app.emit_to("main", shutdown::APP_CLOSE_REQUESTED_EVENT, summary);
+                            let _ =
+                                app.emit_to("main", shutdown::APP_CLOSE_REQUESTED_EVENT, summary);
                         }
                     })
                     .on_tray_icon_event(|tray, event| {
@@ -131,6 +142,7 @@ pub fn run() {
             commands::download_model,
             commands::delete_model,
             commands::get_library_state,
+            commands::probe_media_path,
             commands::import_media,
             commands::import_online_media,
             commands::delete_media,

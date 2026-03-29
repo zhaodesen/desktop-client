@@ -118,6 +118,19 @@ export type PlaybackSnapshot = {
   volume: number;
 };
 
+export type MediaDebugProbe = {
+  requestedPath: string;
+  exists: boolean;
+  isFile: boolean;
+  fileSizeBytes?: number;
+  extension?: string;
+  canonicalPath?: string;
+  appDataDir: string;
+  mediaDir: string;
+  libraryFilePath: string;
+  insideAppData: boolean;
+};
+
 export type OverlayRenderPayload = {
   fileLabel?: string;
   previous?: SubtitleCue;

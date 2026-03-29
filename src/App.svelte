@@ -12,6 +12,7 @@
     CleanupResult,
     ImportProgress,
     LibraryState,
+    MediaDebugProbe,
     MediaItem,
     ModelInfo,
     ModelStatus,
@@ -101,6 +102,7 @@
 
   const PLAYBACK_STATE_SAVE_DEBOUNCE_MS = 250;
   const PLAYBACK_STATE_PROGRESS_THRESHOLD_MS = 1000;
+  const PLAYBACK_DEBUG_LIMIT = 120;
 
   const MAIN_TOUR_STEPS = [
     {
@@ -198,6 +200,14 @@
   let playbackStateHydrated = false;
   let useWindowsCustomFrame = $state(false);
   let windowMaximized = $state(false);
+  type PlaybackDebugEntry = {
+    id: number;
+    time: string;
+    source: string;
+    message: string;
+  };
+  let playbackDebugEntries = $state<PlaybackDebugEntry[]>([]);
+  let playbackDebugSeq = 0;
 
   // Status bar
   let statusText = $state("导入媒体后自动生成双语字幕");
@@ -278,6 +288,108 @@
     if (err instanceof Error) return err.message;
     if (typeof err === "string") return err;
     return "未知错误";
+  }
+
+  function formatDebugTime(date = new Date()): string {
+    return `${date.toLocaleTimeString("zh-CN", { hour12: false })}.${String(date.getMilliseconds()).padStart(3, "0")}`;
+  }
+
+  function pushPlaybackDebug(source: string, message: string) {
+    playbackDebugSeq += 1;
+    playbackDebugEntries = [
+      {
+        id: playbackDebugSeq,
+        time: formatDebugTime(),
+        source,
+        message,
+      },
+      ...playbackDebugEntries,
+    ].slice(0, PLAYBACK_DEBUG_LIMIT);
+    console.log(`[playback-debug][${source}] ${message}`);
+  }
+
+  function clearPlaybackDebug() {
+    playbackDebugEntries = [];
+  }
+
+  function describeMediaError(error: MediaError | null): string {
+    if (!error) return "none";
+
+    const codeMap: Record<number, string> = {
+      1: "MEDIA_ERR_ABORTED",
+      2: "MEDIA_ERR_NETWORK",
+      3: "MEDIA_ERR_DECODE",
+      4: "MEDIA_ERR_SRC_NOT_SUPPORTED",
+    };
+
+    return `${codeMap[error.code] ?? `UNKNOWN(${error.code})`}: ${error.message || "no message"}`;
+  }
+
+  function logAudioSnapshot(source: string) {
+    if (!audioEl) return;
+    pushPlaybackDebug(
+      source,
+      [
+        `paused=${audioEl.paused}`,
+        `currentTime=${audioEl.currentTime.toFixed(3)}`,
+        `duration=${Number.isFinite(audioEl.duration) ? audioEl.duration.toFixed(3) : "NaN"}`,
+        `readyState=${audioEl.readyState}`,
+        `networkState=${audioEl.networkState}`,
+        `currentSrc=${audioEl.currentSrc || "(empty)"}`,
+        `error=${describeMediaError(audioEl.error)}`,
+      ].join(" | "),
+    );
+  }
+
+  async function probeCurrentMedia(trigger: string) {
+    const media = getCurrentMedia();
+    if (!media) {
+      pushPlaybackDebug(trigger, "backend probe skipped: no current media");
+      return;
+    }
+
+    try {
+      const probe = await backend.probeMediaPath(media.audioPath);
+      logMediaProbe(trigger, probe);
+    } catch (err) {
+      pushPlaybackDebug(trigger, `backend probe failed: ${formatError(err)}`);
+    }
+  }
+
+  function logMediaProbe(source: string, probe: MediaDebugProbe) {
+    const sizeLabel = probe.fileSizeBytes == null ? "unknown" : `${probe.fileSizeBytes} bytes`;
+    pushPlaybackDebug(
+      source,
+      [
+        `backend probe`,
+        `exists=${probe.exists}`,
+        `isFile=${probe.isFile}`,
+        `size=${sizeLabel}`,
+        `extension=${probe.extension ?? "(none)"}`,
+        `insideAppData=${probe.insideAppData}`,
+        `requestedPath=${probe.requestedPath}`,
+        `canonicalPath=${probe.canonicalPath ?? "(unresolved)"}`,
+      ].join(" | "),
+    );
+  }
+
+  async function handleTogglePlayback(source: string) {
+    pushPlaybackDebug(
+      source,
+      `toggle requested | hasMedia=${hasMedia} | currentMediaId=${currentMediaId ?? "(none)"} | title=${audioFileLabel}`,
+    );
+    if (!hasMedia) return;
+
+    await probeCurrentMedia(`${source}:probe`);
+    logAudioSnapshot(`${source}:before`);
+
+    try {
+      await player.togglePlayback();
+      logAudioSnapshot(`${source}:after`);
+    } catch (err) {
+      pushPlaybackDebug(`${source}:error`, formatError(err));
+      logAudioSnapshot(`${source}:error-state`);
+    }
   }
 
   function fmtCleanup(r: CleanupResult): string {
@@ -734,7 +846,14 @@
       return false;
     }
 
-    await player.loadUrl(convertFileSrc(media.audioPath));
+    const assetUrl = convertFileSrc(media.audioPath);
+    pushPlaybackDebug(
+      "loadMediaById",
+      `mediaId=${media.id} | title=${media.title} | audioPath=${media.audioPath} | assetUrl=${assetUrl} | record=${record}`,
+    );
+
+    await player.loadUrl(assetUrl);
+    logAudioSnapshot("loadMediaById:loaded");
     if (!isLatestMediaLoadRequest(requestId)) return false;
 
     currentMediaId = media.id;
@@ -876,7 +995,7 @@
     const task = (async () => {
       const loaded = await loadMediaById(mediaId, true, requestId);
       if (autoplay && loaded && isLatestMediaLoadRequest(requestId)) {
-        await player.play();
+        await handleTogglePlayback("playlist-autoplay");
       }
     })();
 
@@ -1332,7 +1451,7 @@
 
     if (e.code === shortcut.playPause) {
       e.preventDefault();
-      if (hasMedia) void player.togglePlayback();
+      if (hasMedia) void handleTogglePlayback("shortcut");
       return;
     }
     if (e.code === shortcut.previousTrack) {
@@ -1385,9 +1504,53 @@
     let closingConfirmVisible = false;
     let closingApp = false;
     let unlistenWindowResized: (() => void) | undefined;
+    const audioDebugEvents = [
+      "loadstart",
+      "loadedmetadata",
+      "loadeddata",
+      "canplay",
+      "canplaythrough",
+      "play",
+      "playing",
+      "pause",
+      "waiting",
+      "stalled",
+      "suspend",
+      "seeking",
+      "seeked",
+      "ended",
+      "abort",
+      "emptied",
+      "error",
+    ] as const;
+    const onAudioDebugEvent = (event: Event) => {
+      const type = event.type;
+      const baseMessage = [
+        `paused=${audioEl.paused}`,
+        `readyState=${audioEl.readyState}`,
+        `networkState=${audioEl.networkState}`,
+        `currentTime=${audioEl.currentTime.toFixed(3)}`,
+      ];
+
+      if (type === "error") {
+        baseMessage.push(`error=${describeMediaError(audioEl.error)}`);
+      }
+
+      if (type === "loadedmetadata" || type === "canplay" || type === "playing") {
+        baseMessage.push(`duration=${Number.isFinite(audioEl.duration) ? audioEl.duration.toFixed(3) : "NaN"}`);
+      }
+
+      baseMessage.push(`currentSrc=${audioEl.currentSrc || "(empty)"}`);
+      pushPlaybackDebug(`audio:${type}`, baseMessage.join(" | "));
+    };
     // Init services
     subtitleEngine = new SubtitleEngine();
     player = new PlayerController(audioEl);
+    pushPlaybackDebug("app", `player initialized | userAgent=${navigator.userAgent}`);
+
+    for (const eventName of audioDebugEvents) {
+      audioEl.addEventListener(eventName, onAudioDebugEvent);
+    }
 
     useWindowsCustomFrame = navigator.userAgent.toLowerCase().includes("windows");
     if (useWindowsCustomFrame) {
@@ -1411,14 +1574,14 @@
     player.onEnded(() => {
       if (settings.playlistMode === "single") {
         player.seek(0);
-        void player.togglePlayback();
+        void handleTogglePlayback("ended-single");
         return;
       }
       if (!currentMediaId || libraryState.playbackHistory.length < 2) return;
       const idx = libraryState.playbackHistory.findIndex((i) => i.mediaId === currentMediaId);
       if (idx === -1) return;
       const next = libraryState.playbackHistory[(idx + 1) % libraryState.playbackHistory.length];
-      void loadMediaById(next.mediaId, true).then(() => player.togglePlayback());
+      void loadMediaById(next.mediaId, true).then(() => handleTogglePlayback("ended-next"));
     });
 
     // Overlay lock event from overlay window
@@ -1782,6 +1945,9 @@
       clearTimeout(retryAsrNoticeTimer);
       clearInterval(retryAsrProgressDriftTimer);
       resetScheduledProgressUpdate();
+      for (const eventName of audioDebugEvents) {
+        audioEl.removeEventListener(eventName, onAudioDebugEvent);
+      }
     };
   });
 </script>
@@ -1903,8 +2069,10 @@
         {pendingPlaylistMediaId}
         {currentMediaId}
         volume={settings.volume}
-        onTogglePlayback={() => void player.togglePlayback()}
-        onToggleCurrentItem={() => void player.togglePlayback()}
+        {playbackDebugEntries}
+        onClearPlaybackDebug={clearPlaybackDebug}
+        onTogglePlayback={() => void handleTogglePlayback("player-bar")}
+        onToggleCurrentItem={() => void handleTogglePlayback("playlist-current-item")}
         onSeek={(ms) => player.seek(ms)}
         onRateChange={async (rate) => {
           settings = { ...settings, playbackRate: rate };

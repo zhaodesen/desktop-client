@@ -1,7 +1,9 @@
 use crate::{
     asr::{self, CancelAsrJobOutput, StartAsrJobInput, StartAsrJobOutput},
     error::CommandResponse,
-    media::{self, ImportMediaInput, LibraryState, MediaItem, PlaybackHistoryItem},
+    media::{
+        self, ImportMediaInput, LibraryState, MediaDebugProbe, MediaItem, PlaybackHistoryItem,
+    },
     model::{
         self, AllModelsStatus, DefaultModelStatus, DownloadModelOutput, ModelInfo, ModelStatus,
     },
@@ -273,6 +275,14 @@ pub fn get_library_state(app: AppHandle) -> CommandResponse<LibraryState> {
     match media::get_library_state(&app) {
         Ok(state) => CommandResponse::ok(state),
         Err(error) => CommandResponse::err("library_state_failed", error),
+    }
+}
+
+#[tauri::command]
+pub fn probe_media_path(app: AppHandle, path: String) -> CommandResponse<MediaDebugProbe> {
+    match media::probe_media_path(&app, &path) {
+        Ok(probe) => CommandResponse::ok(probe),
+        Err(error) => CommandResponse::err("probe_media_path_failed", error),
     }
 }
 

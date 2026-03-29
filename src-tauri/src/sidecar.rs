@@ -1,4 +1,8 @@
-use std::{env, path::{Path, PathBuf}, process::Command};
+use std::{
+    env,
+    path::{Path, PathBuf},
+    process::Command,
+};
 use tauri::{path::BaseDirectory, AppHandle, Manager};
 
 #[cfg(windows)]
@@ -51,8 +55,7 @@ pub fn locate_executable(
 }
 
 pub fn resolve_local_candidates(app: &AppHandle, names: &[&str]) -> Result<Vec<PathBuf>, String> {
-    let current_dir =
-        env::current_dir().map_err(|error| format!("读取当前目录失败: {error}"))?;
+    let current_dir = env::current_dir().map_err(|error| format!("读取当前目录失败: {error}"))?;
     let mut candidates = Vec::new();
 
     for name in names {
@@ -72,9 +75,9 @@ pub fn resolve_local_candidates(app: &AppHandle, names: &[&str]) -> Result<Vec<P
         if let Ok(resource_path) = app.path().resolve(&exe_name, BaseDirectory::Resource) {
             push_unique_path(&mut candidates, resource_path);
         }
-        if let Ok(resource_path) =
-            app.path()
-                .resolve(format!("binaries/{binary_name}"), BaseDirectory::Resource)
+        if let Ok(resource_path) = app
+            .path()
+            .resolve(format!("binaries/{binary_name}"), BaseDirectory::Resource)
         {
             push_unique_path(&mut candidates, resource_path);
         }
@@ -213,7 +216,10 @@ pub fn kill_process(pid: u32) -> Result<(), String> {
 }
 
 fn local_sidecar_dirs(current_dir: &Path) -> Vec<PathBuf> {
-    let mut dirs = vec![current_dir.join("src-tauri/binaries"), current_dir.join("bin")];
+    let mut dirs = vec![
+        current_dir.join("src-tauri/binaries"),
+        current_dir.join("bin"),
+    ];
 
     if let Some(parent_dir) = current_dir.parent() {
         dirs.push(parent_dir.join("src-tauri/binaries"));

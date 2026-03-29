@@ -6,6 +6,12 @@
   import { formatDuration } from "../shared/utils";
 
   type TabId = "lyrics" | "playlist";
+  type PlaybackDebugEntry = {
+    id: number;
+    time: string;
+    source: string;
+    message: string;
+  };
 
   interface Props {
     snap: PlaybackSnapshot;
@@ -23,6 +29,7 @@
     pendingPlaylistMediaId: string | undefined;
     currentMediaId: string | undefined;
     volume: number;
+    playbackDebugEntries: PlaybackDebugEntry[];
     onTogglePlayback: () => void;
     onToggleCurrentItem: () => void;
     onSeek: (ms: number) => void;
@@ -34,6 +41,7 @@
     onRemoveItem: (id: string) => void;
     onVolumeChange: (volume: number) => void;
     onVolumeCommit: () => void;
+    onClearPlaybackDebug: () => void;
     onPrevTrack?: () => void;
     onNextTrack?: () => void;
   }
@@ -42,9 +50,9 @@
     snap, hasMedia, audioFileLabel, subtitleFileLabel, cueTiming,
     currentText: _, currentSecondaryText: __,
     subtitleCues, overlayVisible, playbackRate, playlistMode,
-    playlist, pendingPlaylistMediaId, currentMediaId, volume,
+    playlist, pendingPlaylistMediaId, currentMediaId, volume, playbackDebugEntries,
     onTogglePlayback, onToggleCurrentItem, onSeek, onRateChange, onPlaylistModeChange, onToggleMute, onToggleOverlayVisible,
-    onPlayItem, onRemoveItem, onVolumeChange, onVolumeCommit,
+    onPlayItem, onRemoveItem, onVolumeChange, onVolumeCommit, onClearPlaybackDebug,
     onPrevTrack, onNextTrack,
   }: Props = $props();
 
@@ -278,6 +286,25 @@
   {/key}
 
   <!-- ── Player Bar ── -->
+  <section class="debug-panel">
+    <div class="debug-panel-header">
+      <div>
+        <strong>Playback Debug</strong>
+        <span>{playbackDebugEntries.length} lines</span>
+      </div>
+      <button class="debug-clear-btn" type="button" onclick={onClearPlaybackDebug}>
+        Clear
+      </button>
+    </div>
+    <div class="debug-panel-body">
+      {#if playbackDebugEntries.length === 0}
+        <div class="debug-empty">Click play and the logs will appear here.</div>
+      {:else}
+        <pre class="debug-log">{playbackDebugEntries.map((entry) => `${entry.time} [${entry.source}] ${entry.message}`).join("\n")}</pre>
+      {/if}
+    </div>
+  </section>
+
   <div class="player-bar">
     <div class="player-bar-inner">
       <!-- Left: mini info -->
@@ -439,6 +466,80 @@
   }
 
   /* ── Pill Toggle ── */
+  .debug-panel {
+    flex-shrink: 0;
+    margin: 10px 0 14px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: rgba(0, 0, 0, 0.18);
+    overflow: hidden;
+  }
+
+  .debug-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(255, 255, 255, 0.03);
+  }
+
+  .debug-panel-header div {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+  }
+
+  .debug-panel-header strong {
+    font-size: 12px;
+    color: var(--text-primary);
+  }
+
+  .debug-panel-header span {
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+
+  .debug-clear-btn {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text-dim);
+    font: inherit;
+    font-size: 11px;
+    padding: 5px 10px;
+    cursor: pointer;
+  }
+
+  .debug-clear-btn:hover {
+    color: var(--text-primary);
+    border-color: var(--border-focus);
+  }
+
+  .debug-panel-body {
+    max-height: 180px;
+    overflow: auto;
+  }
+
+  .debug-empty {
+    padding: 12px 14px;
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+
+  .debug-log {
+    margin: 0;
+    padding: 12px 14px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: 11px;
+    line-height: 1.5;
+    font-family: Consolas, "Courier New", monospace;
+    color: var(--text-primary);
+  }
+
   .pill-toggle {
     display: flex;
     background: var(--bg-surface);
