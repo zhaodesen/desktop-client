@@ -6,7 +6,7 @@ pub fn ensure_overlay_window(app: &AppHandle, settings: &AppSettings) -> Result<
         return Ok(());
     }
 
-    let window = WebviewWindowBuilder::new(app, "overlay", WebviewUrl::App("overlay.html".into()))
+    let _window = WebviewWindowBuilder::new(app, "overlay", WebviewUrl::App("overlay.html".into()))
         .title("悬浮字幕")
         .visible(settings.overlay_visible)
         .always_on_top(true)
@@ -23,7 +23,7 @@ pub fn ensure_overlay_window(app: &AppHandle, settings: &AppSettings) -> Result<
         .map_err(|error| format!("创建悬浮窗失败: {error}"))?;
 
     #[cfg(target_os = "windows")]
-    window
+    _window
         .set_background_color(Some(Color(0, 0, 0, 0)))
         .map_err(|error| format!("设置悬浮窗背景失败: {error}"))?;
 

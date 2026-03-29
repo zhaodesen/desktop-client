@@ -624,18 +624,6 @@ pub fn get_all_models_status(app: &AppHandle) -> Result<AllModelsStatus, String>
     Ok(AllModelsStatus { models })
 }
 
-/// Resolve the path of the currently-selected model on disk.
-pub fn resolve_default_model_path(app: &AppHandle) -> Result<PathBuf, String> {
-    let state = app.state::<crate::state::AppState>();
-    let selected = state
-        .settings
-        .lock()
-        .map(|settings| settings.selected_model.clone())
-        .unwrap_or_else(|_| "base".into());
-    let info = find_model_info(&selected)?;
-    resolve_model_path(app, &info.file_name)
-}
-
 /// Download a specific model by ID.
 pub fn download_model(
     app: AppHandle,
