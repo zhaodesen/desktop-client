@@ -1,6 +1,7 @@
 <script lang="ts">
   import { fly } from "svelte/transition";
   import { flip } from "svelte/animate";
+  import { Virtualizer } from "virtua/svelte";
   import type { PlaybackSnapshot, PlaybackHistoryItem, PlaylistMode, SubtitleCue } from "../shared/types";
   import { formatDuration } from "../shared/utils";
 
@@ -49,10 +50,8 @@
 
   let activeTab = $state<TabId>("lyrics");
   let showBilingual = $state(false);
-  let lyricScrollEl = $state<HTMLElement | null>(null);
   let lastScrolledCueId = -1;
-  let lyricScrollTop = $state(0);
-  let lyricContainerHeight = $state(0);
+  let virtualList = $state<any>(undefined);
 
   const dur = $derived(Math.max(snap.durationMs, 0));
   const progress = $derived(Math.min(snap.currentTimeMs, dur || snap.currentTimeMs));
@@ -78,37 +77,12 @@
     return -1;
   });
 
-  /* ── Virtual scroll for lyrics ── */
-  const LYRIC_ITEM_H = 48;
-  const LYRIC_OVERSCAN = 8;
-  const LYRIC_PAD_TOP = 30;
-  const LYRIC_PAD_BOTTOM = 84;
-
-  const lyricTotalH = $derived(
-    subtitleCues.length * LYRIC_ITEM_H + LYRIC_PAD_TOP + LYRIC_PAD_BOTTOM
-  );
-
-  const lyricStart = $derived(
-    Math.max(0, Math.floor(Math.max(0, lyricScrollTop - LYRIC_PAD_TOP) / LYRIC_ITEM_H) - LYRIC_OVERSCAN)
-  );
-
-  const lyricEnd = $derived(
-    Math.min(subtitleCues.length, Math.ceil(Math.max(0, lyricScrollTop - LYRIC_PAD_TOP + lyricContainerHeight) / LYRIC_ITEM_H) + LYRIC_OVERSCAN)
-  );
-
-  const visibleCues = $derived(
-    Array.from({ length: Math.max(0, lyricEnd - lyricStart) }, (_, i) => lyricStart + i)
-  );
-
   $effect(() => {
-    if (activeCueIndex < 0 || !lyricScrollEl || activeTab !== "lyrics") return;
+    if (activeCueIndex < 0 || !virtualList || activeTab !== "lyrics") return;
     const cue = subtitleCues[activeCueIndex];
     if (!cue || cue.id === lastScrolledCueId) return;
     lastScrolledCueId = cue.id;
-
-    const itemTop = LYRIC_PAD_TOP + activeCueIndex * LYRIC_ITEM_H;
-    const target = itemTop - lyricContainerHeight / 2 + LYRIC_ITEM_H / 2;
-    lyricScrollEl.scrollTo({ top: Math.max(0, target), behavior: "smooth" });
+    virtualList.scrollToIndex(activeCueIndex, { align: "center", smooth: true });
   });
 
   function thumbGradient(index: number): string {
@@ -172,22 +146,14 @@
             <span>暂无字幕，导入资源后自动生成</span>
           </div>
         {:else}
-          <div
-            class="lyric-scroll"
-            bind:this={lyricScrollEl}
-            bind:clientHeight={lyricContainerHeight}
-            onscroll={() => { lyricScrollTop = lyricScrollEl?.scrollTop ?? 0; }}
-          >
-            <div class="lyric-list" style="height:{lyricTotalH}px">
-              {#each visibleCues as i (i)}
-                {@const cue = subtitleCues[i]}
+          <div class="lyric-scroll">
+            <Virtualizer data={subtitleCues} overscan={8} bind:this={virtualList}>
+              {#snippet children(cue, i)}
                 <button
                   class="lyric-line"
                   class:lyric-past={i < activeCueIndex}
                   class:lyric-active={i === activeCueIndex}
                   type="button"
-                  data-cue-id={cue.id}
-                  style="top:{LYRIC_PAD_TOP + i * LYRIC_ITEM_H}px"
                   onclick={() => onSeek(cue.startMs)}
                 >
                   <span class="lyric-text">{cue.text}</span>
@@ -195,8 +161,8 @@
                     <span class="lyric-translation">{cue.secondaryText}</span>
                   {/if}
                 </button>
-              {/each}
-            </div>
+              {/snippet}
+            </Virtualizer>
           </div>
         {/if}
       </div>
@@ -594,16 +560,11 @@
     min-height: 0;
     overflow-y: auto;
     scrollbar-gutter: stable;
-    overflow-x: hidden
-  }
-
-  .lyric-list {
-    position: relative;
+    overflow-x: hidden;
+    padding: 30px 0 84px;
   }
 
   .lyric-line {
-    position: absolute;
-    left: 0;
     display: flex;
     flex-direction: column;
     align-items: center;
