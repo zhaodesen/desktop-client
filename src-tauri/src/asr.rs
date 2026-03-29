@@ -1,6 +1,6 @@
 use serde::Serialize;
 use std::{
-    env, fs,
+    fs,
     io::{self, BufRead, BufReader, Read},
     path::{Path, PathBuf},
     process::Stdio,
@@ -675,32 +675,20 @@ fn locate_whisper_cli(app: &AppHandle) -> Result<CommandTarget, String> {
 }
 
 fn locate_whisper_model(app: &AppHandle) -> Result<PathBuf, String> {
-    if let Ok(path) = env::var("WHISPER_MODEL_PATH") {
-        let model_path = PathBuf::from(path);
-        if model_path.exists() {
+    let status = model::get_default_model_status(app)?;
+
+    if status.installed {
+        if let Some(path_str) = status.path {
+            let model_path = PathBuf::from(path_str);
             ensure_multilingual_whisper_model(&model_path)?;
             return Ok(model_path);
         }
     }
 
-    let current_dir = env::current_dir().map_err(|error| format!("读取当前目录失败: {error}"))?;
-    let candidates = [
-        model::resolve_default_model_path(app)?,
-        current_dir.join("models/ggml-base.bin"),
-        current_dir.join("src-tauri/models/ggml-base.bin"),
-    ];
-
-    for candidate in candidates {
-        if candidate.exists() {
-            ensure_multilingual_whisper_model(&candidate)?;
-            return Ok(candidate);
-        }
-    }
-
-    Err(
-        "未找到 Whisper 模型文件。请把模型放到 ./models/ggml-base.bin，或设置环境变量 WHISPER_MODEL_PATH。"
-            .to_string(),
-    )
+    Err(format!(
+        "未找到 Whisper 模型文件（当前选择: {}）。请在设置中下载模型，或设置环境变量 WHISPER_MODEL_PATH。",
+        status.model_id
+    ))
 }
 
 fn ensure_multilingual_whisper_model(model_path: &Path) -> Result<(), String> {
