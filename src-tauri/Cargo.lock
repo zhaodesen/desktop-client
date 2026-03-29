@@ -3577,18 +3577,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tauri-app"
-version = "0.1.16"
-dependencies = [
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
-]
-
-[[package]]
 name = "tauri-build"
 version = "2.5.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
