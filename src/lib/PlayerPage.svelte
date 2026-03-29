@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { tick } from "svelte";
   import { fly } from "svelte/transition";
   import { flip } from "svelte/animate";
   import type { PlaybackSnapshot, PlaybackHistoryItem, PlaylistMode, SubtitleCue } from "../shared/types";
@@ -52,6 +51,8 @@
   let showBilingual = $state(false);
   let lyricScrollEl = $state<HTMLElement | null>(null);
   let lastScrolledCueId = -1;
+  let lyricScrollTop = $state(0);
+  let lyricContainerHeight = $state(0);
 
   const dur = $derived(Math.max(snap.durationMs, 0));
   const progress = $derived(Math.min(snap.currentTimeMs, dur || snap.currentTimeMs));
@@ -65,11 +66,39 @@
 
   const activeCueIndex = $derived.by(() => {
     const t = snap.currentTimeMs;
-    for (let i = 0; i < subtitleCues.length; i++) {
-      if (t >= subtitleCues[i].startMs && t < subtitleCues[i].endMs) return i;
+    const cues = subtitleCues;
+    let lo = 0;
+    let hi = cues.length - 1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >>> 1;
+      if (t >= cues[mid].endMs) lo = mid + 1;
+      else if (t < cues[mid].startMs) hi = mid - 1;
+      else return mid;
     }
     return -1;
   });
+
+  /* ── Virtual scroll for lyrics ── */
+  const LYRIC_ITEM_H = 48;
+  const LYRIC_OVERSCAN = 8;
+  const LYRIC_PAD_TOP = 30;
+  const LYRIC_PAD_BOTTOM = 84;
+
+  const lyricTotalH = $derived(
+    subtitleCues.length * LYRIC_ITEM_H + LYRIC_PAD_TOP + LYRIC_PAD_BOTTOM
+  );
+
+  const lyricStart = $derived(
+    Math.max(0, Math.floor(Math.max(0, lyricScrollTop - LYRIC_PAD_TOP) / LYRIC_ITEM_H) - LYRIC_OVERSCAN)
+  );
+
+  const lyricEnd = $derived(
+    Math.min(subtitleCues.length, Math.ceil(Math.max(0, lyricScrollTop - LYRIC_PAD_TOP + lyricContainerHeight) / LYRIC_ITEM_H) + LYRIC_OVERSCAN)
+  );
+
+  const visibleCues = $derived(
+    Array.from({ length: Math.max(0, lyricEnd - lyricStart) }, (_, i) => lyricStart + i)
+  );
 
   $effect(() => {
     if (activeCueIndex < 0 || !lyricScrollEl || activeTab !== "lyrics") return;
@@ -77,21 +106,9 @@
     if (!cue || cue.id === lastScrolledCueId) return;
     lastScrolledCueId = cue.id;
 
-    void tick().then(() => {
-      const container = lyricScrollEl;
-      const el = container?.querySelector<HTMLElement>(`[data-cue-id="${cue.id}"]`);
-      if (!container || !el) return;
-
-      const containerRect = container.getBoundingClientRect();
-      const elRect = el.getBoundingClientRect();
-      const offsetTop = elRect.top - containerRect.top;
-      const targetTop = container.scrollTop + offsetTop - container.clientHeight / 2 + elRect.height / 2;
-
-      container.scrollTo({
-        top: Math.max(targetTop, 0),
-        behavior: "smooth",
-      });
-    });
+    const itemTop = LYRIC_PAD_TOP + activeCueIndex * LYRIC_ITEM_H;
+    const target = itemTop - lyricContainerHeight / 2 + LYRIC_ITEM_H / 2;
+    lyricScrollEl.scrollTo({ top: Math.max(0, target), behavior: "smooth" });
   });
 
   function thumbGradient(index: number): string {
@@ -155,15 +172,22 @@
             <span>暂无字幕，导入资源后自动生成</span>
           </div>
         {:else}
-          <div class="lyric-scroll" bind:this={lyricScrollEl}>
-            <div class="lyric-list">
-              {#each subtitleCues as cue, i (cue.id)}
+          <div
+            class="lyric-scroll"
+            bind:this={lyricScrollEl}
+            bind:clientHeight={lyricContainerHeight}
+            onscroll={() => { lyricScrollTop = lyricScrollEl?.scrollTop ?? 0; }}
+          >
+            <div class="lyric-list" style="height:{lyricTotalH}px">
+              {#each visibleCues as i (i)}
+                {@const cue = subtitleCues[i]}
                 <button
                   class="lyric-line"
                   class:lyric-past={i < activeCueIndex}
                   class:lyric-active={i === activeCueIndex}
                   type="button"
                   data-cue-id={cue.id}
+                  style="top:{LYRIC_PAD_TOP + i * LYRIC_ITEM_H}px"
                   onclick={() => onSeek(cue.startMs)}
                 >
                   <span class="lyric-text">{cue.text}</span>
@@ -574,13 +598,12 @@
   }
 
   .lyric-list {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    padding: 30px 0 84px;
+    position: relative;
   }
 
   .lyric-line {
+    position: absolute;
+    left: 0;
     display: flex;
     flex-direction: column;
     align-items: center;
