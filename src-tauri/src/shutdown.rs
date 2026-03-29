@@ -84,6 +84,7 @@ pub fn handle_run_event(app: &AppHandle, event: &RunEvent) {
             api.prevent_exit();
             let _ = window::hide_main_window(app);
         }
+        #[cfg(target_os = "macos")]
         RunEvent::Reopen { .. } => {
             let state = app.state::<AppState>();
             if state.shutdown_confirmed.load(Ordering::SeqCst) {
