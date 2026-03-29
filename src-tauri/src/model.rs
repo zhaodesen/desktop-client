@@ -1,12 +1,19 @@
-use reqwest::blocking::get;
+use reqwest::{
+    blocking::Client,
+    header::{ACCEPT_RANGES, CONTENT_LENGTH, RANGE},
+};
 use serde::{Deserialize, Serialize};
 use std::{
+    cmp,
     fs::{self, File},
-    io::{Read, Write},
+    io::{copy, Read, Write},
     path::PathBuf,
-    sync::{atomic::Ordering, Arc, Mutex},
+    sync::{
+        atomic::{AtomicBool, AtomicU64, Ordering},
+        Arc, Mutex,
+    },
     thread,
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -15,6 +22,36 @@ use crate::state::ModelDownloadState;
 // ---------------------------------------------------------------------------
 // Model registry
 // ---------------------------------------------------------------------------
+
+const DEFAULT_MODEL_ENDPOINT: &str = "https://huggingface.co";
+const DEFAULT_MODEL_REPO: &str = "ggerganov/whisper.cpp";
+const DOWNLOAD_BUFFER_SIZE: usize = 1024 * 1024;
+const PARALLEL_DOWNLOAD_CONNECTIONS: usize = 4;
+const PARALLEL_DOWNLOAD_MIN_BYTES: u64 = 32 * 1024 * 1024;
+
+fn resolve_model_endpoint() -> String {
+    std::env::var("MUYU_MODEL_ENDPOINT")
+        .ok()
+        .or_else(|| std::env::var("HF_ENDPOINT").ok())
+        .map(|value| value.trim().trim_end_matches('/').to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| DEFAULT_MODEL_ENDPOINT.to_string())
+}
+
+fn build_model_download_url(file_name: &str) -> String {
+    format!(
+        "{}/{}/resolve/main/{}",
+        resolve_model_endpoint(),
+        DEFAULT_MODEL_REPO,
+        file_name
+    )
+}
+
+#[derive(Debug, Clone, Copy)]
+struct DownloadMetadata {
+    total_bytes: Option<u64>,
+    supports_ranges: bool,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -36,8 +73,7 @@ pub fn get_available_models() -> Vec<ModelInfo> {
             label: "Tiny".into(),
             description: "最小模型，速度最快，适合低配设备 (~75 MB)".into(),
             file_name: "ggml-tiny.bin".into(),
-            download_url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin"
-                .into(),
+            download_url: build_model_download_url("ggml-tiny.bin"),
             size_mb: 75,
         },
         ModelInfo {
@@ -45,8 +81,7 @@ pub fn get_available_models() -> Vec<ModelInfo> {
             label: "Base".into(),
             description: "基础模型，速度与质量均衡 (~142 MB)".into(),
             file_name: "ggml-base.bin".into(),
-            download_url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin"
-                .into(),
+            download_url: build_model_download_url("ggml-base.bin"),
             size_mb: 142,
         },
         ModelInfo {
@@ -54,27 +89,23 @@ pub fn get_available_models() -> Vec<ModelInfo> {
             label: "Small".into(),
             description: "中等模型，识别质量更好 (~466 MB)".into(),
             file_name: "ggml-small.bin".into(),
-            download_url:
-                "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin".into(),
+            download_url: build_model_download_url("ggml-small.bin"),
             size_mb: 466,
         },
         ModelInfo {
             id: "medium".into(),
             label: "Medium".into(),
-            description: "较大模型，识别准确度高 (~1.5 GB)".into(),
+            description: "较大模型，识别准确率更高 (~1.5 GB)".into(),
             file_name: "ggml-medium.bin".into(),
-            download_url:
-                "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.bin".into(),
+            download_url: build_model_download_url("ggml-medium.bin"),
             size_mb: 1500,
         },
         ModelInfo {
             id: "large-v3-turbo".into(),
             label: "Large V3 Turbo".into(),
-            description: "大型模型涡轮版，最高质量 (~1.6 GB)".into(),
+            description: "大型模型涡轮版，质量最高 (~1.6 GB)".into(),
             file_name: "ggml-large-v3-turbo.bin".into(),
-            download_url:
-                "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin"
-                    .into(),
+            download_url: build_model_download_url("ggml-large-v3-turbo.bin"),
             size_mb: 1600,
         },
     ]
@@ -83,7 +114,7 @@ pub fn get_available_models() -> Vec<ModelInfo> {
 fn find_model_info(model_id: &str) -> Result<ModelInfo, String> {
     get_available_models()
         .into_iter()
-        .find(|m| m.id == model_id)
+        .find(|model| model.id == model_id)
         .ok_or_else(|| format!("未知的模型 ID: {model_id}"))
 }
 
@@ -183,8 +214,7 @@ fn resolve_model_candidates(
         source: "appData".into(),
     });
 
-    let current_dir =
-        std::env::current_dir().map_err(|error| format!("读取当前目录失败: {error}"))?;
+    let current_dir = std::env::current_dir().map_err(|error| format!("读取当前目录失败: {error}"))?;
     candidates.push(ModelCandidate {
         path: current_dir.join("models").join(file_name),
         source: "project".into(),
@@ -197,6 +227,347 @@ fn resolve_model_candidates(
     Ok(candidates)
 }
 
+fn build_http_client() -> Result<Client, String> {
+    Client::builder()
+        .build()
+        .map_err(|error| format!("创建下载客户端失败: {error}"))
+}
+
+fn fetch_download_metadata(client: &Client, url: &str) -> Result<DownloadMetadata, String> {
+    let response = client
+        .head(url)
+        .send()
+        .and_then(|response| response.error_for_status())
+        .map_err(|error| format!("请求模型元数据失败: {error}"))?;
+
+    let total_bytes = response
+        .headers()
+        .get(CONTENT_LENGTH)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|value| *value > 0);
+    let supports_ranges = response
+        .headers()
+        .get(ACCEPT_RANGES)
+        .and_then(|value| value.to_str().ok())
+        .map(|value| value.eq_ignore_ascii_case("bytes"))
+        .unwrap_or(false);
+
+    Ok(DownloadMetadata {
+        total_bytes,
+        supports_ranges,
+    })
+}
+
+fn download_to_temp_file(
+    client: &Client,
+    app: &AppHandle,
+    job: &ModelDownloadState,
+    info: &ModelInfo,
+    temp_path: &PathBuf,
+    metadata: DownloadMetadata,
+) -> Result<(), String> {
+    let can_parallel = metadata.supports_ranges
+        && metadata
+            .total_bytes
+            .map(|size| size >= PARALLEL_DOWNLOAD_MIN_BYTES)
+            .unwrap_or(false);
+
+    if can_parallel {
+        emit_progress(
+            app,
+            &job.job_id,
+            &format!("正在使用多连接下载模型 {} (~{} MB)", info.label, info.size_mb),
+            Some(2.0),
+        )?;
+        download_parallel(client, app, job, info, temp_path, metadata)
+    } else {
+        download_single_stream(client, app, job, info, temp_path)
+    }
+}
+
+fn download_single_stream(
+    client: &Client,
+    app: &AppHandle,
+    job: &ModelDownloadState,
+    info: &ModelInfo,
+    temp_path: &PathBuf,
+) -> Result<(), String> {
+    let mut response = client
+        .get(&info.download_url)
+        .send()
+        .and_then(|response| response.error_for_status())
+        .map_err(|error| format!("下载模型失败: {error}"))?;
+
+    let total_bytes = response.content_length();
+    let mut file = File::create(temp_path).map_err(|error| format!("创建模型文件失败: {error}"))?;
+    let mut downloaded_bytes = 0u64;
+    let mut last_percent = 0f32;
+    let mut buffer = [0u8; DOWNLOAD_BUFFER_SIZE];
+
+    loop {
+        if job.cancel_requested.load(Ordering::SeqCst) {
+            cleanup_download_path(temp_path);
+            return Err("模型下载已取消".to_string());
+        }
+
+        let read = response
+            .read(&mut buffer)
+            .map_err(|error| format!("读取模型下载流失败: {error}"))?;
+        if read == 0 {
+            break;
+        }
+
+        file.write_all(&buffer[..read])
+            .map_err(|error| format!("写入模型文件失败: {error}"))?;
+        downloaded_bytes += read as u64;
+
+        emit_download_progress(
+            app,
+            &job.job_id,
+            &info.label,
+            downloaded_bytes,
+            total_bytes,
+            &mut last_percent,
+        )?;
+    }
+
+    Ok(())
+}
+
+fn download_parallel(
+    client: &Client,
+    app: &AppHandle,
+    job: &ModelDownloadState,
+    info: &ModelInfo,
+    temp_path: &PathBuf,
+    metadata: DownloadMetadata,
+) -> Result<(), String> {
+    let total_bytes = metadata
+        .total_bytes
+        .ok_or_else(|| "模型大小未知，无法启用分片下载".to_string())?;
+    let connection_count = cmp::max(
+        2,
+        cmp::min(
+            PARALLEL_DOWNLOAD_CONNECTIONS,
+            cmp::max(1, (total_bytes / PARALLEL_DOWNLOAD_MIN_BYTES) as usize),
+        ),
+    );
+    let part_dir = temp_path.with_extension("download.parts");
+
+    cleanup_download_path(&part_dir);
+    fs::create_dir_all(&part_dir).map_err(|error| format!("创建临时分片目录失败: {error}"))?;
+
+    if let Ok(mut temp_guard) = job.temp_path.lock() {
+        *temp_guard = Some(part_dir.clone());
+    }
+
+    let downloaded_bytes = Arc::new(AtomicU64::new(0));
+    let abort_requested = Arc::new(AtomicBool::new(false));
+    let mut handles = Vec::with_capacity(connection_count);
+
+    for index in 0..connection_count {
+        let start = total_bytes * index as u64 / connection_count as u64;
+        let end = (total_bytes * (index as u64 + 1) / connection_count as u64).saturating_sub(1);
+        let client = client.clone();
+        let url = info.download_url.clone();
+        let part_path = part_dir.join(format!("part-{index:02}.bin"));
+        let cancel_requested = job.cancel_requested.clone();
+        let abort_flag = abort_requested.clone();
+        let downloaded = downloaded_bytes.clone();
+
+        handles.push(Some(thread::spawn(move || {
+            download_range_to_part(
+                &client,
+                &url,
+                start,
+                end,
+                &part_path,
+                cancel_requested,
+                abort_flag,
+                downloaded,
+            )
+        })));
+    }
+
+    let mut remaining = connection_count;
+    let mut last_percent = 0f32;
+    let mut first_error: Option<String> = None;
+
+    while remaining > 0 {
+        if job.cancel_requested.load(Ordering::SeqCst) {
+            abort_requested.store(true, Ordering::SeqCst);
+            break;
+        }
+
+        emit_download_progress(
+            app,
+            &job.job_id,
+            &info.label,
+            downloaded_bytes.load(Ordering::SeqCst),
+            Some(total_bytes),
+            &mut last_percent,
+        )?;
+
+        let mut finished_in_this_round = false;
+        for handle in &mut handles {
+            if handle
+                .as_ref()
+                .map(|worker| worker.is_finished())
+                .unwrap_or(false)
+            {
+                let worker = handle.take().expect("finished worker must exist");
+                remaining -= 1;
+                finished_in_this_round = true;
+
+                match worker.join() {
+                    Ok(Ok(())) => {}
+                    Ok(Err(error)) if error == "cancelled" => {}
+                    Ok(Err(error)) => {
+                        abort_requested.store(true, Ordering::SeqCst);
+                        if first_error.is_none() {
+                            first_error = Some(error);
+                        }
+                    }
+                    Err(_) => {
+                        abort_requested.store(true, Ordering::SeqCst);
+                        if first_error.is_none() {
+                            first_error = Some("分片下载线程异常退出".to_string());
+                        }
+                    }
+                }
+            }
+        }
+
+        if first_error.is_some() {
+            break;
+        }
+
+        if !finished_in_this_round {
+            thread::sleep(Duration::from_millis(200));
+        }
+    }
+
+    abort_requested.store(true, Ordering::SeqCst);
+    for handle in handles.into_iter().flatten() {
+        match handle.join() {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) if error == "cancelled" => {}
+            Ok(Err(error)) if first_error.is_none() => first_error = Some(error),
+            Err(_) if first_error.is_none() => {
+                first_error = Some("分片下载线程异常退出".to_string())
+            }
+            _ => {}
+        }
+    }
+
+    if job.cancel_requested.load(Ordering::SeqCst) {
+        cleanup_download_path(&part_dir);
+        return Err("模型下载已取消".to_string());
+    }
+
+    if let Some(error) = first_error {
+        cleanup_download_path(&part_dir);
+        return Err(error);
+    }
+
+    let merge_result = (|| -> Result<(), String> {
+        let mut output =
+            File::create(temp_path).map_err(|error| format!("创建模型文件失败: {error}"))?;
+        for index in 0..connection_count {
+            let part_path = part_dir.join(format!("part-{index:02}.bin"));
+            let mut input =
+                File::open(&part_path).map_err(|error| format!("读取分片文件失败: {error}"))?;
+            copy(&mut input, &mut output).map_err(|error| format!("合并分片文件失败: {error}"))?;
+        }
+        Ok(())
+    })();
+
+    cleanup_download_path(&part_dir);
+    if let Err(error) = merge_result {
+        cleanup_download_path(temp_path);
+        return Err(error);
+    }
+
+    if let Ok(mut temp_guard) = job.temp_path.lock() {
+        *temp_guard = Some(temp_path.clone());
+    }
+
+    Ok(())
+}
+
+fn download_range_to_part(
+    client: &Client,
+    url: &str,
+    start: u64,
+    end: u64,
+    part_path: &PathBuf,
+    cancel_requested: Arc<AtomicBool>,
+    abort_requested: Arc<AtomicBool>,
+    downloaded_bytes: Arc<AtomicU64>,
+) -> Result<(), String> {
+    let mut response = client
+        .get(url)
+        .header(RANGE, format!("bytes={start}-{end}"))
+        .send()
+        .and_then(|response| response.error_for_status())
+        .map_err(|error| format!("下载模型分片失败: {error}"))?;
+    let mut file = File::create(part_path).map_err(|error| format!("创建分片文件失败: {error}"))?;
+    let mut buffer = [0u8; DOWNLOAD_BUFFER_SIZE];
+
+    loop {
+        if cancel_requested.load(Ordering::SeqCst) || abort_requested.load(Ordering::SeqCst) {
+            cleanup_download_path(part_path);
+            return Err("cancelled".to_string());
+        }
+
+        let read = response
+            .read(&mut buffer)
+            .map_err(|error| format!("读取模型分片数据失败: {error}"))?;
+        if read == 0 {
+            break;
+        }
+
+        file.write_all(&buffer[..read])
+            .map_err(|error| format!("写入分片文件失败: {error}"))?;
+        downloaded_bytes.fetch_add(read as u64, Ordering::SeqCst);
+    }
+
+    Ok(())
+}
+
+fn emit_download_progress(
+    app: &AppHandle,
+    job_id: &str,
+    label: &str,
+    downloaded_bytes: u64,
+    total_bytes: Option<u64>,
+    last_percent: &mut f32,
+) -> Result<(), String> {
+    if let Some(total_bytes) = total_bytes.filter(|size| *size > 0) {
+        let percent = ((downloaded_bytes as f64 / total_bytes as f64) * 100.0).min(100.0) as f32;
+        if percent >= *last_percent + 3.0 || percent >= 100.0 {
+            emit_progress(
+                app,
+                job_id,
+                &format!("正在下载模型 {}... {:.0}%", label, percent),
+                Some(percent),
+            )?;
+            *last_percent = percent;
+        }
+    }
+
+    Ok(())
+}
+
+fn cleanup_download_path(path: &PathBuf) {
+    if path.is_dir() {
+        let _ = fs::remove_dir_all(path);
+    } else {
+        let _ = fs::remove_file(path);
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -207,7 +578,7 @@ pub fn get_model_status(app: &AppHandle, model_id: &str) -> Result<ModelStatus, 
 
     if let Some(candidate) = resolve_model_candidates(app, &info.file_name)?
         .into_iter()
-        .find(|c| c.path.exists())
+        .find(|candidate| candidate.path.exists())
     {
         let metadata = fs::metadata(&candidate.path)
             .map_err(|error| format!("读取模型文件信息失败: {error}"))?;
@@ -232,14 +603,13 @@ pub fn get_model_status(app: &AppHandle, model_id: &str) -> Result<ModelStatus, 
     })
 }
 
-/// Backward-compatible wrapper — returns status for the "base" model.
+/// Backward-compatible wrapper - returns status for the selected model.
 pub fn get_default_model_status(app: &AppHandle) -> Result<ModelStatus, String> {
-    // Check settings for selected model, fallback to "base"
     let state = app.state::<crate::state::AppState>();
     let selected = state
         .settings
         .lock()
-        .map(|s| s.selected_model.clone())
+        .map(|settings| settings.selected_model.clone())
         .unwrap_or_else(|_| "base".into());
     get_model_status(app, &selected)
 }
@@ -254,6 +624,18 @@ pub fn get_all_models_status(app: &AppHandle) -> Result<AllModelsStatus, String>
     Ok(AllModelsStatus { models })
 }
 
+/// Resolve the path of the currently-selected model on disk.
+pub fn resolve_default_model_path(app: &AppHandle) -> Result<PathBuf, String> {
+    let state = app.state::<crate::state::AppState>();
+    let selected = state
+        .settings
+        .lock()
+        .map(|settings| settings.selected_model.clone())
+        .unwrap_or_else(|_| "base".into());
+    let info = find_model_info(&selected)?;
+    resolve_model_path(app, &info.file_name)
+}
+
 /// Download a specific model by ID.
 pub fn download_model(
     app: AppHandle,
@@ -263,7 +645,7 @@ pub fn download_model(
     let info = find_model_info(&model_id)?;
 
     if get_model_status(&app, &model_id)?.installed {
-        return Err(format!("模型 {} 已经存在，无需重复下载", info.label));
+        return Err(format!("模型 {} 已存在，无需重复下载", info.label));
     }
 
     let mut guard = active_job
@@ -313,7 +695,6 @@ pub fn delete_model(
 
     fs::remove_file(&path).map_err(|error| format!("删除模型 {} 失败: {error}", info.label))?;
 
-    // Prune empty parent dirs up to app data dir
     let app_data_dir = app
         .path()
         .app_data_dir()
@@ -324,7 +705,7 @@ pub fn delete_model(
             break;
         }
         let is_empty = fs::read_dir(dir)
-            .map(|mut rd| rd.next().is_none())
+            .map(|mut entries| entries.next().is_none())
             .unwrap_or(false);
         if is_empty {
             let _ = fs::remove_dir(dir);
@@ -380,6 +761,7 @@ fn run_download(
             &format!("正在请求模型 {} 下载地址", info.label),
             Some(0.0),
         )?;
+
         let target_path = resolve_model_path(&app, &info.file_name)?;
         if let Some(parent) = target_path.parent() {
             fs::create_dir_all(parent).map_err(|error| format!("创建模型目录失败: {error}"))?;
@@ -389,56 +771,25 @@ fn run_download(
         if let Ok(mut temp_guard) = job.temp_path.lock() {
             *temp_guard = Some(temp_path.clone());
         }
+
         emit_progress(
             &app,
             &job.job_id,
-            &format!(
-                "正在下载模型 {} (~{} MB)，这一步可能需要一点时间",
-                info.label, info.size_mb
-            ),
+            &format!("正在下载模型 {} (~{} MB)，这一步可能需要一点时间", info.label, info.size_mb),
             Some(2.0),
         )?;
-        let mut response = get(&info.download_url)
-            .and_then(|response| response.error_for_status())
-            .map_err(|error| format!("下载模型失败: {error}"))?;
 
-        let mut file =
-            File::create(&temp_path).map_err(|error| format!("创建模型文件失败: {error}"))?;
-        let total_bytes = response.content_length();
-        let mut downloaded_bytes = 0u64;
-        let mut last_percent = 0f32;
-        let mut buffer = [0u8; 1024 * 1024];
+        let client = build_http_client()?;
+        let metadata = fetch_download_metadata(&client, &info.download_url).unwrap_or(
+            DownloadMetadata {
+                total_bytes: None,
+                supports_ranges: false,
+            },
+        );
 
-        loop {
-            if job.cancel_requested.load(Ordering::SeqCst) {
-                let _ = fs::remove_file(&temp_path);
-                return Err("模型下载已取消".to_string());
-            }
-
-            let read = response
-                .read(&mut buffer)
-                .map_err(|error| format!("读取模型下载流失败: {error}"))?;
-            if read == 0 {
-                break;
-            }
-
-            file.write_all(&buffer[..read])
-                .map_err(|error| format!("写入模型文件失败: {error}"))?;
-            downloaded_bytes += read as u64;
-
-            if let Some(total_bytes) = total_bytes.filter(|size| *size > 0) {
-                let percent =
-                    ((downloaded_bytes as f64 / total_bytes as f64) * 100.0).min(100.0) as f32;
-                if percent >= last_percent + 3.0 || percent >= 100.0 {
-                    emit_progress(
-                        &app,
-                        &job.job_id,
-                        &format!("正在下载模型 {}… {:.0}%", info.label, percent),
-                        Some(percent),
-                    )?;
-                    last_percent = percent;
-                }
-            }
+        if let Err(error) = download_to_temp_file(&client, &app, &job, &info, &temp_path, metadata) {
+            cleanup_download_path(&temp_path);
+            return Err(error);
         }
 
         fs::rename(&temp_path, &target_path)
