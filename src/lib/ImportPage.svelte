@@ -520,10 +520,9 @@
     position: relative;
     width: min(760px, 100%);
     height: 300px;
-    margin-top: 10px;
+    margin-top: 60px;
     perspective: 1400px;
     transform-style: preserve-3d;
-    overflow: hidden;
   }
 
   .import-showcase-halo,
