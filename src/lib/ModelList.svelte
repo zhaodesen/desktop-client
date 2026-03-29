@@ -8,17 +8,22 @@
     isDownloading: boolean;
     downloadingModelId: string | undefined;
     modelDownloadPercent: number;
+    isDownloadPaused: boolean;
     statusLabel: string;
     pathLabel: string;
     onDownload: (id: string) => void;
+    onCancel: () => void;
+    onPause: () => void;
+    onResume: () => void;
     onSelect: (id: string) => void;
     onDelete: (id: string) => void;
   }
 
   const {
     availableModels, modelsStatusMap, selectedModel, isDownloading,
-    downloadingModelId, modelDownloadPercent,
-    statusLabel, pathLabel, onDownload, onSelect, onDelete,
+    downloadingModelId, modelDownloadPercent, isDownloadPaused,
+    statusLabel, pathLabel,
+    onDownload, onCancel, onPause, onResume, onSelect, onDelete,
   }: Props = $props();
 </script>
 
@@ -37,7 +42,6 @@
       class="model-item"
       class:model-item-downloading={isThisDownloading}
       data-selected={isSelected}
-      style={isThisDownloading ? `--download-progress: ${Math.max(0, Math.min(100, modelDownloadPercent))}%` : undefined}
     >
       {#if isThisDownloading}
         <div class="model-item-progress" style="width: {Math.max(0, Math.min(100, modelDownloadPercent))}%"></div>
@@ -52,7 +56,12 @@
       </div>
       <div class="model-item-actions">
         {#if isThisDownloading}
-          <span class="model-download-percent">{modelDownloadPercent}%</span>
+          {#if isDownloadPaused}
+            <button class="btn btn-sm" onclick={onResume}>继续</button>
+          {:else}
+            <button class="btn btn-sm btn-outline" onclick={onPause}>暂停</button>
+          {/if}
+          <button class="btn btn-sm btn-danger" onclick={onCancel}>取消</button>
         {:else if !installed}
           <button class="btn btn-sm btn-outline" disabled={isDownloading} onclick={() => onDownload(model.id)}>下载</button>
         {:else if !isSelected}

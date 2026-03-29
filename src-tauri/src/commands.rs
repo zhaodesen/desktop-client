@@ -5,7 +5,8 @@ use crate::{
         self, ImportMediaInput, LibraryState, MediaDebugProbe, MediaItem, PlaybackHistoryItem,
     },
     model::{
-        self, AllModelsStatus, DefaultModelStatus, DownloadModelOutput, ModelInfo, ModelStatus,
+        self, AllModelsStatus, CancelModelDownloadOutput, DefaultModelStatus, DownloadModelOutput,
+        ModelInfo, ModelStatus, PauseModelDownloadOutput, ResumeModelDownloadOutput,
     },
     shutdown::{self, ShutdownCleanupOutput, ShutdownTaskSummary},
     state::{AppSettings, AppState, OverlayWindowState, PlaybackState},
@@ -259,6 +260,36 @@ pub fn download_model(
     match model::download_model(app, model_id, state.active_model_download.clone()) {
         Ok(output) => CommandResponse::ok(output),
         Err(error) => CommandResponse::err("model_download_failed", error),
+    }
+}
+
+#[tauri::command]
+pub fn cancel_model_download(
+    state: State<'_, AppState>,
+) -> CommandResponse<CancelModelDownloadOutput> {
+    match model::cancel_model_download(state.active_model_download.clone()) {
+        Ok(output) => CommandResponse::ok(output),
+        Err(error) => CommandResponse::err("cancel_model_download_failed", error),
+    }
+}
+
+#[tauri::command]
+pub fn pause_model_download(
+    state: State<'_, AppState>,
+) -> CommandResponse<PauseModelDownloadOutput> {
+    match model::pause_model_download(state.active_model_download.clone()) {
+        Ok(output) => CommandResponse::ok(output),
+        Err(error) => CommandResponse::err("pause_model_download_failed", error),
+    }
+}
+
+#[tauri::command]
+pub fn resume_model_download(
+    state: State<'_, AppState>,
+) -> CommandResponse<ResumeModelDownloadOutput> {
+    match model::resume_model_download(state.active_model_download.clone()) {
+        Ok(output) => CommandResponse::ok(output),
+        Err(error) => CommandResponse::err("resume_model_download_failed", error),
     }
 }
 

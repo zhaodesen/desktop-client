@@ -150,6 +150,24 @@ pub struct DownloadModelOutput {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct CancelModelDownloadOutput {
+    pub job_id: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PauseModelDownloadOutput {
+    pub job_id: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResumeModelDownloadOutput {
+    pub job_id: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ModelDownloadStartedPayload {
     pub job_id: String,
     pub model_id: String,
@@ -317,6 +335,14 @@ fn download_single_stream(
             return Err("模型下载已取消".to_string());
         }
 
+        while job.pause_requested.load(Ordering::SeqCst) {
+            if job.cancel_requested.load(Ordering::SeqCst) {
+                cleanup_download_path(temp_path);
+                return Err("模型下载已取消".to_string());
+            }
+            thread::sleep(Duration::from_millis(200));
+        }
+
         let read = response
             .read(&mut buffer)
             .map_err(|error| format!("读取模型下载流失败: {error}"))?;
@@ -379,6 +405,7 @@ fn download_parallel(
         let url = info.download_url.clone();
         let part_path = part_dir.join(format!("part-{index:02}.bin"));
         let cancel_requested = job.cancel_requested.clone();
+        let pause_requested = job.pause_requested.clone();
         let abort_flag = abort_requested.clone();
         let downloaded = downloaded_bytes.clone();
 
@@ -390,6 +417,7 @@ fn download_parallel(
                 end,
                 &part_path,
                 cancel_requested,
+                pause_requested,
                 abort_flag,
                 downloaded,
             )
@@ -513,6 +541,7 @@ fn download_range_to_part(
     end: u64,
     part_path: &PathBuf,
     cancel_requested: Arc<AtomicBool>,
+    pause_requested: Arc<AtomicBool>,
     abort_requested: Arc<AtomicBool>,
     downloaded_bytes: Arc<AtomicU64>,
 ) -> Result<(), String> {
@@ -532,6 +561,14 @@ fn download_range_to_part(
         if cancel_requested.load(Ordering::SeqCst) || abort_requested.load(Ordering::SeqCst) {
             cleanup_download_path(part_path);
             return Err("cancelled".to_string());
+        }
+
+        while pause_requested.load(Ordering::SeqCst) {
+            if cancel_requested.load(Ordering::SeqCst) || abort_requested.load(Ordering::SeqCst) {
+                cleanup_download_path(part_path);
+                return Err("cancelled".to_string());
+            }
+            thread::sleep(Duration::from_millis(200));
         }
 
         let read = response
@@ -677,6 +714,60 @@ pub fn download_default_model(
     active_job: Arc<Mutex<Option<ModelDownloadState>>>,
 ) -> Result<DownloadModelOutput, String> {
     download_model(app, "base".into(), active_job)
+}
+
+/// Cancel the active model download.
+pub fn cancel_model_download(
+    active_job: Arc<Mutex<Option<ModelDownloadState>>>,
+) -> Result<CancelModelDownloadOutput, String> {
+    let job = {
+        let guard = active_job
+            .lock()
+            .map_err(|_| "模型下载状态锁已损坏".to_string())?;
+        guard
+            .as_ref()
+            .cloned()
+            .ok_or_else(|| "当前没有正在运行的下载任务".to_string())?
+    };
+
+    job.cancel_requested.store(true, Ordering::SeqCst);
+    Ok(CancelModelDownloadOutput { job_id: job.job_id })
+}
+
+/// Pause the active model download.
+pub fn pause_model_download(
+    active_job: Arc<Mutex<Option<ModelDownloadState>>>,
+) -> Result<PauseModelDownloadOutput, String> {
+    let job = {
+        let guard = active_job
+            .lock()
+            .map_err(|_| "模型下载状态锁已损坏".to_string())?;
+        guard
+            .as_ref()
+            .cloned()
+            .ok_or_else(|| "当前没有正在运行的下载任务".to_string())?
+    };
+
+    job.pause_requested.store(true, Ordering::SeqCst);
+    Ok(PauseModelDownloadOutput { job_id: job.job_id })
+}
+
+/// Resume the active model download.
+pub fn resume_model_download(
+    active_job: Arc<Mutex<Option<ModelDownloadState>>>,
+) -> Result<ResumeModelDownloadOutput, String> {
+    let job = {
+        let guard = active_job
+            .lock()
+            .map_err(|_| "模型下载状态锁已损坏".to_string())?;
+        guard
+            .as_ref()
+            .cloned()
+            .ok_or_else(|| "当前没有正在运行的下载任务".to_string())?
+    };
+
+    job.pause_requested.store(false, Ordering::SeqCst);
+    Ok(ResumeModelDownloadOutput { job_id: job.job_id })
 }
 
 /// Delete a specific model by ID.

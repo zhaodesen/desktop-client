@@ -23,10 +23,13 @@ import type {
   AsrProgressPayload,
   AsrStartedPayload,
   AppSettings,
+  CancelModelDownloadOutput,
   CleanupResult,
   CommandResult,
   DefaultModelStatus,
   DownloadModelOutput,
+  PauseModelDownloadOutput,
+  ResumeModelDownloadOutput,
   ImportMediaProgressPayload,
   LibraryState,
   MediaDebugProbe,
@@ -111,6 +114,15 @@ export const backend = {
   },
   downloadModel(modelId: string) {
     return callCommand<DownloadModelOutput>("download_model", { modelId });
+  },
+  cancelModelDownload() {
+    return callCommand<CancelModelDownloadOutput>("cancel_model_download");
+  },
+  pauseModelDownload() {
+    return callCommand<PauseModelDownloadOutput>("pause_model_download");
+  },
+  resumeModelDownload() {
+    return callCommand<ResumeModelDownloadOutput>("resume_model_download");
   },
   deleteModel(modelId: string) {
     return callCommand<CleanupResult>("delete_model", { modelId });

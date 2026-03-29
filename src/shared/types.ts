@@ -213,6 +213,18 @@ export type DownloadModelOutput = {
   jobId: string;
 };
 
+export type CancelModelDownloadOutput = {
+  jobId: string;
+};
+
+export type PauseModelDownloadOutput = {
+  jobId: string;
+};
+
+export type ResumeModelDownloadOutput = {
+  jobId: string;
+};
+
 export type ShutdownTaskSummary = {
   hasActiveTasks: boolean;
   tasks: string[];

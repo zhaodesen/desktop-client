@@ -177,6 +177,7 @@ impl AsrJobState {
 pub struct ModelDownloadState {
     pub job_id: String,
     pub cancel_requested: Arc<AtomicBool>,
+    pub pause_requested: Arc<AtomicBool>,
     pub temp_path: Arc<Mutex<Option<PathBuf>>>,
 }
 
@@ -185,6 +186,7 @@ impl ModelDownloadState {
         Self {
             job_id,
             cancel_requested: Arc::new(AtomicBool::new(false)),
+            pause_requested: Arc::new(AtomicBool::new(false)),
             temp_path: Arc::new(Mutex::new(None)),
         }
     }

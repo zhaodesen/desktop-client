@@ -148,6 +148,7 @@
   let activeModelDownloadJobId = $state<string | undefined>(undefined);
   let downloadingModelId = $state<string | undefined>(undefined);
   let modelDownloadPercent = $state(0);
+  let isDownloadPaused = $state(false);
   let modelDownloadSuccessLabel = $state<string | undefined>(undefined);
   let modelDownloadSuccessTimer: ReturnType<typeof setTimeout> | undefined;
   let pendingSubtitleMediaId = $state<string | undefined>(undefined);
@@ -1294,11 +1295,6 @@
     await overlayBridge.updateStyle(overlay);
   }
 
-  async function handleThemeChange(mode: ThemeMode) {
-    settings = { ...settings, themeMode: mode };
-    await persistSettings();
-  }
-
   /* ── Model handlers ────────────────────────────────────── */
 
   async function handleDownloadModel(modelId: string, options?: { silent?: boolean }) {
@@ -1317,6 +1313,36 @@
         setStatus("启动模型下载失败", "warning");
       }
       throw err;
+    }
+  }
+
+  async function handleCancelModelDownload() {
+    try {
+      await backend.cancelModelDownload();
+      isDownloadPaused = false;
+      setStatus("模型下载已取消", "warning");
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  async function handlePauseModelDownload() {
+    try {
+      await backend.pauseModelDownload();
+      isDownloadPaused = true;
+      setStatus("模型下载已暂停", "neutral");
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  async function handleResumeModelDownload() {
+    try {
+      await backend.resumeModelDownload();
+      isDownloadPaused = false;
+      setStatus("模型下载已恢复", "neutral");
+    } catch (err) {
+      console.error(err);
     }
   }
 
@@ -1860,6 +1886,7 @@
       activeModelDownloadJobId = undefined;
       downloadingModelId = undefined;
       modelDownloadPercent = 0;
+      isDownloadPaused = false;
       modelsStatusMap = new Map(modelsStatusMap).set(status.modelId, status);
       refreshModelLabels();
       if (showFirstRunOnboarding && onboardingSelectedModelId === status.modelId) {
@@ -1880,6 +1907,7 @@
       activeModelDownloadJobId = undefined;
       downloadingModelId = undefined;
       modelDownloadPercent = 0;
+      isDownloadPaused = false;
       if (showFirstRunOnboarding && onboardingStep === "downloading") {
         onboardingError = `[${code}] ${message}`;
         onboardingDownloadMessage = "模型下载失败，请重试。";
@@ -2129,6 +2157,7 @@
         isDownloading={Boolean(activeModelDownloadJobId)}
         {downloadingModelId}
         {modelDownloadPercent}
+        {isDownloadPaused}
         modelStatusLabel={modelStatusLabel}
         modelPathLabel={modelPathLabel}
         {overlayLocked}
@@ -2137,6 +2166,9 @@
         onOverlayStyleChange={handleOverlayStyleChange}
         onOverlayStyleCommit={persistSettings}
         onDownloadModel={handleDownloadModel}
+        onCancelDownload={handleCancelModelDownload}
+        onPauseDownload={handlePauseModelDownload}
+        onResumeDownload={handleResumeModelDownload}
         onSelectModel={handleSelectModel}
         onDeleteModel={handleDeleteModel}
         onShortcutChange={(shortcuts) => {
@@ -2146,7 +2178,6 @@
         onClearAllCache={handleClearAllCache}
         onDeleteAllModels={handleDeleteAllModels}
         onResetAppData={handleResetAppData}
-        onThemeChange={handleThemeChange}
       />
       </div>
     {:else if activePage === "subtitle-editor"}
