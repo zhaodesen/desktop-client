@@ -55,6 +55,9 @@
 </script>
 
 <section class="first-run-mask" style={`--top-inset: ${topInset}px;`} aria-label="首次启动引导">
+  {#if topInset === 0}
+    <div class="first-run-drag-region" data-tauri-drag-region></div>
+  {/if}
   <div class="first-run-stage">
     {#if step === "select-model"}
       <div class="first-run-panel first-run-panel-select">
@@ -139,6 +142,17 @@
     inset: 0;
     z-index: var(--z-onboarding);
     pointer-events: none;
+  }
+
+  .first-run-drag-region {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 48px;
+    z-index: 1;
+    pointer-events: auto;
+    -webkit-app-region: drag;
   }
 
   .first-run-stage {
