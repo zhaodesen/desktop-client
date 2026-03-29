@@ -146,6 +146,10 @@
   let pendingPlaylistMediaId = $state<string | undefined>(undefined);
   let activeAsrJobId = $state<string | undefined>(undefined);
   let activeModelDownloadJobId = $state<string | undefined>(undefined);
+  let downloadingModelId = $state<string | undefined>(undefined);
+  let modelDownloadPercent = $state(0);
+  let modelDownloadSuccessLabel = $state<string | undefined>(undefined);
+  let modelDownloadSuccessTimer: ReturnType<typeof setTimeout> | undefined;
   let pendingSubtitleMediaId = $state<string | undefined>(undefined);
   let overlayLocked = $state(false);
 
@@ -1301,6 +1305,8 @@
     try {
       const { jobId } = await backend.downloadModel(modelId);
       activeModelDownloadJobId = jobId;
+      downloadingModelId = modelId;
+      modelDownloadPercent = 0;
       const label = availableModels.find((m) => m.id === modelId)?.label ?? modelId;
       if (!options?.silent) {
         setStatus(`模型 ${label} 开始下载`, "neutral");
@@ -1825,6 +1831,8 @@
     // Model download events
     const unModelStarted = await modelEvents.onStarted(({ jobId, modelId }) => {
       activeModelDownloadJobId = jobId;
+      downloadingModelId = modelId;
+      modelDownloadPercent = 0;
       if (showFirstRunOnboarding && onboardingSelectedModelId === modelId) {
         onboardingStep = "downloading";
         onboardingError = undefined;
@@ -1836,6 +1844,9 @@
     const unModelProgress = await modelEvents.onProgress(({ jobId, message, percent }) => {
       if (activeModelDownloadJobId && activeModelDownloadJobId !== jobId) return;
       console.debug("[Model Download]", message);
+      if (percent != null) {
+        modelDownloadPercent = Math.max(modelDownloadPercent, Math.round(percent));
+      }
       if (showFirstRunOnboarding && onboardingStep === "downloading") {
         onboardingDownloadMessage = message;
         if (percent != null) {
@@ -1847,6 +1858,8 @@
     const unModelCompleted = await modelEvents.onCompleted(({ jobId, status }) => {
       if (activeModelDownloadJobId && activeModelDownloadJobId !== jobId) return;
       activeModelDownloadJobId = undefined;
+      downloadingModelId = undefined;
+      modelDownloadPercent = 0;
       modelsStatusMap = new Map(modelsStatusMap).set(status.modelId, status);
       refreshModelLabels();
       if (showFirstRunOnboarding && onboardingSelectedModelId === status.modelId) {
@@ -1856,12 +1869,17 @@
         onboardingStep = "ready";
       }
       const label = availableModels.find((m) => m.id === status.modelId)?.label ?? status.modelId;
+      if (modelDownloadSuccessTimer) clearTimeout(modelDownloadSuccessTimer);
+      modelDownloadSuccessLabel = label;
+      modelDownloadSuccessTimer = setTimeout(() => { modelDownloadSuccessLabel = undefined; }, 3000);
       setStatus(`模型 ${label} 下载完成`, "success");
     });
 
     const unModelFailed = await modelEvents.onFailed(({ jobId, code, message }) => {
       if (activeModelDownloadJobId && activeModelDownloadJobId !== jobId) return;
       activeModelDownloadJobId = undefined;
+      downloadingModelId = undefined;
+      modelDownloadPercent = 0;
       if (showFirstRunOnboarding && onboardingStep === "downloading") {
         onboardingError = `[${code}] ${message}`;
         onboardingDownloadMessage = "模型下载失败，请重试。";
@@ -1957,6 +1975,13 @@
 <!-- Hidden audio element -->
 <!-- svelte-ignore a11y_media_has_caption -->
 <audio bind:this={audioEl} preload="metadata" style="display:none"></audio>
+
+{#if modelDownloadSuccessLabel}
+  <div class="model-download-toast">
+    <span class="model-download-toast-icon">&#10003;</span>
+    模型 {modelDownloadSuccessLabel} 下载成功
+  </div>
+{/if}
 
 <main class="app-shell">
   <div class="window-drag-bar" class:window-drag-bar-with-controls={useWindowsCustomFrame}>
@@ -2102,6 +2127,8 @@
         {availableModels}
         {modelsStatusMap}
         isDownloading={Boolean(activeModelDownloadJobId)}
+        {downloadingModelId}
+        {modelDownloadPercent}
         modelStatusLabel={modelStatusLabel}
         modelPathLabel={modelPathLabel}
         {overlayLocked}

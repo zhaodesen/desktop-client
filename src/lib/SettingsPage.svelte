@@ -7,6 +7,8 @@
     availableModels: ModelInfo[];
     modelsStatusMap: Map<string, ModelStatus>;
     isDownloading: boolean;
+    downloadingModelId: string | undefined;
+    modelDownloadPercent: number;
     modelStatusLabel: string;
     modelPathLabel: string;
     overlayLocked: boolean;
@@ -27,6 +29,7 @@
 
   const {
     settings, availableModels, modelsStatusMap, isDownloading,
+    downloadingModelId, modelDownloadPercent,
     modelStatusLabel, modelPathLabel, overlayLocked,
     onOverlayVisibleChange, onOverlayLockToggle, onOverlayStyleChange, onOverlayStyleCommit,
     onDownloadModel, onSelectModel, onDeleteModel,
@@ -422,6 +425,8 @@
         {modelsStatusMap}
         selectedModel={settings.selectedModel}
         {isDownloading}
+        {downloadingModelId}
+        {modelDownloadPercent}
         statusLabel={modelStatusLabel}
         pathLabel={modelPathLabel}
         onDownload={onDownloadModel}

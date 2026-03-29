@@ -6,6 +6,8 @@
     modelsStatusMap: Map<string, ModelStatus>;
     selectedModel: string;
     isDownloading: boolean;
+    downloadingModelId: string | undefined;
+    modelDownloadPercent: number;
     statusLabel: string;
     pathLabel: string;
     onDownload: (id: string) => void;
@@ -15,6 +17,7 @@
 
   const {
     availableModels, modelsStatusMap, selectedModel, isDownloading,
+    downloadingModelId, modelDownloadPercent,
     statusLabel, pathLabel, onDownload, onSelect, onDelete,
   }: Props = $props();
 </script>
@@ -29,7 +32,16 @@
     {@const status = modelsStatusMap.get(model.id)}
     {@const installed = status?.installed ?? false}
     {@const isSelected = model.id === selectedModel}
-    <div class="model-item" data-selected={isSelected}>
+    {@const isThisDownloading = downloadingModelId === model.id}
+    <div
+      class="model-item"
+      class:model-item-downloading={isThisDownloading}
+      data-selected={isSelected}
+      style={isThisDownloading ? `--download-progress: ${Math.max(0, Math.min(100, modelDownloadPercent))}%` : undefined}
+    >
+      {#if isThisDownloading}
+        <div class="model-item-progress" style="width: {Math.max(0, Math.min(100, modelDownloadPercent))}%"></div>
+      {/if}
       <div class="model-item-info">
         <div class="model-item-title">
           {model.label}
@@ -39,7 +51,9 @@
         <div class="model-item-desc">{model.description}</div>
       </div>
       <div class="model-item-actions">
-        {#if !installed}
+        {#if isThisDownloading}
+          <span class="model-download-percent">{modelDownloadPercent}%</span>
+        {:else if !installed}
           <button class="btn btn-sm btn-outline" disabled={isDownloading} onclick={() => onDownload(model.id)}>下载</button>
         {:else if !isSelected}
           <button class="btn btn-sm" onclick={() => onSelect(model.id)}>选用</button>
