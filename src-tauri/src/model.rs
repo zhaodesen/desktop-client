@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     cmp,
     fs::{self, File},
-    io::{copy, Read, Write},
+    io::{copy, BufReader, BufWriter, Read, Write},
     path::PathBuf,
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
@@ -26,8 +26,8 @@ use crate::state::ModelDownloadState;
 const DEFAULT_MODEL_ENDPOINT: &str = "https://huggingface.co";
 const DEFAULT_MODEL_REPO: &str = "ggerganov/whisper.cpp";
 const DOWNLOAD_BUFFER_SIZE: usize = 1024 * 1024;
-const PARALLEL_DOWNLOAD_CONNECTIONS: usize = 4;
-const PARALLEL_DOWNLOAD_MIN_BYTES: u64 = 32 * 1024 * 1024;
+const PARALLEL_DOWNLOAD_CONNECTIONS: usize = 8;
+const PARALLEL_DOWNLOAD_MIN_BYTES: u64 = 10 * 1024 * 1024;
 
 fn resolve_model_endpoint() -> String {
     std::env::var("MUYU_MODEL_ENDPOINT")
@@ -229,6 +229,9 @@ fn resolve_model_candidates(
 
 fn build_http_client() -> Result<Client, String> {
     Client::builder()
+        .tcp_nodelay(true)
+        .connect_timeout(Duration::from_secs(30))
+        .pool_max_idle_per_host(PARALLEL_DOWNLOAD_CONNECTIONS)
         .build()
         .map_err(|error| format!("创建下载客户端失败: {error}"))
 }
@@ -300,7 +303,10 @@ fn download_single_stream(
         .map_err(|error| format!("下载模型失败: {error}"))?;
 
     let total_bytes = response.content_length();
-    let mut file = File::create(temp_path).map_err(|error| format!("创建模型文件失败: {error}"))?;
+    let mut file = BufWriter::with_capacity(
+        DOWNLOAD_BUFFER_SIZE,
+        File::create(temp_path).map_err(|error| format!("创建模型文件失败: {error}"))?,
+    );
     let mut downloaded_bytes = 0u64;
     let mut last_percent = 0f32;
     let mut buffer = [0u8; DOWNLOAD_BUFFER_SIZE];
@@ -472,12 +478,16 @@ fn download_parallel(
     }
 
     let merge_result = (|| -> Result<(), String> {
-        let mut output =
-            File::create(temp_path).map_err(|error| format!("创建模型文件失败: {error}"))?;
+        let mut output = BufWriter::with_capacity(
+            DOWNLOAD_BUFFER_SIZE,
+            File::create(temp_path).map_err(|error| format!("创建模型文件失败: {error}"))?,
+        );
         for index in 0..connection_count {
             let part_path = part_dir.join(format!("part-{index:02}.bin"));
-            let mut input =
-                File::open(&part_path).map_err(|error| format!("读取分片文件失败: {error}"))?;
+            let mut input = BufReader::with_capacity(
+                DOWNLOAD_BUFFER_SIZE,
+                File::open(&part_path).map_err(|error| format!("读取分片文件失败: {error}"))?,
+            );
             copy(&mut input, &mut output).map_err(|error| format!("合并分片文件失败: {error}"))?;
         }
         Ok(())
@@ -512,7 +522,10 @@ fn download_range_to_part(
         .send()
         .and_then(|response| response.error_for_status())
         .map_err(|error| format!("下载模型分片失败: {error}"))?;
-    let mut file = File::create(part_path).map_err(|error| format!("创建分片文件失败: {error}"))?;
+    let mut file = BufWriter::with_capacity(
+        DOWNLOAD_BUFFER_SIZE,
+        File::create(part_path).map_err(|error| format!("创建分片文件失败: {error}"))?,
+    );
     let mut buffer = [0u8; DOWNLOAD_BUFFER_SIZE];
 
     loop {
