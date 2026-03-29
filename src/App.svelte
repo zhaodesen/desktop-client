@@ -1896,10 +1896,12 @@
         onboardingStep = "ready";
       }
       const label = availableModels.find((m) => m.id === status.modelId)?.label ?? status.modelId;
-      if (modelDownloadSuccessTimer) clearTimeout(modelDownloadSuccessTimer);
-      modelDownloadSuccessLabel = label;
-      modelDownloadSuccessTimer = setTimeout(() => { modelDownloadSuccessLabel = undefined; }, 3000);
-      setStatus(`模型 ${label} 下载完成`, "success");
+      if (!showFirstRunOnboarding) {
+        if (modelDownloadSuccessTimer) clearTimeout(modelDownloadSuccessTimer);
+        modelDownloadSuccessLabel = label;
+        modelDownloadSuccessTimer = setTimeout(() => { modelDownloadSuccessLabel = undefined; }, 3000);
+        setStatus(`模型 ${label} 下载完成`, "success");
+      }
     });
 
     const unModelFailed = await modelEvents.onFailed(({ jobId, code, message }) => {

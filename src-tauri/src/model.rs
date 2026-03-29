@@ -24,18 +24,37 @@ use crate::state::ModelDownloadState;
 // ---------------------------------------------------------------------------
 
 const DEFAULT_MODEL_ENDPOINT: &str = "https://huggingface.co";
+const MIRROR_MODEL_ENDPOINT: &str = "https://hf-mirror.com";
 const DEFAULT_MODEL_REPO: &str = "ggerganov/whisper.cpp";
 const DOWNLOAD_BUFFER_SIZE: usize = 1024 * 1024;
 const PARALLEL_DOWNLOAD_CONNECTIONS: usize = 8;
 const PARALLEL_DOWNLOAD_MIN_BYTES: u64 = 10 * 1024 * 1024;
 
-fn resolve_model_endpoint() -> String {
+/// Returns the user-configured endpoint (if any) or `None` for default behaviour.
+fn resolve_custom_endpoint() -> Option<String> {
     std::env::var("MUYU_MODEL_ENDPOINT")
         .ok()
         .or_else(|| std::env::var("HF_ENDPOINT").ok())
         .map(|value| value.trim().trim_end_matches('/').to_string())
         .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| DEFAULT_MODEL_ENDPOINT.to_string())
+}
+
+/// Returns the list of endpoints to try, in order.
+/// If the user set a custom endpoint we only use that one;
+/// otherwise we try the official endpoint first, then the mirror.
+fn resolve_model_endpoints() -> Vec<String> {
+    if let Some(custom) = resolve_custom_endpoint() {
+        vec![custom]
+    } else {
+        vec![
+            MIRROR_MODEL_ENDPOINT.to_string(),
+            DEFAULT_MODEL_ENDPOINT.to_string(),
+        ]
+    }
+}
+
+fn resolve_model_endpoint() -> String {
+    resolve_custom_endpoint().unwrap_or_else(|| DEFAULT_MODEL_ENDPOINT.to_string())
 }
 
 fn build_model_download_url(file_name: &str) -> String {
@@ -44,6 +63,13 @@ fn build_model_download_url(file_name: &str) -> String {
         resolve_model_endpoint(),
         DEFAULT_MODEL_REPO,
         file_name
+    )
+}
+
+fn build_model_download_url_with_endpoint(endpoint: &str, file_name: &str) -> String {
+    format!(
+        "{}/{}/resolve/main/{}",
+        endpoint, DEFAULT_MODEL_REPO, file_name
     )
 }
 
@@ -872,15 +898,50 @@ fn run_download(
         )?;
 
         let client = build_http_client()?;
-        let metadata = fetch_download_metadata(&client, &info.download_url).unwrap_or(
-            DownloadMetadata {
-                total_bytes: None,
-                supports_ranges: false,
-            },
-        );
+        let endpoints = resolve_model_endpoints();
+        let mut last_error: Option<String> = None;
 
-        if let Err(error) = download_to_temp_file(&client, &app, &job, &info, &temp_path, metadata) {
-            cleanup_download_path(&temp_path);
+        for (index, endpoint) in endpoints.iter().enumerate() {
+            let url = build_model_download_url_with_endpoint(endpoint, &info.file_name);
+
+            if index > 0 {
+                emit_progress(
+                    &app,
+                    &job.job_id,
+                    &format!("正在切换到镜像源重试下载模型 {}", info.label),
+                    Some(1.0),
+                )?;
+            }
+
+            let mut download_info = info.clone();
+            download_info.download_url = url.clone();
+
+            let metadata = match fetch_download_metadata(&client, &url) {
+                Ok(meta) => meta,
+                Err(error) => {
+                    last_error = Some(error);
+                    continue;
+                }
+            };
+
+            match download_to_temp_file(&client, &app, &job, &download_info, &temp_path, metadata) {
+                Ok(()) => {
+                    last_error = None;
+                    break;
+                }
+                Err(error) => {
+                    cleanup_download_path(&temp_path);
+                    // 用户主动取消时不再重试
+                    if error.contains("已取消") {
+                        return Err(error);
+                    }
+                    last_error = Some(error);
+                    continue;
+                }
+            }
+        }
+
+        if let Some(error) = last_error {
             return Err(error);
         }
 

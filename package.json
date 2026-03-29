@@ -13,6 +13,7 @@
   "dependencies": {
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-dialog": "^2",
+    "@tsparticles/slim": "3.9.1",
     "virtua": "0.48.8"
   },
   "devDependencies": {

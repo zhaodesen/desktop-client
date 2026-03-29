@@ -1,5 +1,7 @@
 <script lang="ts">
   import type { ModelInfo, ModelStatus } from "../shared/types";
+  import ParticleGlobe from "./ParticleGlobe.svelte";
+  import StarField from "./StarField.svelte";
 
   type OnboardingStep = "select-model" | "downloading" | "ready";
 
@@ -44,6 +46,8 @@
   }: Props = $props();
 
   const selectedModel = $derived(models.find((model) => model.id === selectedModelId));
+  const isDownloadStage = $derived(step !== "select-model");
+  const isDownloadComplete = $derived(downloadPercent >= 100 && !error);
 
   const modelHints: Record<string, string> = {
     tiny: "最快最轻，低配优先",
@@ -59,84 +63,142 @@
     <div class="first-run-drag-region" data-tauri-drag-region></div>
   {/if}
   <div class="first-run-stage">
-    {#if step === "select-model"}
-      <div class="first-run-panel first-run-panel-select">
-        <div class="first-run-head">
-          <div class="hero-copy">
-          <h1>开始之前，请先选择一个识别模型</h1>
-          <p>先选一个默认模型。之后仍可在设置里切换或重新下载。</p>
-          </div>
-          <button class="skip-button" type="button" onclick={onSkip}>跳过</button>
-        </div>
+    <div
+      class="first-run-panel first-run-panel-shell"
+      class:is-download-stage={isDownloadStage}
+      class:is-ready-stage={step === "ready"}
+    >
+      <div class="first-run-viewport">
+        <div class="first-run-scene-stack">
+          <div class="first-run-scene first-run-scene-select" aria-hidden={isDownloadStage}>
+            <div class="first-run-select-layer first-run-panel-select">
+              <div class="first-run-head">
+                <div class="hero-copy">
+                  <h1>开始之前，请先选择一个识别模型</h1>
+                  <p>先选一个默认模型。之后仍可在设置里切换或重新下载。</p>
+                </div>
+                <button class="skip-button" type="button" onclick={onSkip}>跳过</button>
+              </div>
 
-        <div class="model-grid">
-          {#each models as model (model.id)}
-            {@const guide = modelGuides[model.id]}
-            {@const status = modelsStatusMap.get(model.id)}
-            <button
-              class="model-card"
-              type="button"
-              onclick={() => onSelectModel(model.id)}
-            >
-              <div class="model-card-top">
-                <div class="model-card-title-row">
-                  <div class="model-card-title">{model.label}</div>
-                  {#if status?.installed}
-                    <span class="pill pill-success">已下载</span>
-                  {/if}
+              <div class="model-grid">
+                {#each models as model (model.id)}
+                  {@const guide = modelGuides[model.id]}
+                  {@const status = modelsStatusMap.get(model.id)}
+                  <button
+                    class="model-card"
+                    type="button"
+                    onclick={() => onSelectModel(model.id)}
+                  >
+                    <div class="model-card-top">
+                      <div class="model-card-title-row">
+                        <div class="model-card-title">{model.label}</div>
+                        {#if status?.installed}
+                          <span class="pill pill-success">已下载</span>
+                        {/if}
+                      </div>
+                    </div>
+
+                    <p class="model-card-hint">{modelHints[model.id] ?? "离线识别模型"}</p>
+                    <p class="model-card-desc">{model.description}</p>
+
+                  </button>
+                {/each}
+              </div>
+            </div>
+          </div>
+
+          <div class="first-run-scene first-run-scene-download" aria-hidden={!isDownloadStage}>
+            <div class="first-run-download-layer">
+              <div class="download-background">
+                <StarField />
+              </div>
+
+              <div class="download-globe-shell">
+                <div class="download-canvas-layer">
+                  <ParticleGlobe completed={isDownloadComplete} />
                 </div>
               </div>
 
-              <p class="model-card-hint">{modelHints[model.id] ?? "离线识别模型"}</p>
-              <p class="model-card-desc">{model.description}</p>
+              <div class="download-overlay">
+                <div class="download-content">
+                  <div class="download-info">
+                    <h2 class="download-title">{selectedModel?.label ?? "识别模型"}</h2>
+                    <p class="download-msg">{downloadMessage}</p>
+                  </div>
 
-            </button>
-          {/each}
-        </div>
-      </div>
-    {:else if step === "downloading"}
-      <div class="first-run-panel first-run-panel-narrow">
-        <div class="download-stage">
-          <h1>{selectedModel?.label ?? "识别模型"}</h1>
-          <p>{downloadMessage}</p>
+                  {#if error}
+                    <div class="download-error">
+                      <p>{error}</p>
+                      <div class="download-actions">
+                        <button class="btn btn-ghost" type="button" onclick={onBack}>返回重选</button>
+                        <button class="btn btn-primary" type="button" onclick={onRetry}>重新下载</button>
+                      </div>
+                    </div>
+                  {/if}
 
-          {#if error}
-            <div class="download-error">
-              <p>{error}</p>
-              <div class="download-actions">
-                <button class="btn btn-ghost" type="button" onclick={onBack}>返回重选</button>
-                <button class="btn btn-primary" type="button" onclick={onRetry}>重新下载</button>
+                  <div class="download-cta">
+                    <div class="cta-text">
+                      <h2 class="cta-title">{selectedModel?.label ?? "模型"} 已就绪</h2>
+                      <p class="cta-desc">现在可以开始导入音频或视频生成字幕了</p>
+                    </div>
+                    <button class="btn btn-primary cta-btn" type="button" onclick={onStart}>开始使用</button>
+                  </div>
+                </div>
+
+                <div class="progress-footer">
+                  <div class="progress-meta">
+                    <span>下载进度</span>
+                    <strong>{Math.round(downloadPercent)}%</strong>
+                  </div>
+                  <div class="progress-track">
+                    <div class="progress-fill" style={`width: ${Math.max(0, Math.min(100, downloadPercent))}%`}></div>
+                  </div>
+                </div>
               </div>
             </div>
-          {/if}
-        </div>
-
-        <div class="progress-footer">
-          <div class="progress-meta">
-            <span>下载进度</span>
-            <strong>{Math.round(downloadPercent)}%</strong>
-          </div>
-          <div class="progress-track">
-            <div class="progress-fill" style={`width: ${Math.max(0, Math.min(100, downloadPercent))}%`}></div>
           </div>
         </div>
       </div>
-    {:else}
-      <div class="first-run-panel first-run-panel-narrow first-run-panel-ready">
-        <div class="ready-icon" aria-hidden="true">
-          <svg width="38" height="38" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="20 6 9 17 4 12" />
-          </svg>
-        </div>
-        <h1>{selectedModel?.label ?? "识别模型"} 已下载完成</h1>
-        <p>现在可以开始导入音频或视频生成字幕了，后续仍可在设置中切换模型。</p>
-        <button class="btn btn-primary onboarding-start-btn" type="button" onclick={onStart}>开始使用</button>
-      </div>
-    {/if}
+    </div>
   </div>
 </section>
 
 <style>
+  .first-run-panel-shell {
+    position: relative;
+    overflow: hidden;
+    padding: 0;
+    gap: 0;
+    isolation: isolate;
+  }
+
+  .first-run-viewport {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    border-radius: inherit;
+  }
+
+  .first-run-scene-stack {
+    display: grid;
+    grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+    height: 200%;
+    transform: translate3d(0, 0, 0);
+    transition: transform 860ms cubic-bezier(0.22, 1, 0.36, 1);
+    will-change: transform;
+  }
+
+  .first-run-panel-shell.is-download-stage .first-run-scene-stack {
+    transform: translate3d(0, -50%, 0);
+  }
+
+  .first-run-scene {
+    position: relative;
+    min-height: 0;
+    overflow: hidden;
+  }
+
   .first-run-mask {
     position: fixed;
     inset: 0;
@@ -167,7 +229,7 @@
     background: var(--bg-base, #0c0e14);
     backdrop-filter: blur(22px);
     -webkit-backdrop-filter: blur(22px);
-    overflow: auto;
+    overflow: hidden;
     pointer-events: auto;
   }
 
@@ -184,16 +246,44 @@
     gap: 22px;
   }
 
-  .first-run-panel-narrow {
-    max-width: 780px;
-    justify-content: space-between;
-    min-height: min(560px, 100%);
+  .first-run-select-layer {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+    height: 100%;
+    min-height: 0;
+    overflow: auto;
+    padding: 32px 34px;
+    transition:
+      opacity 420ms ease,
+      filter 520ms cubic-bezier(0.22, 1, 0.36, 1);
+    opacity: 1;
+    filter: blur(0);
+    will-change: opacity, filter;
   }
 
-  .first-run-panel-ready {
-    align-items: center;
-    justify-content: center;
-    text-align: center;
+  .first-run-panel-shell.is-download-stage .first-run-select-layer {
+    opacity: 0.12;
+    filter: blur(10px);
+    pointer-events: none;
+  }
+
+  .first-run-download-layer {
+    position: relative;
+    height: 100%;
+    overflow: hidden;
+  }
+
+  .download-background {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    transition: opacity 540ms ease;
+  }
+
+  .first-run-panel-shell.is-download-stage .download-background {
+    opacity: 1;
   }
 
   .hero-copy {
@@ -232,17 +322,14 @@
     color: var(--text-primary);
   }
 
-  .hero-copy h1,
-  .download-stage h1 {
+  .hero-copy h1 {
     font-size: clamp(1.7rem, 3.6vw, 2.7rem);
     line-height: 1.08;
     letter-spacing: -0.03em;
     color: var(--text-primary);
   }
 
-  .hero-copy p,
-  .download-stage p,
-  .first-run-panel-ready p {
+  .hero-copy p {
     max-width: 720px;
     color: var(--text-secondary);
     font-size: var(--font-sm);
@@ -330,12 +417,133 @@
     color: var(--success);
   }
 
-  .download-stage {
+  .download-globe-shell {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    transform: translate3d(0, 18%, 0) scale(0.985);
+    opacity: 0;
+    transition:
+      transform 880ms cubic-bezier(0.16, 1, 0.3, 1),
+      opacity 520ms ease;
+    will-change: transform, opacity;
+  }
+
+  .first-run-panel-shell.is-download-stage .download-globe-shell {
+    transform: translate3d(0, 0, 0) scale(1);
+    opacity: 1;
+    transition-delay: 70ms;
+  }
+
+  .download-canvas-layer {
+    position: absolute;
+    inset: 0;
+  }
+
+  .download-overlay {
+    position: relative;
+    z-index: 2;
     display: flex;
     flex-direction: column;
-    gap: 14px;
-    margin-top: auto;
-    margin-bottom: auto;
+    height: 100%;
+    pointer-events: none;
+  }
+
+  .download-overlay > * {
+    pointer-events: auto;
+  }
+
+  .download-content {
+    position: relative;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    padding: 32px 34px 0;
+  }
+
+  .download-info {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 8px;
+    padding: 0 16px;
+    opacity: 0;
+    transform: translate3d(0, 42px, 0);
+    transition:
+      transform 620ms cubic-bezier(0.22, 1, 0.36, 1),
+      opacity 420ms ease;
+    will-change: transform, opacity;
+  }
+
+  .first-run-panel-shell.is-download-stage .download-info {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+    transition-delay: 220ms;
+  }
+
+  .first-run-panel-shell.is-ready-stage .download-info {
+    opacity: 0;
+    transform: translate3d(0, 18px, 0);
+    transition-delay: 0ms;
+  }
+
+  .download-title {
+    font-size: var(--font-lg);
+    font-weight: 700;
+    color: var(--text-primary);
+    letter-spacing: -0.01em;
+  }
+
+  .download-msg {
+    color: var(--text-secondary);
+    font-size: var(--font-sm);
+    line-height: 1.6;
+  }
+
+  .download-cta {
+    position: absolute;
+    right: 10%;
+    top: 50%;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    opacity: 0;
+    pointer-events: none;
+    transform: translate3d(24px, -50%, 0);
+    transition:
+      transform 620ms cubic-bezier(0.22, 1, 0.36, 1),
+      opacity 420ms ease;
+  }
+
+  .first-run-panel-shell.is-ready-stage .download-cta {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translate3d(0, -50%, 0);
+    transition-delay: 220ms;
+  }
+
+  .cta-title {
+    font-size: clamp(1.2rem, 2.4vw, 1.6rem);
+    font-weight: 700;
+    color: var(--text-primary);
+    letter-spacing: -0.02em;
+    line-height: 1.2;
+  }
+
+  .cta-desc {
+    color: var(--text-secondary);
+    font-size: var(--font-sm);
+    line-height: 1.6;
+    max-width: 240px;
+  }
+
+  .cta-btn {
+    padding: 12px 28px;
+    border-radius: var(--radius-md);
+    font-size: var(--font-md);
+    align-self: flex-start;
   }
 
   .download-error {
@@ -356,10 +564,27 @@
   }
 
   .progress-footer {
+    position: relative;
+    z-index: 2;
     display: flex;
     flex-direction: column;
     gap: 12px;
+    padding: 0 34px 32px;
     margin-top: auto;
+    opacity: 0;
+    pointer-events: none;
+    transform: translate3d(0, 52px, 0);
+    transition:
+      transform 620ms cubic-bezier(0.22, 1, 0.36, 1),
+      opacity 420ms ease;
+    will-change: transform, opacity;
+  }
+
+  .first-run-panel-shell.is-download-stage:not(.is-ready-stage) .progress-footer {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translate3d(0, 0, 0);
+    transition-delay: 260ms;
   }
 
   .progress-meta {
@@ -391,23 +616,6 @@
     transition: width 0.4s ease;
   }
 
-  .ready-icon {
-    display: grid;
-    place-items: center;
-    width: 76px;
-    height: 76px;
-    border-radius: 50%;
-    margin-bottom: 8px;
-    background: var(--success-soft);
-    color: var(--success);
-  }
-
-  .onboarding-start-btn {
-    padding: 11px 26px;
-    border-radius: var(--radius-md);
-    font-size: var(--font-md);
-    margin-top: 10px;
-  }
 
   @media (max-width: 820px) {
     .first-run-stage {
@@ -415,8 +623,13 @@
       padding: 18px;
     }
 
-    .first-run-panel {
-      padding: 24px 22px;
+    .first-run-select-layer,
+    .download-content {
+      padding: 24px 22px 0;
+    }
+
+    .progress-footer {
+      padding: 0 22px 24px;
     }
 
     .model-grid {
@@ -438,8 +651,22 @@
       padding: 14px;
     }
 
+    .first-run-select-layer,
+    .download-content {
+      padding: 20px 18px 0;
+    }
+
+    .progress-footer {
+      padding: 0 18px 20px;
+    }
+
     .model-grid {
       grid-template-columns: 1fr;
+    }
+
+    .download-cta {
+      right: 18px;
+      left: 18px;
     }
   }
 </style>
