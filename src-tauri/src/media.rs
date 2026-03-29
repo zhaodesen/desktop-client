@@ -318,7 +318,7 @@ fn ensure_online_download_dir(app: &AppHandle) -> Result<PathBuf, String> {
         .download_dir()
         .or_else(|_| app.path().home_dir().map(|path| path.join("Downloads")))
         .map_err(|error| format!("读取系统下载目录失败: {error}"))?;
-    let dir = base_dir.join("字幕工作台").join("在线视频");
+    let dir = base_dir.join("muyu").join("在线视频");
     fs::create_dir_all(&dir).map_err(|error| format!("创建在线视频目录失败: {error}"))?;
     Ok(dir)
 }

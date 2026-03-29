@@ -37,6 +37,11 @@
 
   type TabId = "appearance" | "overlay" | "shortcuts" | "models" | "data";
   type ShortcutField = keyof ShortcutSettings;
+  type ThemeOption = {
+    id: ThemeMode;
+    label: string;
+    description: string;
+  };
 
   const tabs: { id: TabId; label: string }[] = [
     { id: "appearance", label: "外观" },
@@ -57,6 +62,27 @@
     { field: "showOriginal", label: "显示原文字幕" },
     { field: "showBilingual", label: "显示双字幕" },
   ];
+
+  const themeOptions: ThemeOption[] = [
+    {
+      id: "light",
+      label: "浅色",
+      description: "界面更明亮，适合白天或高亮环境。",
+    },
+    {
+      id: "dark",
+      label: "深色",
+      description: "对比更克制，适合长时间阅读和夜间使用。",
+    },
+    {
+      id: "system",
+      label: "跟随系统",
+      description: "自动同步系统外观，不需要手动切换。",
+    },
+  ];
+  let selectedThemeOption = $derived(
+    themeOptions.find((item) => item.id === settings.themeMode) ?? themeOptions[1],
+  );
 
   let activeTab = $state<TabId>("appearance");
   let recordingField = $state<ShortcutField | null>(null);
@@ -87,6 +113,12 @@
   const fontSizeDisplay = $derived(`${Math.round(settings.overlay.fontSize)}px`);
   const opacityDisplay = $derived(`${Math.round(settings.overlay.opacity * 100)}%`);
   const opacityPct = $derived(Math.round(settings.overlay.opacity * 100));
+  const fontSizeProgress = $derived(
+    `${Math.max(0, Math.min(100, ((settings.overlay.fontSize - 24) / (60 - 24)) * 100))}%`,
+  );
+  const opacityProgress = $derived(
+    `${Math.max(0, Math.min(100, ((opacityPct - 60) / (100 - 60)) * 100))}%`,
+  );
 
   function formatShortcut(code: string): string {
     const labelMap: Record<string, string> = {
@@ -147,44 +179,90 @@
       <div class="sform">
         <div class="sform-section">
           <div class="sform-section-title">主题模式</div>
-          <div class="theme-switcher">
-            <button
-              class="theme-option"
-              class:theme-option-active={settings.themeMode === "light"}
-              type="button"
-              onclick={() => onThemeChange("light")}
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="12" cy="12" r="5"/>
-                <line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/>
-                <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
-                <line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/>
-                <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
-              </svg>
-              <span>浅色</span>
-            </button>
-            <button
-              class="theme-option"
-              class:theme-option-active={settings.themeMode === "dark"}
-              type="button"
-              onclick={() => onThemeChange("dark")}
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
-              </svg>
-              <span>深色</span>
-            </button>
-            <button
-              class="theme-option"
-              class:theme-option-active={settings.themeMode === "system"}
-              type="button"
-              onclick={() => onThemeChange("system")}
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
-              </svg>
-              <span>跟随系统</span>
-            </button>
+          <div class="theme-section-copy">
+            <h3>选择应用外观</h3>
+            <p>切换后会立即应用到当前窗口、侧边栏和播放器相关界面。</p>
+          </div>
+          <div class="theme-segmented" role="radiogroup" aria-label="主题模式">
+            {#each themeOptions as option}
+              <button
+                class="theme-segment"
+                class:theme-segment-active={settings.themeMode === option.id}
+                type="button"
+                onclick={() => onThemeChange(option.id)}
+                aria-pressed={settings.themeMode === option.id}
+              >
+                <span class="theme-segment-icon" data-mode={option.id}>
+                  {#if option.id === "light"}
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <circle cx="12" cy="12" r="5" />
+                      <line x1="12" y1="1" x2="12" y2="3" />
+                      <line x1="12" y1="21" x2="12" y2="23" />
+                      <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
+                      <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
+                      <line x1="1" y1="12" x2="3" y2="12" />
+                      <line x1="21" y1="12" x2="23" y2="12" />
+                      <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
+                      <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+                    </svg>
+                  {:else if option.id === "dark"}
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+                    </svg>
+                  {:else}
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
+                      <line x1="8" y1="21" x2="16" y2="21" />
+                      <line x1="12" y1="17" x2="12" y2="21" />
+                    </svg>
+                  {/if}
+                </span>
+                <span>{option.label}</span>
+              </button>
+            {/each}
+          </div>
+
+          <div class="theme-preview-panel" data-mode={settings.themeMode}>
+            <div class="theme-preview-panel-top">
+              <div class="theme-preview-panel-copy">
+                <span class="theme-preview-panel-label">当前模式</span>
+                <strong>{selectedThemeOption.label}</strong>
+              </div>
+              <span class="theme-preview-panel-badge">已启用</span>
+            </div>
+
+            <div class="theme-window-preview" data-mode={settings.themeMode} aria-hidden="true">
+              <div class="theme-window-preview-header">
+                <span></span>
+                <span></span>
+                <span></span>
+              </div>
+              <div class="theme-window-preview-body">
+                <div class="theme-window-preview-sidebar">
+                  <span class="theme-window-preview-nav"></span>
+                  <span class="theme-window-preview-nav"></span>
+                  <span class="theme-window-preview-nav theme-window-preview-nav-active"></span>
+                  <span class="theme-window-preview-nav"></span>
+                </div>
+                <div class="theme-window-preview-main">
+                  <span class="theme-window-preview-chip"></span>
+                  <span class="theme-window-preview-title"></span>
+                  <span class="theme-window-preview-line"></span>
+                  <span class="theme-window-preview-line theme-window-preview-line-short"></span>
+                  <div class="theme-window-preview-cards">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <p class="theme-preview-description">{selectedThemeOption.description}</p>
+          </div>
+
+          <div class="theme-current-note">
+            系统模式会自动跟随设备主题变化；浅色和深色则固定使用当前选择。
           </div>
         </div>
       </div>
@@ -236,6 +314,7 @@
                 max="60"
                 step="1"
                 value={settings.overlay.fontSize}
+                style={`--range-progress: ${fontSizeProgress};`}
                 oninput={(e) => onOverlayStyleChange({ ...settings.overlay, fontSize: Number((e.target as HTMLInputElement).value) })}
                 onchange={onOverlayStyleCommit}
               />
@@ -251,6 +330,7 @@
                 max="100"
                 step="1"
                 value={opacityPct}
+                style={`--range-progress: ${opacityProgress};`}
                 oninput={(e) => onOverlayStyleChange({ ...settings.overlay, opacity: Number((e.target as HTMLInputElement).value) / 100 })}
                 onchange={onOverlayStyleCommit}
               />
@@ -529,49 +609,355 @@
     50% { box-shadow: 0 0 0 6px transparent; }
   }
 
-  /* ── Theme switcher ── */
-  .theme-switcher {
-    display: flex;
-    gap: 10px;
-    margin-top: 10px;
-  }
-
-  .theme-option {
-    flex: 1;
+  .theme-section-copy {
     display: flex;
     flex-direction: column;
-    align-items: center;
-    gap: 10px;
-    padding: 20px 12px 16px;
-    border: 1px solid var(--border);
+    gap: 6px;
+    margin-top: 6px;
+  }
+
+  .theme-section-copy h3 {
+    font-size: var(--font-lg);
+    letter-spacing: -0.02em;
+    color: var(--text-primary);
+  }
+
+  .theme-section-copy p {
+    font-size: var(--font-sm);
+    line-height: 1.65;
+    color: var(--text-secondary);
+  }
+
+  .theme-segmented {
+    display: inline-flex;
+    gap: 6px;
+    margin-top: 12px;
+    padding: 6px;
     border-radius: var(--radius-lg);
-    background: var(--bg-surface);
+    background: var(--bg-inset);
+    border: 1px solid var(--border-subtle);
+    width: fit-content;
+    max-width: 100%;
+  }
+
+  .theme-segment {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    border: none;
+    border-radius: var(--radius-md);
+    background: transparent;
     color: var(--text-secondary);
     font: inherit;
-    font-size: var(--font-sm);
     cursor: pointer;
-    transition: border-color var(--transition-normal), background var(--transition-normal), color var(--transition-normal), transform var(--transition-fast), box-shadow var(--transition-normal);
+    white-space: nowrap;
+    transition: background var(--transition-fast), color var(--transition-fast), box-shadow var(--transition-fast);
   }
 
-  .theme-option:hover {
-    border-color: var(--border-focus);
-    background: var(--bg-surface-hover);
+  .theme-segment:hover {
     color: var(--text-primary);
-    transform: translateY(-1px);
+    background: rgba(255, 255, 255, 0.03);
   }
 
-  .theme-option-active {
-    border-color: var(--accent-border);
-    background: var(--accent-soft);
-    color: var(--accent);
-    font-weight: 600;
-    box-shadow: var(--shadow-glow);
+  .theme-segment-active {
+    background: var(--bg-raised);
+    color: var(--text-primary);
+    box-shadow: var(--shadow-sm);
   }
 
-  .theme-option-active:hover {
-    border-color: var(--accent);
-    background: var(--accent-soft);
+  .theme-segment-icon {
+    width: 24px;
+    height: 24px;
+    border-radius: 999px;
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+  }
+
+  .theme-segment-icon[data-mode="light"] {
+    color: #f59e0b;
+  }
+
+  .theme-segment-icon[data-mode="dark"] {
+    color: #8b93ff;
+  }
+
+  .theme-segment-icon[data-mode="system"] {
     color: var(--accent);
-    transform: translateY(-1px);
+  }
+
+  .theme-preview-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    margin-top: 16px;
+    padding: 16px;
+    border-radius: 18px;
+    border: 1px solid var(--border);
+    background: var(--bg-surface);
+  }
+
+  .theme-preview-panel[data-mode="light"] {
+    background: color-mix(in srgb, var(--bg-surface) 84%, white);
+  }
+
+  .theme-preview-panel[data-mode="dark"] {
+    background: color-mix(in srgb, var(--bg-surface) 88%, #07090f);
+  }
+
+  .theme-preview-panel-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .theme-preview-panel-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .theme-preview-panel-label {
+    font-size: var(--font-2xs);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-dim);
+  }
+
+  .theme-preview-panel-copy strong {
+    font-size: var(--font-lg);
+    letter-spacing: -0.02em;
+    color: var(--text-primary);
+  }
+
+  .theme-preview-panel-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 5px 10px;
+    border-radius: var(--radius-pill);
+    font-size: var(--font-2xs);
+    font-weight: 700;
+    background: rgba(var(--accent-rgb), 0.12);
+    border: 1px solid rgba(var(--accent-rgb), 0.18);
+    color: var(--accent);
+  }
+
+  .theme-window-preview {
+    border-radius: 16px;
+    overflow: hidden;
+    border: 1px solid var(--border-subtle);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  }
+
+  .theme-window-preview[data-mode="light"] {
+    background: #fbfbfc;
+    border-color: rgba(0, 0, 0, 0.06);
+  }
+
+  .theme-window-preview[data-mode="dark"] {
+    background: #0f131b;
+    border-color: rgba(255, 255, 255, 0.06);
+  }
+
+  .theme-window-preview[data-mode="system"] {
+    background:
+      linear-gradient(90deg, #fbfbfc 0%, #fbfbfc 50%, #0f131b 50%, #0f131b 100%);
+    border-color: rgba(var(--accent-rgb), 0.16);
+  }
+
+  .theme-window-preview-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    height: 22px;
+    padding: 0 10px;
+  }
+
+  .theme-window-preview-header span {
+    width: 7px;
+    height: 7px;
+    border-radius: 999px;
+    background: currentColor;
+    opacity: 0.18;
+  }
+
+  .theme-window-preview[data-mode="light"] .theme-window-preview-header {
+    background: #f0f0f3;
+    color: #0f172a;
+  }
+
+  .theme-window-preview[data-mode="dark"] .theme-window-preview-header {
+    background: #181d28;
+    color: #f8fafc;
+  }
+
+  .theme-window-preview[data-mode="system"] .theme-window-preview-header {
+    background:
+      linear-gradient(90deg, #f0f0f3 0%, #f0f0f3 50%, #181d28 50%, #181d28 100%);
+    color: #f8fafc;
+  }
+
+  .theme-window-preview-body {
+    display: grid;
+    grid-template-columns: 124px 1fr;
+    min-height: 180px;
+  }
+
+  .theme-window-preview-sidebar {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 14px 12px;
+  }
+
+  .theme-window-preview-nav {
+    width: 100%;
+    height: 10px;
+    border-radius: 999px;
+    background: currentColor;
+    opacity: 0.12;
+  }
+
+  .theme-window-preview-nav-active {
+    opacity: 0.4;
+  }
+
+  .theme-window-preview[data-mode="light"] .theme-window-preview-sidebar {
+    background: #f3f3f6;
+    color: #0f172a;
+    border-right: 1px solid rgba(0, 0, 0, 0.05);
+  }
+
+  .theme-window-preview[data-mode="dark"] .theme-window-preview-sidebar {
+    background: #141924;
+    color: #f8fafc;
+    border-right: 1px solid rgba(255, 255, 255, 0.05);
+  }
+
+  .theme-window-preview[data-mode="system"] .theme-window-preview-sidebar {
+    background:
+      linear-gradient(90deg, #f3f3f6 0%, #f3f3f6 50%, #141924 50%, #141924 100%);
+    color: #f8fafc;
+    border-right: none;
+  }
+
+  .theme-window-preview-main {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 18px;
+  }
+
+  .theme-window-preview-chip,
+  .theme-window-preview-title,
+  .theme-window-preview-line,
+  .theme-window-preview-cards span {
+    display: block;
+    border-radius: 999px;
+  }
+
+  .theme-window-preview-chip {
+    width: 74px;
+    height: 22px;
+    background: rgba(var(--accent-rgb), 0.7);
+  }
+
+  .theme-window-preview-title {
+    width: 52%;
+    height: 14px;
+  }
+
+  .theme-window-preview-line {
+    width: 100%;
+    height: 10px;
+  }
+
+  .theme-window-preview-line-short {
+    width: 66%;
+  }
+
+  .theme-window-preview-cards {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+    margin-top: auto;
+  }
+
+  .theme-window-preview-cards span {
+    height: 62px;
+  }
+
+  .theme-window-preview[data-mode="light"] .theme-window-preview-main {
+    background: #ffffff;
+    color: #0f172a;
+  }
+
+  .theme-window-preview[data-mode="light"] .theme-window-preview-title,
+  .theme-window-preview[data-mode="light"] .theme-window-preview-line,
+  .theme-window-preview[data-mode="light"] .theme-window-preview-cards span {
+    background: rgba(15, 23, 42, 0.12);
+  }
+
+  .theme-window-preview[data-mode="dark"] .theme-window-preview-main {
+    background: #0f131b;
+    color: #f8fafc;
+  }
+
+  .theme-window-preview[data-mode="dark"] .theme-window-preview-title,
+  .theme-window-preview[data-mode="dark"] .theme-window-preview-line,
+  .theme-window-preview[data-mode="dark"] .theme-window-preview-cards span {
+    background: rgba(255, 255, 255, 0.1);
+  }
+
+  .theme-window-preview[data-mode="system"] .theme-window-preview-main {
+    background:
+      linear-gradient(90deg, #ffffff 0%, #ffffff 50%, #0f131b 50%, #0f131b 100%);
+    color: #f8fafc;
+  }
+
+  .theme-window-preview[data-mode="system"] .theme-window-preview-title,
+  .theme-window-preview[data-mode="system"] .theme-window-preview-line,
+  .theme-window-preview[data-mode="system"] .theme-window-preview-cards span {
+    background:
+      linear-gradient(90deg, rgba(15, 23, 42, 0.12) 0%, rgba(15, 23, 42, 0.12) 50%, rgba(255, 255, 255, 0.12) 50%, rgba(255, 255, 255, 0.12) 100%);
+  }
+
+  .theme-preview-description {
+    margin: 0;
+    font-size: var(--font-xs);
+    line-height: 1.65;
+    color: var(--text-dim);
+  }
+
+  .theme-current-note {
+    margin-top: 4px;
+    font-size: var(--font-xs);
+    color: var(--text-dim);
+  }
+
+  @media (max-width: 720px) {
+    .theme-segmented {
+      width: 100%;
+      display: grid;
+      grid-template-columns: 1fr;
+    }
+
+    .theme-segment {
+      justify-content: center;
+    }
+
+    .theme-window-preview-body {
+      grid-template-columns: 96px 1fr;
+      min-height: 156px;
+    }
+
+    .theme-window-preview-cards {
+      grid-template-columns: 1fr;
+    }
   }
 </style>

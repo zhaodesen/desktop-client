@@ -16,6 +16,7 @@
     ModelInfo,
     ModelStatus,
     OverlaySettings,
+    PlaybackState,
     PlaybackSnapshot,
     PlaylistMode,
     ShutdownTaskSummary,
@@ -98,6 +99,9 @@
     },
   };
 
+  const PLAYBACK_STATE_SAVE_DEBOUNCE_MS = 250;
+  const PLAYBACK_STATE_PROGRESS_THRESHOLD_MS = 1000;
+
   const MAIN_TOUR_STEPS = [
     {
       id: "import",
@@ -155,6 +159,13 @@
   let availableModels = $state<ModelInfo[]>([]);
   let modelsStatusMap = $state<Map<string, ModelStatus>>(new Map());
   let activeSubtitleDocument = $state<SubtitleDocument | undefined>(undefined);
+  let subtitleEditorNotice = $state<string | undefined>(undefined);
+  let subtitleEditorSaving = $state(false);
+  let retryAsrProgress = $state<{ mediaId: string; percent: number; message: string } | undefined>(undefined);
+  let retryAsrCompletedMediaId = $state<string | undefined>(undefined);
+  let retryAsrCompletedMessage = $state<string | undefined>(undefined);
+  let retryAsrNoticeTimer: ReturnType<typeof setTimeout> | undefined;
+  let retryAsrProgressDriftTimer: ReturnType<typeof setInterval> | undefined;
   let activeImportSource = $state<"local" | "online" | undefined>(undefined);
   let showFirstRunOnboarding = $state(false);
   let onboardingStep = $state<"select-model" | "downloading" | "ready">("select-model");
@@ -178,6 +189,13 @@
   let currentText = $state("等待播放");
   let currentSecondaryText = $state("");
   let subtitleCues = $state<SubtitleCue[]>([]);
+  let lastAudibleVolume = $state(DEFAULT_SETTINGS.volume);
+  let lastSavedPlaybackState: PlaybackState | undefined;
+  let pendingPlaybackState: PlaybackState | undefined;
+  let playbackStateSaveTimer: ReturnType<typeof setTimeout> | undefined;
+  let playbackStateSavePromise: Promise<void> | null = null;
+  let restoringPlaybackState = false;
+  let playbackStateHydrated = false;
   let useWindowsCustomFrame = $state(false);
   let windowMaximized = $state(false);
 
@@ -272,8 +290,208 @@
     });
   }
 
+  function clearRetryAsrCompletionNotice() {
+    clearTimeout(retryAsrNoticeTimer);
+    retryAsrNoticeTimer = undefined;
+    retryAsrCompletedMediaId = undefined;
+    retryAsrCompletedMessage = undefined;
+  }
+
+  function stopRetryAsrProgressDrift() {
+    clearInterval(retryAsrProgressDriftTimer);
+    retryAsrProgressDriftTimer = undefined;
+  }
+
+  function startRetryAsrProgressDrift(mediaId: string) {
+    stopRetryAsrProgressDrift();
+    retryAsrProgressDriftTimer = setInterval(() => {
+      if (!retryAsrProgress || retryAsrProgress.mediaId !== mediaId) {
+        stopRetryAsrProgressDrift();
+        return;
+      }
+      const currentPercent = retryAsrProgress.percent;
+      if (currentPercent >= 88) return;
+      const nextStep = currentPercent < 40 ? 3 : currentPercent < 70 ? 2 : 1;
+      retryAsrProgress = {
+        ...retryAsrProgress,
+        percent: Math.min(currentPercent + nextStep, 88),
+      };
+    }, 900);
+  }
+
+  function updateRetryAsrProgress(mediaId: string, percent: number, message: string) {
+    const previousPercent = retryAsrProgress?.mediaId === mediaId ? retryAsrProgress.percent : 0;
+    retryAsrProgress = {
+      mediaId,
+      percent: Math.max(previousPercent, Math.max(0, Math.min(100, Math.round(percent)))),
+      message,
+    };
+  }
+
+  function finishRetryAsrNotice(mediaId: string, message = "重新识别完成") {
+    stopRetryAsrProgressDrift();
+    retryAsrProgress = undefined;
+    retryAsrCompletedMediaId = mediaId;
+    retryAsrCompletedMessage = message;
+    clearTimeout(retryAsrNoticeTimer);
+    retryAsrNoticeTimer = setTimeout(() => {
+      if (retryAsrCompletedMediaId === mediaId) {
+        retryAsrCompletedMediaId = undefined;
+        retryAsrCompletedMessage = undefined;
+      }
+    }, 2200);
+  }
+
   function getCurrentMedia(): MediaItem | undefined {
     return libraryState.mediaItems.find((i) => i.id === currentMediaId);
+  }
+
+  function getSavedPlaybackState(): PlaybackState | undefined {
+    return settings.playbackState
+      ? normalizePlaybackState(settings.playbackState)
+      : undefined;
+  }
+
+  function normalizePlaybackState(playbackState: PlaybackState): PlaybackState {
+    return {
+      mediaId: playbackState.mediaId,
+      currentTimeMs: Math.max(0, Math.round(playbackState.currentTimeMs)),
+      wasPlaying: playbackState.wasPlaying,
+    };
+  }
+
+  function isSamePlaybackState(
+    left: PlaybackState | undefined,
+    right: PlaybackState | undefined,
+    toleranceMs = 0,
+  ) {
+    if (!left && !right) return true;
+    if (!left || !right) return false;
+    return left.mediaId === right.mediaId
+      && left.wasPlaying === right.wasPlaying
+      && Math.abs(left.currentTimeMs - right.currentTimeMs) <= toleranceMs;
+  }
+
+  function getPlaybackStateFromSnapshot(snapshot = player.getSnapshot()): PlaybackState | undefined {
+    if (!currentMediaId || !player.hasMedia()) return undefined;
+    return normalizePlaybackState({
+      mediaId: currentMediaId,
+      currentTimeMs: snapshot.currentTimeMs,
+      wasPlaying: snapshot.playing,
+    });
+  }
+
+  function getPlaybackStateForPersist(snapshot = player.getSnapshot()): PlaybackState | undefined {
+    const currentPlaybackState = getPlaybackStateFromSnapshot(snapshot);
+    if (currentPlaybackState) return currentPlaybackState;
+    if (!playbackStateHydrated) return getSavedPlaybackState();
+    return undefined;
+  }
+
+  async function flushPlaybackState() {
+    if (playbackStateSaveTimer) {
+      clearTimeout(playbackStateSaveTimer);
+      playbackStateSaveTimer = undefined;
+    }
+
+    if (playbackStateSavePromise) {
+      await playbackStateSavePromise;
+      if (pendingPlaybackState === undefined) return;
+    }
+
+    const nextPlaybackState = pendingPlaybackState;
+    pendingPlaybackState = undefined;
+
+    playbackStateSavePromise = (async () => {
+      try {
+        const saved = await backend.updatePlaybackState(nextPlaybackState);
+        const normalized = saved ? normalizePlaybackState(saved) : undefined;
+        settings = { ...settings, playbackState: normalized };
+        lastSavedPlaybackState = normalized;
+      } catch (err) {
+        console.error(err);
+      } finally {
+        playbackStateSavePromise = null;
+        if (pendingPlaybackState !== undefined) {
+          void flushPlaybackState();
+        }
+      }
+    })();
+
+    await playbackStateSavePromise;
+  }
+
+  function queuePlaybackStatePersist(playbackState: PlaybackState | undefined, immediate = false) {
+    if (!playbackStateHydrated && !immediate) return;
+
+    const normalized = playbackState ? normalizePlaybackState(playbackState) : undefined;
+    const baseline = pendingPlaybackState ?? lastSavedPlaybackState ?? settings.playbackState;
+    const toleranceMs = immediate ? 0 : PLAYBACK_STATE_PROGRESS_THRESHOLD_MS;
+    if (isSamePlaybackState(baseline, normalized, toleranceMs)) return;
+
+    pendingPlaybackState = normalized;
+    settings = { ...settings, playbackState: normalized };
+
+    if (playbackStateSaveTimer) {
+      clearTimeout(playbackStateSaveTimer);
+      playbackStateSaveTimer = undefined;
+    }
+
+    if (immediate) {
+      void flushPlaybackState();
+      return;
+    }
+
+    playbackStateSaveTimer = setTimeout(() => {
+      playbackStateSaveTimer = undefined;
+      void flushPlaybackState();
+    }, PLAYBACK_STATE_SAVE_DEBOUNCE_MS);
+  }
+
+  async function restorePlaybackState() {
+    const playbackState = getSavedPlaybackState();
+    if (!playbackState?.mediaId) return;
+
+    const media = libraryState.mediaItems.find((item) => item.id === playbackState.mediaId);
+    if (!media) {
+      queuePlaybackStatePersist(undefined, true);
+      return;
+    }
+
+    restoringPlaybackState = true;
+    try {
+      setActivePage("playlist");
+      const loaded = await loadMediaById(playbackState.mediaId, false);
+      if (!loaded) return;
+
+      const snapshotAfterLoad = player.getSnapshot();
+      const maxSeekMs = snapshotAfterLoad.durationMs > 0
+        ? Math.max(snapshotAfterLoad.durationMs - 250, 0)
+        : playbackState.currentTimeMs;
+      const targetTimeMs = Math.max(0, Math.min(playbackState.currentTimeMs, maxSeekMs));
+
+      if (targetTimeMs > 0) {
+        player.seek(targetTimeMs);
+        renderSubtitle(player.getSnapshot());
+        await syncOverlay(player.getSnapshot());
+      }
+
+      if (playbackState.wasPlaying) {
+        try {
+          await player.play();
+          setStatus("已恢复上次播放", "success");
+        } catch (err) {
+          console.error(err);
+          setStatus("已恢复上次播放位置，请手动继续播放", "warning");
+        }
+      } else {
+        setStatus("已恢复上次播放位置", "success");
+      }
+
+      queuePlaybackStatePersist(getPlaybackStateFromSnapshot(), true);
+    } finally {
+      restoringPlaybackState = false;
+    }
   }
 
   function buildAppExitWarning(summary: ShutdownTaskSummary): string {
@@ -290,6 +508,9 @@
       const ok = await confirmDialog.show("退出应用", buildAppExitWarning(closeSummary));
       if (!ok) return false;
     }
+
+    queuePlaybackStatePersist(getPlaybackStateForPersist(), true);
+    await flushPlaybackState();
 
     const result = await backend.shutdownAndExit();
     if (result.cancelledTasks.length > 0) {
@@ -390,8 +611,16 @@
 
   /* ── Persist settings ──────────────────────────────────── */
 
+  function buildSettingsForPersist(nextSettings: AppSettings = settings): AppSettings {
+    if (nextSettings.playbackState) return nextSettings;
+    const playbackState = pendingPlaybackState ?? lastSavedPlaybackState ?? getSavedPlaybackState();
+    return playbackState
+      ? { ...nextSettings, playbackState }
+      : nextSettings;
+  }
+
   async function persistSettings() {
-    settings = await backend.updateSettings(settings);
+    settings = await backend.updateSettings(buildSettingsForPersist());
     await overlayBridge.updateStyle(settings.overlay);
   }
 
@@ -484,6 +713,7 @@
     currentSecondaryText = "";
     cueTiming = "--:-- ~ --:--";
     await overlayBridge.clear();
+    queuePlaybackStatePersist(undefined, true);
   }
 
   function createMediaLoadRequestId() {
@@ -507,9 +737,9 @@
     await player.loadUrl(convertFileSrc(media.audioPath));
     if (!isLatestMediaLoadRequest(requestId)) return false;
 
+    currentMediaId = media.id;
     player.setPlaybackRate(settings.playbackRate);
     player.setVolume(settings.volume);
-    currentMediaId = media.id;
     audioFileLabel = media.title;
     subtitleEngine.clear();
     subtitleFileLabel = media.subtitlePath ? "正在加载字幕…" : "未生成字幕";
@@ -537,6 +767,10 @@
       await refreshLibrary();
     }
 
+    if (!restoringPlaybackState) {
+      queuePlaybackStatePersist(getPlaybackStateFromSnapshot(), true);
+    }
+
     return isLatestMediaLoadRequest(requestId);
   }
 
@@ -557,6 +791,20 @@
     const nextVolume = Math.max(0, Math.min(1, volume));
     settings = { ...settings, volume: nextVolume };
     player.setVolume(nextVolume);
+  }
+
+  async function toggleMute() {
+    if (settings.volume > 0) {
+      applyVolume(0);
+      await commitVolume(false);
+      setStatus("已静音", "success");
+      return;
+    }
+
+    const restoredVolume = Math.max(0.05, Math.min(1, lastAudibleVolume || DEFAULT_SETTINGS.volume));
+    applyVolume(restoredVolume);
+    await commitVolume(false);
+    setStatus(`已恢复音量 ${Math.round(restoredVolume * 100)}%`, "success");
   }
 
   async function commitVolume(showFeedback = true) {
@@ -581,6 +829,12 @@
       setStatus(labelMap[mode], "success");
     }
   }
+
+  $effect(() => {
+    if (settings.volume > 0) {
+      lastAudibleVolume = settings.volume;
+    }
+  });
 
   async function playHistoryDirection(direction: -1 | 1) {
     if (libraryState.playbackHistory.length === 0) return;
@@ -657,21 +911,33 @@
 
   async function startAutoAsr(
     media: MediaItem,
-    options: { statusMessage?: string; syncImportUi?: boolean } = {},
+    options: { statusMessage?: string; syncImportUi?: boolean; trackRetryProgress?: boolean } = {},
   ) {
     pendingSubtitleMediaId = media.id;
     isCancellingAsr = false;
     const {
       statusMessage = "素材已导入，正在离线生成字幕…",
       syncImportUi = true,
+      trackRetryProgress = false,
     } = options;
+    if (trackRetryProgress) {
+      clearRetryAsrCompletionNotice();
+      updateRetryAsrProgress(media.id, 6, "正在准备重新识别…");
+    }
     try {
       const { jobId } = await backend.startAsrJob({ audioPath: media.audioPath });
       activeAsrJobId = jobId;
+      if (trackRetryProgress) {
+        startRetryAsrProgressDrift(media.id);
+      }
       setStatus(statusMessage, "neutral");
     } catch (err) {
       console.error(err);
       pendingSubtitleMediaId = undefined;
+      if (trackRetryProgress && retryAsrProgress?.mediaId === media.id) {
+        stopRetryAsrProgressDrift();
+        retryAsrProgress = undefined;
+      }
       const message = formatError(err);
       if (syncImportUi) {
         importError = message;
@@ -682,6 +948,11 @@
   }
 
   async function retryAsrForMedia(mediaId: string) {
+    if (activeAsrJobId) {
+      setStatus("已有识别任务正在运行，请等待当前任务完成", "warning");
+      return;
+    }
+
     const media = libraryState.mediaItems.find((item) => item.id === mediaId);
     if (!media) {
       setStatus("未找到对应素材", "warning");
@@ -704,6 +975,7 @@
     await startAutoAsr(media, {
       statusMessage: `正在重新识别《${media.title}》字幕…`,
       syncImportUi: false,
+      trackRetryProgress: true,
     });
   }
 
@@ -724,6 +996,8 @@
 
   async function openSubtitleEditor(mediaId: string) {
     try {
+      subtitleEditorNotice = undefined;
+      subtitleEditorSaving = false;
       activeSubtitleDocument = await backend.getSubtitleDocument(mediaId);
       setActivePage("subtitle-editor");
     } catch (err) {
@@ -742,18 +1016,34 @@
 
   async function saveSubtitleEditor() {
     if (!activeSubtitleDocument) { setStatus("没有可保存的字幕内容", "warning"); return; }
-    const saved = await backend.saveSubtitleDocument(
-      activeSubtitleDocument.mediaId,
-      activeSubtitleDocument.cues,
-    );
-    activeSubtitleDocument = saved;
-    await refreshLibrary();
-    if (currentMediaId === saved.mediaId) {
-      await loadSubtitleFromPath(saved.subtitlePath);
-      renderSubtitle(player.getSnapshot());
-      await syncOverlay(player.getSnapshot());
+    if (subtitleEditorSaving) return;
+    subtitleEditorSaving = true;
+    subtitleEditorNotice = undefined;
+    try {
+      const saved = await backend.saveSubtitleDocument(
+        activeSubtitleDocument.mediaId,
+        activeSubtitleDocument.cues,
+      );
+      activeSubtitleDocument = saved;
+      await refreshLibrary();
+      if (currentMediaId === saved.mediaId) {
+        await loadSubtitleFromPath(saved.subtitlePath);
+        renderSubtitle(player.getSnapshot());
+        await syncOverlay(player.getSnapshot());
+      }
+      subtitleEditorNotice = "字幕校对已保存，正在返回上一页…";
+      setStatus("字幕校对已保存", "success");
+      await waitForNextPaint();
+      await new Promise((resolve) => setTimeout(resolve, 700));
+      setActivePage(lastMainPage);
+      subtitleEditorNotice = undefined;
+    } catch (err) {
+      console.error(err);
+      subtitleEditorNotice = undefined;
+      setStatus(formatError(err), "warning");
+    } finally {
+      subtitleEditorSaving = false;
     }
-    setStatus("字幕校对已保存", "success");
   }
 
   /* ── Import handlers ───────────────────────────────────── */
@@ -859,9 +1149,16 @@
   async function handleOverlayVisibleChange(visible: boolean) {
     settings = { ...settings, overlayVisible: visible };
     await persistSettings();
-    if (visible) await backend.showOverlay();
-    else await backend.hideOverlay();
+    if (visible) {
+      await backend.showOverlay();
+    } else {
+      await backend.hideOverlay();
+    }
     await syncOverlay(player.getSnapshot());
+    if (visible) {
+      // Showing the always-on-top overlay can steal focus from the main window.
+      await tauriWindow.setFocus();
+    }
   }
 
   async function handleOverlayLockToggle() {
@@ -1106,6 +1403,9 @@
       hasMedia = player.hasMedia();
       renderSubtitle(s);
       void syncOverlay(s);
+      if (!restoringPlaybackState) {
+        queuePlaybackStatePersist(getPlaybackStateFromSnapshot(s));
+      }
     });
 
     player.onEnded(() => {
@@ -1135,6 +1435,11 @@
       if (closingApp || closingConfirmVisible) return;
       closingConfirmVisible = true;
       try {
+        if (summary.hasActiveTasks) {
+          await tauriWindow.show();
+          await tauriWindow.unminimize();
+          await tauriWindow.setFocus();
+        }
         closingApp = true;
         const shouldExit = await handleAppCloseRequest(summary);
         if (!shouldExit) {
@@ -1147,24 +1452,6 @@
         closingConfirmVisible = false;
       }
     });
-    const unlistenWindowClose = await tauriWindow.onCloseRequested(async (event) => {
-      event.preventDefault();
-      if (closingApp || closingConfirmVisible) return;
-      closingConfirmVisible = true;
-      try {
-        closingApp = true;
-        const shouldExit = await handleAppCloseRequest();
-        if (!shouldExit) {
-          closingApp = false;
-        }
-      } catch (err) {
-        closingApp = false;
-        setStatus(formatError(err), "warning");
-      } finally {
-        closingConfirmVisible = false;
-      }
-    });
-
     const handleViewportUpdate = () => {
       updateMainTourTargetRect();
     };
@@ -1221,6 +1508,23 @@
     const unAsrProgress = await asrEvents.onProgress(({ jobId, stage, message, percent }) => {
       if (activeAsrJobId && activeAsrJobId !== jobId) return;
       console.debug("[ASR]", stage, message, percent);
+
+      if (retryAsrProgress && pendingSubtitleMediaId === retryAsrProgress.mediaId) {
+        if (stage === "preparing") {
+          updateRetryAsrProgress(retryAsrProgress.mediaId, 12, "正在准备识别环境…");
+        } else if (stage === "recognizing") {
+          updateRetryAsrProgress(
+            retryAsrProgress.mediaId,
+            percent != null && percent > 0 ? 18 + (percent / 100) * 68 : 24,
+            percent != null && percent > 0
+              ? `正在重新识别… ${Math.round(percent)}%`
+              : "正在重新识别…",
+          );
+        } else if (stage === "writing") {
+          updateRetryAsrProgress(retryAsrProgress.mediaId, 92, "识别完成，正在写入字幕…");
+        }
+      }
+
       // 仅在导入流程进行中时更新进度条
       if (!importProgress.active) return;
 
@@ -1249,14 +1553,18 @@
       if (activeAsrJobId !== jobId) return;
       activeAsrJobId = undefined;
       isCancellingAsr = false;
+      const mediaIdForSubtitle = pendingSubtitleMediaId;
+      const isRetryFlow = Boolean(mediaIdForSubtitle && retryAsrProgress?.mediaId === mediaIdForSubtitle);
       try {
         let finalSubtitlePath = subtitlePath;
         let translationError: string | undefined;
         const shouldTranslateToChinese = !isChineseLanguage(detectedLanguage);
-        const mediaIdForSubtitle = pendingSubtitleMediaId;
         if (mediaIdForSubtitle) {
           await backend.updateMediaSubtitle(mediaIdForSubtitle, subtitlePath);
           if (shouldTranslateToChinese) {
+            if (isRetryFlow) {
+              updateRetryAsrProgress(mediaIdForSubtitle, 96, "正在生成中文字幕…");
+            }
             if (importProgress.active) {
               resetScheduledProgressUpdate();
               importProgress = { active: true, stage: "translating", message: "正在生成中文翻译…", percent: 85 };
@@ -1274,11 +1582,15 @@
 
         // 先更新状态文字（轻量操作），再延迟执行重量级 IPC + 渲染
         setStatus(
-          translationError
-            ? `离线识别完成，但中文字幕生成失败：${translationError}`
-            : shouldTranslateToChinese
-              ? "离线识别完成，双语字幕已绑定"
-              : "离线识别完成，原文字幕已绑定",
+          isRetryFlow
+            ? translationError
+              ? `重新识别完成，但中文字幕生成失败：${translationError}`
+              : "重新识别完成"
+            : translationError
+              ? `离线识别完成，但中文字幕生成失败：${translationError}`
+              : shouldTranslateToChinese
+                ? "离线识别完成，双语字幕已绑定"
+                : "离线识别完成，原文字幕已绑定",
           translationError ? "warning" : "success",
         );
 
@@ -1297,6 +1609,13 @@
           await loadSubtitleFromPath(finalSubtitlePath);
         }
 
+        if (isRetryFlow && mediaIdForSubtitle) {
+          finishRetryAsrNotice(
+            mediaIdForSubtitle,
+            translationError ? "重新识别完成，但中文字幕生成失败" : "重新识别完成",
+          );
+        }
+
         if (importProgress.active) {
           // 短暂显示 100% 后弹出成功提示
           clearTimeout(importSuccessTimer);
@@ -1308,6 +1627,10 @@
         }
       } catch (err) {
         console.error(err);
+        if (isRetryFlow) {
+          stopRetryAsrProgressDrift();
+          retryAsrProgress = undefined;
+        }
         setStatus("识别完成，但字幕绑定失败", "warning");
         resetImportFlowState();
       } finally {
@@ -1319,6 +1642,8 @@
       if (activeAsrJobId && activeAsrJobId !== jobId) return;
       activeAsrJobId = undefined;
       isCancellingAsr = false;
+      stopRetryAsrProgressDrift();
+      retryAsrProgress = undefined;
       pendingSubtitleMediaId = undefined;
       if (code === "asr_cancelled") {
         setStatus("已取消当前识别任务", "warning");
@@ -1386,6 +1711,10 @@
       settings = await backend.getSettings();
       if (!settings.playlistMode) settings = { ...settings, playlistMode: "sequential" };
       if (!settings.themeMode) settings = { ...settings, themeMode: "dark" };
+      const normalizedPlaybackState = getSavedPlaybackState();
+      settings = { ...settings, playbackState: normalizedPlaybackState };
+      lastSavedPlaybackState = normalizedPlaybackState;
+      pendingPlaybackState = undefined;
       player.setPlaybackRate(settings.playbackRate);
       player.setVolume(settings.volume);
       await overlayBridge.updateStyle(settings.overlay);
@@ -1405,6 +1734,15 @@
     } catch (err) {
       console.error(err);
       setStatus("读取素材库失败", "warning");
+    }
+
+    try {
+      await restorePlaybackState();
+    } catch (err) {
+      console.error(err);
+      setStatus("恢复上次播放失败", "warning");
+    } finally {
+      playbackStateHydrated = true;
     }
 
     // Load model status
@@ -1428,7 +1766,6 @@
       unlistenLock();
       unlistenAppClose();
       unlistenClose();
-      unlistenWindowClose();
       unlistenWindowResized?.();
       window.removeEventListener("resize", handleViewportUpdate);
       document.removeEventListener("scroll", handleViewportUpdate, true);
@@ -1442,6 +1779,8 @@
       unModelCompleted();
       unModelFailed();
       clearTimeout(importSuccessTimer);
+      clearTimeout(retryAsrNoticeTimer);
+      clearInterval(retryAsrProgressDriftTimer);
       resetScheduledProgressUpdate();
     };
   });
@@ -1457,7 +1796,7 @@
   <div class="window-drag-bar" class:window-drag-bar-with-controls={useWindowsCustomFrame}>
     <div class="window-drag-region" data-tauri-drag-region>
       {#if useWindowsCustomFrame}
-        <span class="window-caption">字幕工作台</span>
+        <span class="window-caption">muyu</span>
       {/if}
     </div>
     {#if useWindowsCustomFrame}
@@ -1512,7 +1851,7 @@
     onNavigate={setActivePage}
   />
 
-  <section class="content">
+  <section class="content" class:content-player={activePage === "playlist"}>
     {#if activePage === "import"}
       <div class="page-transition" in:fade={{ duration: 160, delay: 40 }}>
       <ImportPage
@@ -1534,6 +1873,12 @@
       <div class="page-transition" in:fade={{ duration: 160, delay: 40 }}>
       <ResourceListPage
         items={libraryState.mediaItems}
+        retryingMediaId={retryAsrProgress?.mediaId}
+        retryingProgress={retryAsrProgress?.percent ?? 0}
+        retryingMessage={retryAsrProgress?.message}
+        retryCompletedMediaId={retryAsrCompletedMediaId}
+        retryCompletedMessage={retryAsrCompletedMessage}
+        asrBusy={Boolean(activeAsrJobId)}
         onRetryAsr={(id) => void retryAsrForMedia(id)}
         onEditSubtitle={(id) => void openSubtitleEditor(id)}
         onDeleteMedia={(id) => void deleteMediaById(id)}
@@ -1551,6 +1896,7 @@
         {currentText}
         {currentSecondaryText}
         {subtitleCues}
+        overlayVisible={settings.overlayVisible}
         playbackRate={settings.playbackRate}
         playlistMode={settings.playlistMode}
         playlist={libraryState.playbackHistory}
@@ -1571,10 +1917,14 @@
           await persistSettings();
           setStatus(mode === "single" ? "已切换为单曲循环" : "已切换为顺序播放", "success");
         }}
+        onToggleOverlayVisible={() => { void handleOverlayVisibleChange(!settings.overlayVisible); }}
+        onToggleMute={() => { void toggleMute(); }}
         onVolumeChange={(volume) => applyVolume(volume)}
         onVolumeCommit={() => { void commitVolume(); }}
         onPlayItem={(id) => { void playPlaylistItem(id, true); }}
         onRemoveItem={(id) => { void removePlaybackItem(id); }}
+        onPrevTrack={() => { void playHistoryDirection(-1); }}
+        onNextTrack={() => { void playHistoryDirection(1); }}
       />
       </div>
     {:else if activePage === "settings"}
@@ -1609,7 +1959,13 @@
       <SubtitleEditor
         document={activeSubtitleDocument}
         lastMainPage={lastMainPage}
-        onBack={() => setActivePage(lastMainPage)}
+        saveNotice={subtitleEditorNotice}
+        isSaving={subtitleEditorSaving}
+        onBack={() => {
+          subtitleEditorNotice = undefined;
+          subtitleEditorSaving = false;
+          setActivePage(lastMainPage);
+        }}
         onSave={() => void saveSubtitleEditor()}
         onCueChange={handleCueChange}
       />

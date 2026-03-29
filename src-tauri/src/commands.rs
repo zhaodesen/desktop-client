@@ -6,7 +6,7 @@ use crate::{
         self, AllModelsStatus, DefaultModelStatus, DownloadModelOutput, ModelInfo, ModelStatus,
     },
     shutdown::{self, ShutdownCleanupOutput, ShutdownTaskSummary},
-    state::{AppSettings, AppState, OverlayWindowState},
+    state::{AppSettings, AppState, OverlayWindowState, PlaybackState},
     storage::{self, CleanupResult},
     store,
     subtitle::{self, SubtitleCue, SubtitleDocument},
@@ -53,7 +53,7 @@ pub fn get_settings(state: State<'_, AppState>) -> CommandResponse<AppSettings> 
 pub fn update_settings(
     app: AppHandle,
     state: State<'_, AppState>,
-    settings: AppSettings,
+    mut settings: AppSettings,
 ) -> CommandResponse<AppSettings> {
     let visibility_result = if settings.overlay_visible {
         window::show_overlay(&app)
@@ -65,10 +65,44 @@ pub fn update_settings(
         return CommandResponse::err("overlay_visibility_failed", error);
     }
 
+    if settings.playback_state.is_none() {
+        match state.settings.lock() {
+            Ok(guard) => {
+                settings.playback_state = guard.playback_state.clone();
+            }
+            Err(_) => {
+                return CommandResponse::err("settings_lock_failed", "读取当前播放状态失败");
+            }
+        }
+    }
+
     match update_settings_in_state(&app, &state, settings) {
         Ok(saved) => CommandResponse::ok(saved),
         Err(error) => CommandResponse::err("settings_save_failed", error),
     }
+}
+
+#[tauri::command]
+pub fn update_playback_state(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    playback_state: Option<PlaybackState>,
+) -> CommandResponse<Option<PlaybackState>> {
+    let current_settings = match state.settings.lock() {
+        Ok(mut guard) => {
+            guard.playback_state = playback_state.clone();
+            guard.clone()
+        }
+        Err(_) => {
+            return CommandResponse::err("settings_lock_failed", "更新播放状态失败");
+        }
+    };
+
+    if let Err(error) = store::save_settings(&app, &current_settings) {
+        return CommandResponse::err("settings_save_failed", error);
+    }
+
+    CommandResponse::ok(playback_state)
 }
 
 #[tauri::command]

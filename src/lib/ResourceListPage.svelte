@@ -6,13 +6,31 @@
 
   interface Props {
     items: MediaItem[];
+    retryingMediaId?: string;
+    retryingProgress?: number;
+    retryingMessage?: string;
+    retryCompletedMediaId?: string;
+    retryCompletedMessage?: string;
+    asrBusy?: boolean;
     onRetryAsr: (id: string) => void;
     onEditSubtitle: (id: string) => void;
     onDeleteMedia: (id: string) => void;
     onAddToPlaylist: (id: string) => void;
   }
 
-  const { items, onRetryAsr, onEditSubtitle, onDeleteMedia, onAddToPlaylist }: Props = $props();
+  const {
+    items,
+    retryingMediaId,
+    retryingProgress = 0,
+    retryingMessage,
+    retryCompletedMediaId,
+    retryCompletedMessage,
+    asrBusy = false,
+    onRetryAsr,
+    onEditSubtitle,
+    onDeleteMedia,
+    onAddToPlaylist,
+  }: Props = $props();
   let durationLabels = $state<Record<string, string>>({});
   let addedTooltipId = $state<string | undefined>(undefined);
   let tooltipTimer: ReturnType<typeof setTimeout> | undefined;
@@ -79,6 +97,15 @@
 </script>
 
 <section class="page" data-active="true">
+  {#if retryCompletedMediaId}
+    <div class="retry-complete-notice" role="status">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M20 6 9 17l-5-5"/>
+      </svg>
+      <span>{retryCompletedMessage ?? "重新识别完成"}</span>
+    </div>
+  {/if}
+
   <header class="page-header">
     <h2>资源列表</h2>
   </header>
@@ -98,7 +125,18 @@
   {:else}
     <div class="list">
       {#each items as item (item.id)}
-        <div class="list-item">
+        <div
+          class="list-item"
+          class:list-item-retrying={item.id === retryingMediaId}
+          class:list-item-retry-done={item.id === retryCompletedMediaId}
+        >
+          {#if item.id === retryingMediaId}
+            <div
+              class="list-item-progress-bg"
+              aria-hidden="true"
+              style={`width: ${Math.max(retryingProgress, 6)}%;`}
+            ></div>
+          {/if}
           <div class="list-item-info">
             <div class="list-item-title">{item.title}</div>
             <div class="list-item-meta">
@@ -107,9 +145,15 @@
               <span>{item.subtitlePath ? "已生成字幕" : "待生成字幕"}</span>
               <span>{formatTimestamp(item.importedAt)}</span>
             </div>
+            {#if item.id === retryingMediaId}
+              <div class="retry-asr-status" role="status">
+                <span class="retry-asr-status-title">重新识别中 {Math.round(retryingProgress)}%</span>
+                <span class="retry-asr-status-message">{retryingMessage ?? "正在后台处理…"}</span>
+              </div>
+            {/if}
           </div>
           <div class="list-item-actions">
-            <div class="add-btn-wrap">
+            <div class="add-btn-wrap" class:add-btn-wrap-active={addedTooltipId === item.id}>
               <button
                 class="btn btn-sm btn-icon-sm"
                 title="加入播放列表"
@@ -121,7 +165,13 @@
                 <span class="add-tooltip">已添加到播放列表</span>
               {/if}
             </div>
-            <button class="btn btn-sm" onclick={() => onRetryAsr(item.id)}>重新识别</button>
+            <button
+              class="btn btn-sm"
+              disabled={asrBusy}
+              onclick={() => onRetryAsr(item.id)}
+            >
+              {item.id === retryingMediaId ? "识别中…" : "重新识别"}
+            </button>
             <button class="btn btn-sm" disabled={!item.subtitlePath} onclick={() => onEditSubtitle(item.id)}>编辑字幕</button>
             <button class="btn btn-sm btn-danger" onclick={() => onDeleteMedia(item.id)}>删除</button>
           </div>
@@ -137,6 +187,10 @@
   .add-btn-wrap {
     position: relative;
     display: inline-flex;
+  }
+
+  .add-btn-wrap-active {
+    z-index: var(--z-toast, 100);
   }
 
   @media (hover: hover) and (pointer: fine) {
@@ -155,9 +209,81 @@
     }
   }
 
+  .list-item-retrying,
+  .list-item-retry-done {
+    overflow: hidden;
+  }
+
+  .list-item-progress-bg {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    border-radius: inherit;
+    background: linear-gradient(
+      90deg,
+      rgba(var(--accent-rgb), 0.18) 0%,
+      rgba(var(--accent-rgb), 0.1) 100%
+    );
+    pointer-events: none;
+    transition: width 180ms ease;
+  }
+
+  .list-item-info,
+  .list-item-actions {
+    position: relative;
+    z-index: 1;
+  }
+
+  .retry-asr-status {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    margin-top: 8px;
+    font-size: var(--font-xs);
+    color: var(--accent);
+    flex-wrap: wrap;
+  }
+
+  .retry-asr-status-title {
+    font-weight: 700;
+  }
+
+  .retry-asr-status-message {
+    color: var(--text-secondary);
+  }
+
+  .retry-complete-notice {
+    position: fixed;
+    top: 64px;
+    left: calc(var(--sidebar-w) + ((100vw - var(--sidebar-w)) / 2));
+    transform: translateX(-50%);
+    z-index: var(--z-toast);
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 14px;
+    max-width: min(520px, calc(100vw - var(--sidebar-w) - 48px));
+    border-radius: var(--radius-pill);
+    background: var(--success-soft);
+    color: var(--success);
+    border: 1px solid rgba(52, 211, 153, 0.18);
+    box-shadow: var(--shadow-md);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    font-size: var(--font-xs);
+    font-weight: 700;
+    animation: retry-complete-notice-in 160ms ease;
+  }
+
+  @keyframes retry-complete-notice-in {
+    from { opacity: 0; transform: translateX(-50%) translateY(-4px); }
+    to { opacity: 1; transform: translateX(-50%) translateY(0); }
+  }
+
   .add-tooltip {
     position: absolute;
-    top: calc(100% + 8px);
+    bottom: calc(100% + 8px);
     left: 50%;
     transform: translateX(-50%);
     white-space: nowrap;
@@ -172,11 +298,12 @@
     line-height: 1;
     box-shadow: var(--shadow-md);
     pointer-events: none;
+    z-index: var(--z-toast, 100);
     animation: tooltip-in 0.15s ease;
   }
 
   @keyframes tooltip-in {
-    from { opacity: 0; transform: translateX(-50%) translateY(-4px); }
+    from { opacity: 0; transform: translateX(-50%) translateY(4px); }
     to   { opacity: 1; transform: translateX(-50%) translateY(0); }
   }
 </style>

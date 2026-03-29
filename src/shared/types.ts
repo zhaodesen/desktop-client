@@ -74,6 +74,12 @@ export type PlaylistMode = "single" | "sequential";
 
 export type ThemeMode = "dark" | "light" | "system";
 
+export type PlaybackState = {
+  mediaId: string;
+  currentTimeMs: number;
+  wasPlaying: boolean;
+};
+
 export type AppSettings = {
   playbackRate: number;
   volume: number;
@@ -86,6 +92,7 @@ export type AppSettings = {
   hasCompletedOnboarding: boolean;
   hasSeenMainTour: boolean;
   themeMode: ThemeMode;
+  playbackState?: PlaybackState;
 };
 
 export type CommandError = {

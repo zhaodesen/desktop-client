@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { onMount, onDestroy } from "svelte";
-  import type { ImportProgress } from "../shared/types";
+  import { onDestroy, onMount } from "svelte";
+  import type { ImportProgress, ImportProgressStage } from "../shared/types";
 
   interface Props {
     progress: ImportProgress;
@@ -16,6 +16,14 @@
     onImportSuccessClose: () => void;
     onGoToResources: () => void;
   }
+
+  type ImportViewState = { type: "default" } | { type: "online"; url: string };
+  type ImportStageMeta = {
+    id: ImportProgressStage;
+    short: string;
+    label: string;
+    description: string;
+  };
 
   const {
     progress,
@@ -34,6 +42,15 @@
 
   const SUPPRESS_KEY = "import_suppress_dialog";
 
+  const IMPORT_STAGES: ImportStageMeta[] = [
+    { id: "downloading", short: "下载", label: "下载在线视频", description: "从链接拉取媒体到本机。" },
+    { id: "importing", short: "导入", label: "整理媒体素材", description: "写入资源库并准备处理。" },
+    { id: "preparing", short: "检查", label: "检查模型与依赖", description: "确认识别环境已经就绪。" },
+    { id: "recognizing", short: "识别", label: "离线识别字幕", description: "在本机完成语音转写。" },
+    { id: "translating", short: "翻译", label: "生成中文字幕", description: "继续生成中文翻译字幕。" },
+    { id: "done", short: "完成", label: "导入处理完成", description: "素材已经可以去资源列表查看。" },
+  ];
+
   let suppressDialog = $state(false);
   let dialogSuppressChecked = $state(false);
   let showToast = $state(false);
@@ -41,9 +58,21 @@
   let onlineUrl = $state("");
   let onlineUrlError = $state<string | undefined>(undefined);
   let isSubmittingOnline = $state(false);
-  let importViewBeforeStart = $state<{ type: "default" } | { type: "online"; url: string } | undefined>(undefined);
+  let importViewBeforeStart = $state<ImportViewState | undefined>(undefined);
   let hadActiveImport = $state(false);
   let toastTimer: ReturnType<typeof setTimeout> | undefined;
+
+  let showDialog = $derived(showSuccess && !suppressDialog);
+  let activeStageIndex = $derived(
+    Math.max(0, IMPORT_STAGES.findIndex((item) => item.id === progress.stage)),
+  );
+  let activeStageMeta = $derived(IMPORT_STAGES[activeStageIndex] ?? IMPORT_STAGES[0]);
+  let stageLabel = $derived(activeStageMeta.label);
+  let normalizedPercent = $derived(
+    Math.max(0, Math.min(100, Number.isFinite(progress.percent) ? progress.percent : 0)),
+  );
+  let progressSummary = $derived(progress.message || activeStageMeta.description);
+  let importErrorHint = $derived(getImportErrorHint(importError));
 
   onMount(() => {
     suppressDialog = localStorage.getItem(SUPPRESS_KEY) === "true";
@@ -53,7 +82,6 @@
     clearTimeout(toastTimer);
   });
 
-  // 导入成功且已勾选"不再提示" → 显示 toast 替代弹框
   $effect(() => {
     if (showSuccess && suppressDialog) {
       showToast = true;
@@ -83,26 +111,25 @@
     onlineUrlError = undefined;
   });
 
-  const showDialog = $derived(showSuccess && !suppressDialog);
+  function getImportErrorHint(error: string | undefined): string | undefined {
+    if (!error) return undefined;
 
-  // 阶段标签映射
-  const stageLabels: Record<string, string> = {
-    downloading: "下载在线视频",
-    importing: "导入媒体",
-    preparing: "检查依赖",
-    recognizing: "离线识别",
-    translating: "生成翻译",
-    done: "全部完成",
-  };
+    const lowered = error.toLowerCase();
+    const isBilibiliError =
+      lowered.includes("bilibili")
+      || lowered.includes("b23.tv")
+      || error.includes("B 站")
+      || error.includes("浏览器 Cookie");
 
-  const stageLabel = $derived(stageLabels[progress.stage] ?? progress.stage);
-  const importErrorHint = $derived(getImportErrorHint(importError));
+    if (!isBilibiliError) return undefined;
+
+    return "可先在本机浏览器里登录一次 B 站，再回到这里重试。应用会自动尝试读取浏览器 Cookie。";
+  }
 
   function saveSuppress() {
-    if (dialogSuppressChecked) {
-      suppressDialog = true;
-      localStorage.setItem(SUPPRESS_KEY, "true");
-    }
+    if (!dialogSuppressChecked) return;
+    suppressDialog = true;
+    localStorage.setItem(SUPPRESS_KEY, "true");
   }
 
   function handleDialogClose() {
@@ -118,19 +145,19 @@
     onGoToResources();
   }
 
-  function getImportErrorHint(error: string | undefined): string | undefined {
-    if (!error) return undefined;
+  function openOnlineDialog() {
+    showOnlineDialog = true;
+    onlineUrlError = undefined;
+  }
 
-    const lowered = error.toLowerCase();
-    const isBilibiliError =
-      lowered.includes("bilibili")
-      || lowered.includes("b23.tv")
-      || error.includes("B 站")
-      || error.includes("浏览器 Cookie");
+  function getStageState(index: number): "done" | "active" | "pending" {
+    if (progress.stage === "done") {
+      return index === IMPORT_STAGES.length - 1 ? "active" : "done";
+    }
 
-    if (!isBilibiliError) return undefined;
-
-    return "可先在本机浏览器里登录一次 B 站，再回到这里重试。应用会自动尝试读取浏览器 Cookie。";
+    if (index < activeStageIndex) return "done";
+    if (index === activeStageIndex) return "active";
+    return "pending";
   }
 
   async function handleLocalImport() {
@@ -165,6 +192,12 @@
     }
   }
 
+  function handleOnlineInputKeydown(event: KeyboardEvent) {
+    if (event.key !== "Enter" || isSubmittingOnline) return;
+    event.preventDefault();
+    void handleOnlineImportSubmit();
+  }
+
   function handleCloseOnlineDialog() {
     if (isSubmittingOnline) return;
     showOnlineDialog = false;
@@ -172,11 +205,12 @@
   }
 </script>
 
-<!-- 导入失败：顶部固定错误条 -->
 {#if importError}
   <div class="import-error-bar" role="alert">
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0">
-      <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="10" />
+      <line x1="12" y1="8" x2="12" y2="12" />
+      <line x1="12" y1="16" x2="12.01" y2="16" />
     </svg>
     <div class="import-error-copy">
       <span class="import-error-msg">{importError}</span>
@@ -185,104 +219,128 @@
       {/if}
     </div>
     <button class="import-error-close" type="button" onclick={onDismissError} aria-label="关闭错误">
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-        <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <line x1="18" y1="6" x2="6" y2="18" />
+        <line x1="6" y1="6" x2="18" y2="18" />
       </svg>
     </button>
   </div>
 {/if}
 
-<!-- 页面主体 -->
 <section class="page import-page" data-active="true">
-  {#if progress.active}
-    <!-- 导入进度 -->
-    <div class="import-center">
-      <div class="import-progress-icon">
-        {#if progress.stage === "done"}
-          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="20 6 9 17 4 12"/>
-          </svg>
-        {:else}
-          <div class="import-spinner"></div>
-        {/if}
-      </div>
-      <h2 class="import-title">{stageLabel}</h2>
-      <p class="import-desc">{progress.message}</p>
-
-      <!-- 进度条 -->
-      <div class="progress-bar-wrapper">
-        <div class="progress-bar-track">
-          <div
-            class="progress-bar-fill"
-            class:progress-done={progress.stage === "done"}
-            class:progress-active={progress.stage !== "done"}
-            style="width: {progress.percent}%"
-          ></div>
+  <div class="import-shell">
+    {#if progress.active}
+      <article class="import-card import-progress-card" role="status" aria-live="polite">
+        <div class="import-card-header">
+          <span class="import-badge import-badge-live">正在导入</span>
+          <span class="import-progress-number">{Math.round(normalizedPercent)}%</span>
         </div>
-        <span class="progress-percent">{Math.round(progress.percent)}%</span>
-      </div>
 
-      <!-- 阶段指示器 -->
-      <div class="progress-stages">
-        <span class="stage-dot" class:stage-active={progress.stage === "downloading"} class:stage-done={["importing","preparing","recognizing","translating","done"].includes(progress.stage)}>下载</span>
-        <span class="stage-line"></span>
-        <span class="stage-dot" class:stage-active={progress.stage === "importing"} class:stage-done={["preparing","recognizing","translating","done"].includes(progress.stage)}>导入</span>
-        <span class="stage-line"></span>
-        <span class="stage-dot" class:stage-active={progress.stage === "preparing"} class:stage-done={["recognizing","translating","done"].includes(progress.stage)}>检查</span>
-        <span class="stage-line"></span>
-        <span class="stage-dot" class:stage-active={progress.stage === "recognizing"} class:stage-done={["translating","done"].includes(progress.stage)}>识别</span>
-        <span class="stage-line"></span>
-        <span class="stage-dot" class:stage-active={progress.stage === "translating"} class:stage-done={progress.stage === "done"}>翻译</span>
-        <span class="stage-line"></span>
-        <span class="stage-dot" class:stage-active={progress.stage === "done"} class:stage-done={false}>完成</span>
-      </div>
-      {#if canCancel}
-        <button class="btn btn-ghost btn-sm import-cancel-btn" type="button" onclick={onCancel} disabled={isCancellingAsr}>
-          {#if isCancellingAsr}正在取消…{:else}取消识别{/if}
-        </button>
-      {/if}
-    </div>
-  {:else}
-    <!-- 默认状态 -->
-    <div class="import-center">
-      <div class="import-icon">
-        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-          <polyline points="17 8 12 3 7 8"/>
-          <line x1="12" y1="3" x2="12" y2="15"/>
-        </svg>
-      </div>
-      <h2 class="import-title">导入本地媒体</h2>
-      <p class="import-desc">
-        支持导入本地视频或音频文件，自动提取音频并离线生成双语字幕（含中文翻译）。
-      </p>
-      <p class="import-formats">
-        视频：MP4、MOV、MKV、WebM、AVI &nbsp;·&nbsp; 音频：MP3、WAV、M4A、AAC、FLAC、OGG
-      </p>
-      <button class="btn btn-primary btn-lg" type="button" onclick={() => { void handleLocalImport(); }}>
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
-        </svg>
-        选择文件导入
-      </button>
-      <button class="btn btn-outline btn-lg import-online-btn" type="button" onclick={() => { showOnlineDialog = true; }}>
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M5 12h14"/><path d="M12 5l7 7-7 7"/><path d="M5 5h.01"/><path d="M5 19h.01"/>
-        </svg>
-        导入在线视频
-      </button>
-      <p class="import-online-hint">
-        适合直接抓取支持的网站视频链接。不支持的地址建议先手动下载到本地，再用上方按钮导入。
-      </p>
-    </div>
-  {/if}
+        <h2 class="import-title">{stageLabel}</h2>
+        <p class="import-description">{progressSummary}</p>
+
+        <div class="import-progress-track" aria-hidden="true">
+          <div class="import-progress-fill" style={`width: ${normalizedPercent}%`}></div>
+        </div>
+
+        <div class="import-steps">
+          {#each IMPORT_STAGES as item, index}
+            <div class="import-step" data-state={getStageState(index)}>
+              <span class="import-step-dot"></span>
+              <span>{item.short}</span>
+            </div>
+          {/each}
+        </div>
+
+        <p class="import-note import-note-progress">
+          {#if progress.stage === "done"}
+            双语字幕已经生成完成，可以前往资源列表继续查看。
+          {:else}
+            {activeStageMeta.description}
+          {/if}
+        </p>
+
+        {#if canCancel}
+          <div class="import-progress-actions">
+            <button class="btn btn-ghost btn-sm import-cancel-btn" type="button" onclick={onCancel} disabled={isCancellingAsr}>
+              {#if isCancellingAsr}正在取消…{:else}取消识别{/if}
+            </button>
+          </div>
+        {/if}
+      </article>
+    {:else}
+      <article class="import-card import-hero-card">
+        <h2 class="import-title">导入素材</h2>
+        <p class="import-description">
+          支持本地音视频与在线视频链接。导入后会自动完成离线识别和中文字幕生成。
+        </p>
+
+        <div class="import-actions">
+          <button class="btn btn-primary btn-lg" type="button" onclick={() => { void handleLocalImport(); }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M12 3v12" />
+              <path d="m7 10 5 5 5-5" />
+              <path d="M5 21h14" />
+            </svg>
+            选择本地文件
+          </button>
+          <button class="btn btn-outline btn-lg" type="button" onclick={openOnlineDialog}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M5 12h14" />
+              <path d="m12 5 7 7-7 7" />
+              <path d="M5 5h.01" />
+              <path d="M5 19h.01" />
+            </svg>
+            导入在线视频
+          </button>
+        </div>
+
+        <div class="import-showcase" aria-hidden="true">
+          <div class="import-showcase-halo import-showcase-halo-a"></div>
+          <div class="import-showcase-halo import-showcase-halo-b"></div>
+          <div class="import-showcase-orbit import-showcase-orbit-a"></div>
+          <div class="import-showcase-orbit import-showcase-orbit-b"></div>
+
+          <div class="import-showcase-float import-showcase-float-left">
+            <span class="import-showcase-float-label">Subtitle</span>
+            <span class="import-showcase-float-value">双语</span>
+          </div>
+
+          <div class="import-showcase-float import-showcase-float-right">
+            <span class="import-showcase-float-label">Audio</span>
+            <span class="import-showcase-float-value">Wave</span>
+          </div>
+
+          <div class="import-showcase-stack">
+            <div class="import-showcase-card import-showcase-card-back"></div>
+            <div class="import-showcase-card import-showcase-card-middle"></div>
+            <div class="import-showcase-card import-showcase-card-front">
+              <span class="import-showcase-chip">Import</span>
+              <span class="import-showcase-line import-showcase-line-strong"></span>
+              <span class="import-showcase-line"></span>
+              <span class="import-showcase-line import-showcase-line-short"></span>
+              <div class="import-showcase-bars">
+                <span></span>
+                <span></span>
+                <span></span>
+                <span></span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <p class="import-note">
+          支持 MP4、MOV、MKV、MP3、WAV、M4A 等常见格式。长视频建议优先本地导入，公开链接适合直接拉取。
+        </p>
+      </article>
+    {/if}
+  </div>
 </section>
 
-<!-- Toast（不再提示模式） -->
 {#if showToast}
   <div class="import-toast" role="status">
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-      <polyline points="20 6 9 17 4 12"/>
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <polyline points="20 6 9 17 4 12" />
     </svg>
     <span>全部完成，双语字幕已生成</span>
   </div>
@@ -292,26 +350,18 @@
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
   <div class="import-dialog-backdrop" role="presentation" onclick={handleCloseOnlineDialog}></div>
   <div class="import-dialog import-online-dialog" role="dialog" aria-modal="true" aria-labelledby="online-dialog-title">
-    <div class="import-dialog-check import-dialog-check-accent">
-      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M5 12h14" /><path d="M12 5l7 7-7 7" />
-      </svg>
-    </div>
     <h3 id="online-dialog-title" class="import-dialog-title">导入在线视频</h3>
-    <p class="import-dialog-desc">
-      粘贴在线视频地址后，应用会通过 <code>yt-dlp</code> 下载原视频到你电脑的下载目录，再自动导入本应用继续生成字幕。
-    </p>
     <p class="import-dialog-tip">
       部分站点、私有链接或带校验参数的 URL 可能不支持。如果下载失败，建议先手动保存到本地后再导入。
     </p>
 
     <label class="online-input-block">
-      <span>视频网址</span>
       <input
         type="url"
-        placeholder="https://example.com/watch?v=..."
+        placeholder="请输入视频网址"
         bind:value={onlineUrl}
         disabled={isSubmittingOnline}
+        onkeydown={handleOnlineInputKeydown}
       />
     </label>
 
@@ -322,20 +372,19 @@
     <div class="import-dialog-actions">
       <button class="btn btn-ghost btn-sm" type="button" onclick={handleCloseOnlineDialog} disabled={isSubmittingOnline}>取消</button>
       <button class="btn btn-primary btn-sm" type="button" onclick={() => { void handleOnlineImportSubmit(); }} disabled={isSubmittingOnline}>
-        开始下载并导入
+        开始导入
       </button>
     </div>
   </div>
 {/if}
 
-<!-- 导入成功弹框 -->
 {#if showDialog}
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
   <div class="import-dialog-backdrop" role="presentation" onclick={handleDialogClose}></div>
   <div class="import-dialog" role="dialog" aria-modal="true" aria-labelledby="success-dialog-title">
     <div class="import-dialog-check">
-      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-        <polyline points="20 6 9 17 4 12"/>
+      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <polyline points="20 6 9 17 4 12" />
       </svg>
     </div>
     <h3 id="success-dialog-title" class="import-dialog-title">导入成功</h3>
@@ -358,224 +407,526 @@
 {/if}
 
 <style>
-  /* ── 错误条 ── */
+  .import-page {
+    display: flex !important;
+    flex-direction: column;
+    flex: 1;
+    min-height: calc(100vh - 96px);
+  }
+
+  .import-shell {
+    width: 100%;
+    margin: 0;
+    flex: 1;
+    display: flex;
+    min-height: 100%;
+    align-items: stretch;
+    justify-content: stretch;
+  }
+
+  .import-card {
+    width: 100%;
+    flex: 1;
+    min-height: 100%;
+    padding: 42px 38px;
+    position: relative;
+    overflow: hidden;
+    text-align: center;
+  }
+
+  .import-card::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    border-radius: inherit;
+  }
+
+  .import-card > * {
+    position: relative;
+    z-index: 1;
+  }
+
+  .import-hero-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 20px;
+  }
+
+  .import-progress-card {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+
+  .import-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .import-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 6px 12px;
+    border-radius: var(--radius-pill);
+    background: rgba(var(--accent-rgb), 0.12);
+    border: 1px solid rgba(var(--accent-rgb), 0.18);
+    color: var(--accent);
+    font-size: var(--font-2xs);
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .import-badge-live::before {
+    content: "";
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    background: currentColor;
+    margin-right: 8px;
+    box-shadow: 0 0 0 6px rgba(var(--accent-rgb), 0.12);
+  }
+
+  .import-title {
+    margin: 0;
+    font-size: clamp(2rem, 4vw, 3rem);
+    line-height: 1.08;
+    letter-spacing: -0.05em;
+    color: var(--text-primary);
+  }
+
+  .import-description {
+    margin: 0 auto;
+    max-width: 34rem;
+    font-size: 1rem;
+    line-height: 1.8;
+    color: var(--text-secondary);
+  }
+
+  .import-actions {
+    display: flex;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-top: 2px;
+  }
+
+  .import-showcase {
+    position: relative;
+    width: min(760px, 100%);
+    height: 300px;
+    margin-top: 60px;
+    perspective: 1400px;
+    transform-style: preserve-3d;
+  }
+
+  .import-showcase-halo,
+  .import-showcase-orbit {
+    position: absolute;
+    inset: 50% auto auto 50%;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+  }
+
+  .import-showcase-halo {
+    border-radius: 999px;
+    filter: blur(18px);
+    opacity: 0.75;
+  }
+
+  .import-showcase-halo-a {
+    width: 320px;
+    height: 320px;
+    background: radial-gradient(circle, rgba(var(--accent-rgb), 0.24) 0%, transparent 68%);
+    animation: import-halo-drift 8s ease-in-out infinite;
+  }
+
+  .import-showcase-halo-b {
+    width: 220px;
+    height: 220px;
+    background: radial-gradient(circle, rgba(129, 140, 248, 0.14) 0%, transparent 72%);
+    transform: translate(-30%, -45%);
+    animation: import-halo-drift 9s ease-in-out infinite reverse;
+  }
+
+  .import-showcase-orbit {
+    border-radius: 999px;
+    border: 1px solid rgba(var(--accent-rgb), 0.12);
+  }
+
+  .import-showcase-orbit-a {
+    width: 360px;
+    height: 170px;
+    transform: translate(-50%, -50%) rotate(-10deg);
+    animation: import-orbit-spin 16s linear infinite;
+  }
+
+  .import-showcase-orbit-b {
+    width: 280px;
+    height: 126px;
+    border-color: rgba(255, 255, 255, 0.08);
+    transform: translate(-50%, -50%) rotate(12deg);
+    animation: import-orbit-spin 12s linear infinite reverse;
+  }
+
+  .import-showcase-stack {
+    position: absolute;
+    inset: 50% auto auto 50%;
+    width: 320px;
+    height: 216px;
+    transform: translate(-50%, -44%) rotateX(58deg) rotateZ(-18deg);
+    transform-style: preserve-3d;
+    animation: import-stage-float 7s ease-in-out infinite;
+  }
+
+  .import-showcase-card {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    border-radius: 28px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.34);
+  }
+
+  .import-showcase-card-back {
+    background: linear-gradient(180deg, rgba(83, 95, 255, 0.12), rgba(14, 18, 28, 0.82));
+    transform: translate3d(-18px, -16px, -60px);
+    opacity: 0.6;
+  }
+
+  .import-showcase-card-middle {
+    background: linear-gradient(180deg, rgba(var(--accent-rgb), 0.1), rgba(18, 22, 32, 0.9));
+    transform: translate3d(-6px, -6px, -24px);
+    opacity: 0.82;
+  }
+
+  .import-showcase-card-front {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 22px;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.045), transparent 36%),
+      linear-gradient(180deg, rgba(23, 27, 39, 0.96), rgba(11, 14, 21, 0.96));
+  }
+
+  .import-showcase-card-front::before {
+    content: "";
+    position: absolute;
+    inset: -18% -34%;
+    background:
+      linear-gradient(
+        112deg,
+        transparent 36%,
+        rgba(255, 255, 255, 0.02) 43%,
+        rgba(255, 255, 255, 0.22) 50%,
+        rgba(255, 255, 255, 0.06) 57%,
+        transparent 66%
+      );
+    transform: translateX(-130%) skewX(-18deg);
+    mix-blend-mode: screen;
+    pointer-events: none;
+    animation: import-card-sweep 6.8s ease-in-out infinite;
+  }
+
+  .import-showcase-card-front > * {
+    position: relative;
+    z-index: 1;
+  }
+
+  .import-showcase-chip {
+    display: inline-flex;
+    align-items: center;
+    width: fit-content;
+    padding: 6px 10px;
+    border-radius: 999px;
+    background: rgba(var(--accent-rgb), 0.14);
+    border: 1px solid rgba(var(--accent-rgb), 0.18);
+    color: var(--accent);
+    font-size: var(--font-2xs);
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .import-showcase-line {
+    display: block;
+    height: 10px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.08);
+  }
+
+  .import-showcase-line-strong {
+    width: 52%;
+    height: 14px;
+    background: rgba(255, 255, 255, 0.92);
+  }
+
+  .import-showcase-line-short {
+    width: 66%;
+  }
+
+  .import-showcase-bars {
+    margin-top: auto;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    align-items: end;
+    gap: 10px;
+    min-height: 78px;
+  }
+
+  .import-showcase-bars span {
+    display: block;
+    border-radius: 14px 14px 10px 10px;
+    background: linear-gradient(180deg, rgba(var(--accent-rgb), 0.86), rgba(var(--accent-rgb), 0.28));
+    animation: import-bars-pulse 2.8s ease-in-out infinite;
+  }
+
+  .import-showcase-bars span:nth-child(1) {
+    height: 46%;
+    animation-delay: -0.8s;
+  }
+
+  .import-showcase-bars span:nth-child(2) {
+    height: 74%;
+    animation-delay: -1.4s;
+  }
+
+  .import-showcase-bars span:nth-child(3) {
+    height: 58%;
+    animation-delay: -0.4s;
+  }
+
+  .import-showcase-bars span:nth-child(4) {
+    height: 86%;
+    animation-delay: -1.9s;
+  }
+
+  .import-showcase-float {
+    position: absolute;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 110px;
+    padding: 14px 16px;
+    border-radius: 20px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(17, 20, 30, 0.72);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+    box-shadow: 0 18px 42px rgba(0, 0, 0, 0.22);
+  }
+
+  .import-showcase-float-left {
+    left: 12%;
+    top: 26%;
+    animation: import-float-card 6.5s ease-in-out infinite;
+  }
+
+  .import-showcase-float-right {
+    right: 12%;
+    bottom: 22%;
+    animation: import-float-card 7.2s ease-in-out infinite reverse;
+  }
+
+  .import-showcase-float-label {
+    font-size: var(--font-2xs);
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+  }
+
+  .import-showcase-float-value {
+    font-size: var(--font-md);
+    font-weight: 700;
+    color: var(--text-primary);
+    letter-spacing: -0.02em;
+  }
+
+  .import-note {
+    margin: 0 auto;
+    max-width: 38rem;
+    font-size: var(--font-sm);
+    line-height: 1.75;
+    color: var(--text-dim);
+  }
+
+  .import-note-progress {
+    max-width: none;
+    text-align: left;
+  }
+
+  .import-progress-number {
+    font-size: clamp(2rem, 4vw, 3rem);
+    line-height: 1;
+    font-weight: 800;
+    letter-spacing: -0.05em;
+    color: var(--text-primary);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .import-progress-track {
+    height: 10px;
+    border-radius: 999px;
+    overflow: hidden;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--border-subtle);
+  }
+
+  .import-progress-fill {
+    height: 100%;
+    border-radius: inherit;
+    background-image: linear-gradient(90deg, var(--accent) 0%, var(--accent-hover) 48%, var(--accent) 100%);
+    background-size: 200% 100%;
+    animation: import-shimmer 2.4s linear infinite;
+    box-shadow: 0 0 18px rgba(var(--accent-rgb), 0.24);
+  }
+
+  .import-steps {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 10px;
+  }
+
+  .import-step {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 12px;
+    border-radius: var(--radius-pill);
+    background: var(--bg-inset);
+    border: 1px solid var(--border-subtle);
+    font-size: var(--font-xs);
+    color: var(--text-dim);
+  }
+
+  .import-step-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 999px;
+    background: currentColor;
+    opacity: 0.45;
+  }
+
+  .import-step[data-state="done"] {
+    color: var(--success);
+    background: rgba(52, 211, 153, 0.08);
+    border-color: rgba(52, 211, 153, 0.18);
+  }
+
+  .import-step[data-state="active"] {
+    color: var(--accent);
+    background: rgba(var(--accent-rgb), 0.1);
+    border-color: rgba(var(--accent-rgb), 0.18);
+  }
+
+  .import-progress-actions {
+    display: flex;
+    justify-content: flex-end;
+  }
+
+  .import-cancel-btn {
+    min-width: 120px;
+  }
+
   .import-error-bar {
     position: sticky;
     top: 0;
     z-index: var(--z-sticky);
+    width: 100%;
+    margin: 0 0 12px;
     display: flex;
     align-items: flex-start;
     gap: 10px;
-    padding: 12px 16px;
+    padding: 14px 16px;
     background: var(--danger-soft);
     border: 1px solid var(--danger-border);
-    border-radius: var(--radius-md);
+    border-radius: var(--radius-lg);
     color: var(--danger);
     font-size: var(--font-sm);
-    line-height: 1.5;
-    margin-bottom: 12px;
+    line-height: 1.55;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
   }
 
-  .import-error-msg { min-width: 0; word-break: break-all; }
-  .import-error-copy { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+  .import-error-copy {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
 
-  .import-error-hint {
-    padding: 8px 10px;
-    border-radius: var(--radius-sm);
-    background: var(--danger-soft);
-    border: 1px solid var(--danger-border);
-    color: var(--danger);
-    font-size: var(--font-xs);
-    line-height: 1.45;
+  .import-error-msg {
+    min-width: 0;
     word-break: break-word;
   }
 
+  .import-error-hint {
+    padding: 10px 12px;
+    border-radius: var(--radius-md);
+    background: rgba(248, 113, 113, 0.08);
+    border: 1px solid var(--danger-border);
+    color: var(--danger);
+    font-size: var(--font-xs);
+    line-height: 1.55;
+  }
+
   .import-error-close {
-    display: grid; place-items: center;
-    width: 30px; height: 30px;
-    border: none; background: transparent;
-    color: var(--danger); cursor: pointer;
-    border-radius: 4px; flex-shrink: 0;
-    margin-top: -1px; opacity: 0.75;
-    transition: opacity 150ms;
-  }
-  .import-error-close:hover { opacity: 1; }
-
-  /* ── 页面主体 ── */
-  .import-page { display: flex !important; flex-direction: column; }
-
-  .import-center {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    text-align: center;
-    flex: 1;
-    min-height: 0;
-    gap: 16px;
-    padding: 28px;
+    width: 30px;
+    height: 30px;
+    display: grid;
+    place-items: center;
+    border: none;
+    border-radius: 999px;
+    background: transparent;
+    color: currentColor;
+    cursor: pointer;
+    flex-shrink: 0;
+    opacity: 0.72;
+    transition: opacity var(--transition-fast), background var(--transition-fast);
   }
 
-  .import-icon {
-    width: 80px; height: 80px;
-    display: grid; place-items: center;
-    border-radius: var(--radius-xl, 20px);
-    background: var(--accent-soft);
-    color: var(--accent);
-    margin-bottom: 6px;
-    box-shadow: var(--shadow-glow);
-    position: relative;
+  .import-error-close:hover {
+    opacity: 1;
+    background: rgba(248, 113, 113, 0.08);
   }
 
-  /* Subtle ring */
-  .import-icon::after {
-    content: "";
-    position: absolute;
-    inset: -4px;
-    border-radius: inherit;
-    border: 1.5px solid var(--accent-border);
-    opacity: 0.5;
-  }
-
-  .import-title { font-size: var(--font-2xl); font-weight: 700; color: var(--text-primary); letter-spacing: -0.01em; }
-  .import-desc { font-size: var(--font-base); color: var(--text-secondary); max-width: 440px; line-height: 1.7; }
-  .import-formats {
-    font-size: var(--font-2xs); color: var(--text-dim); max-width: 440px;
-    padding: 8px 16px;
-    border-radius: var(--radius-pill);
-    background: var(--bg-inset);
-    border: 1px solid var(--border-subtle);
-  }
-
-  .import-btn-lg {
-    margin-top: 6px;
-  }
-
-  .import-online-btn { margin-top: 0; }
-  .import-online-hint { max-width: 460px; font-size: var(--font-xs); color: var(--text-dim); line-height: 1.7; }
-
-  /* ── Progress icon ── */
-  .import-progress-icon {
-    width: 80px; height: 80px;
-    display: grid; place-items: center;
-    border-radius: var(--radius-xl, 20px);
-    background: var(--accent-soft);
-    color: var(--accent);
-    margin-bottom: 6px;
-    box-shadow: var(--shadow-glow);
-  }
-
-  .import-spinner {
-    width: 34px; height: 34px;
-    border: 3px solid var(--accent-soft);
-    border-top-color: var(--accent);
-    border-right-color: var(--accent);
-    border-radius: 50%;
-    animation: spin 0.7s cubic-bezier(0.5, 0.1, 0.5, 0.9) infinite;
-    filter: drop-shadow(0 0 4px rgba(var(--accent-rgb), 0.3));
-  }
-
-  @keyframes spin { to { transform: rotate(360deg); } }
-
-  /* ── Progress bar ── */
-  .progress-bar-wrapper {
-    display: flex; align-items: center; gap: 12px;
-    width: 100%; max-width: 380px; margin-top: 10px;
-  }
-
-  .progress-bar-track {
-    flex: 1; height: 6px;
-    background: var(--bg-inset);
-    border-radius: 3px; overflow: hidden;
-    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.1);
-  }
-
-  .progress-bar-fill {
-    height: 100%; background: var(--accent);
-    border-radius: 3px; transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
-    position: relative;
-  }
-
-  .progress-bar-fill.progress-done {
-    background: var(--success);
-    box-shadow: 0 0 8px rgba(52, 211, 153, 0.4);
-  }
-
-  .progress-bar-fill.progress-active {
-    background-image: linear-gradient(90deg, var(--accent) 0%, var(--accent-hover) 50%, var(--accent) 100%);
-    background-size: 200% 100%;
-    animation: shimmer 1.8s ease-in-out infinite;
-    box-shadow: 0 0 8px rgba(var(--accent-rgb), 0.3);
-  }
-
-  /* Leading edge glow on active progress */
-  .progress-bar-fill.progress-active::after {
-    content: "";
-    position: absolute;
-    right: 0;
-    top: -1px;
-    bottom: -1px;
-    width: 24px;
-    background: linear-gradient(90deg, transparent, rgba(var(--accent-rgb), 0.6));
-    border-radius: 0 3px 3px 0;
-    filter: blur(2px);
-  }
-
-  @keyframes shimmer {
-    0%   { background-position: 200% 0; }
-    100% { background-position: -200% 0; }
-  }
-
-  .progress-percent {
-    font-size: var(--font-sm); font-weight: 600;
-    color: var(--text-secondary);
-    min-width: 36px; text-align: right;
-    font-variant-numeric: tabular-nums;
-  }
-
-  /* ── Stage indicators ── */
-  .progress-stages { display: flex; align-items: center; gap: 0; margin-top: 14px; }
-  .import-cancel-btn { margin-top: 16px; min-width: 112px; }
-
-  .stage-dot {
-    font-size: var(--font-2xs); color: var(--text-dim);
-    padding: 4px 10px; border-radius: var(--radius-pill);
-    border: 1px solid transparent;
-    transition: color 0.25s ease, background 0.25s ease, border-color 0.25s ease;
-  }
-  .stage-dot.stage-active { color: var(--accent); background: var(--accent-soft); border-color: var(--accent-border); font-weight: 600; }
-  .stage-dot.stage-done { color: var(--success); }
-  .stage-line { width: 18px; height: 1px; background: var(--border); }
-
-  /* ── Toast ── */
   .import-toast {
-    position: fixed; bottom: 28px; left: 50%;
+    position: fixed;
+    left: calc(var(--sidebar-w, 220px) + (100vw - var(--sidebar-w, 220px)) / 2);
+    bottom: 24px;
     transform: translateX(-50%);
-    display: flex; align-items: center; gap: 8px;
-    padding: 10px 20px;
-    background: var(--bg-glass);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 11px 18px;
     border-radius: var(--radius-pill);
+    background: var(--bg-glass);
+    border: 1px solid var(--border);
     color: var(--success);
-    font-size: var(--font-sm); font-weight: 500;
+    font-size: var(--font-sm);
+    font-weight: 600;
     box-shadow: var(--shadow-md);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
     z-index: var(--z-toast);
-    animation: toast-in 0.25s ease;
   }
 
-  @keyframes toast-in {
-    from { opacity: 0; transform: translateX(-50%) translateY(8px); }
-    to   { opacity: 1; transform: translateX(-50%) translateY(0); }
-  }
-
-  /* ── 成功弹框 ── */
   .import-dialog-backdrop {
-    position: fixed; inset: 0;
-    background: rgba(0, 0, 0, 0.45);
-    backdrop-filter: blur(6px);
-    -webkit-backdrop-filter: blur(6px);
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.48);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
     z-index: var(--z-overlay);
   }
 
@@ -585,88 +936,246 @@
     left: calc(var(--sidebar-w, 220px) + (100vw - var(--sidebar-w, 220px)) / 2);
     transform: translate(-50%, -50%);
     width: 360px;
-    background: var(--bg-raised);
+    padding: 30px 28px 22px;
+    border-radius: 24px;
     border: 1px solid var(--border);
-    border-radius: var(--radius-xl, 20px);
-    padding: 32px 28px 22px;
-    display: flex; flex-direction: column;
-    align-items: center; text-align: center; gap: 10px;
-    z-index: var(--z-modal);
+    background: var(--bg-raised);
     box-shadow: var(--shadow-lg);
-    animation: dialog-in 0.2s ease;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    text-align: center;
+    z-index: var(--z-modal);
   }
 
-  @keyframes dialog-in {
-    from { opacity: 0; transform: translate(-50%, calc(-50% + 8px)) scale(0.97); }
-    to   { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  .import-online-dialog {
+    width: 460px;
+    align-items: stretch;
+    text-align: left;
   }
 
   .import-dialog-check {
-    width: 56px; height: 56px;
-    border-radius: 50%;
-    background: var(--success-soft); color: var(--success);
-    display: grid; place-items: center; margin-bottom: 4px;
+    width: 58px;
+    height: 58px;
+    display: grid;
+    place-items: center;
+    border-radius: 999px;
+    background: rgba(52, 211, 153, 0.12);
+    border: 1px solid rgba(52, 211, 153, 0.18);
+    color: var(--success);
   }
 
-  .import-dialog-title { font-size: var(--font-lg); font-weight: 700; color: var(--text-primary); }
-  .import-dialog-desc { font-size: var(--font-sm); color: var(--text-secondary); line-height: 1.55; max-width: 290px; margin-top: 2px; }
+  .import-dialog-title {
+    font-size: var(--font-xl);
+    letter-spacing: -0.02em;
+    color: var(--text-primary);
+  }
+
+  .import-dialog-desc {
+    max-width: 320px;
+    font-size: var(--font-sm);
+    line-height: 1.7;
+    color: var(--text-secondary);
+  }
 
   .import-dialog-suppress {
-    display: flex; align-items: center; gap: 7px;
-    font-size: var(--font-xs); color: var(--text-dim);
-    cursor: pointer; margin-top: 8px; user-select: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: var(--font-xs);
+    color: var(--text-dim);
+    cursor: pointer;
+    user-select: none;
   }
-  .import-dialog-suppress input { cursor: pointer; accent-color: var(--accent); }
-  .import-dialog-suppress:hover { color: var(--text-secondary); }
+
+  .import-dialog-suppress input {
+    cursor: pointer;
+    accent-color: var(--accent);
+  }
 
   .import-dialog-actions {
-    display: flex; gap: 8px; margin-top: 10px;
-    width: 100%; justify-content: flex-end;
-  }
-
-  .import-online-dialog { width: 460px; align-items: stretch; text-align: left; }
-  .import-dialog-check-accent { background: var(--accent-soft); color: var(--accent); align-self: center; }
-
-  .import-dialog-tip {
-    font-size: var(--font-xs); line-height: 1.65;
-    color: var(--text-dim);
-    background: var(--bg-inset);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-md); padding: 12px 14px;
+    width: 100%;
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 4px;
   }
 
   .online-input-block {
-    display: flex; flex-direction: column; gap: 8px;
-    margin-top: 4px; font-size: var(--font-xs); color: var(--text-secondary);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 4px;
+    font-size: var(--font-xs);
+    color: var(--text-secondary);
   }
 
   .online-input-block input {
     width: 100%;
+    padding: 12px 14px;
+    border-radius: 16px;
     border: 1px solid var(--border);
-    border-radius: var(--radius-md);
     background: var(--bg-inset);
     color: var(--text-primary);
-    font: inherit; padding: 10px 14px;
-    outline: none;
-    transition: border-color 150ms ease, background 150ms ease, box-shadow 150ms ease;
+    font: inherit;
+    transition: border-color var(--transition-fast), background var(--transition-fast), box-shadow var(--transition-fast);
   }
 
   .online-input-block input:focus-visible {
-    border-color: var(--accent);
     background: var(--bg-surface);
-    box-shadow: 0 0 0 3px var(--accent-soft);
   }
 
-  .online-input-error { color: var(--danger); font-size: var(--font-xs); margin-top: -2px; }
+  .online-input-error {
+    font-size: var(--font-xs);
+    color: var(--danger);
+    margin-top: -2px;
+  }
+
+  .import-dialog-tip {
+    font-size: var(--font-xs);  
+  }
+
+  @keyframes import-shimmer {
+    0% {
+      background-position: 200% 0;
+    }
+    100% {
+      background-position: -200% 0;
+    }
+  }
+
+  @keyframes import-stage-float {
+    0%, 100% {
+      transform: translate(-50%, -44%) rotateX(58deg) rotateZ(-18deg) translateY(0);
+    }
+    50% {
+      transform: translate(-50%, -46%) rotateX(58deg) rotateZ(-18deg) translateY(-8px);
+    }
+  }
+
+  @keyframes import-orbit-spin {
+    0% {
+      transform: translate(-50%, -50%) rotate(0deg);
+    }
+    100% {
+      transform: translate(-50%, -50%) rotate(360deg);
+    }
+  }
+
+  @keyframes import-halo-drift {
+    0%, 100% {
+      transform: translate(-50%, -50%) scale(1);
+    }
+    50% {
+      transform: translate(-46%, -54%) scale(1.08);
+    }
+  }
+
+  @keyframes import-float-card {
+    0%, 100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(-10px);
+    }
+  }
+
+  @keyframes import-bars-pulse {
+    0%, 100% {
+      filter: brightness(0.95);
+      transform: scaleY(0.96);
+    }
+    50% {
+      filter: brightness(1.08);
+      transform: scaleY(1.02);
+    }
+  }
+
+  @keyframes import-card-sweep {
+    0%, 12% {
+      transform: translateX(-130%) skewX(-18deg);
+      opacity: 0;
+    }
+    24% {
+      opacity: 0.9;
+    }
+    46% {
+      transform: translateX(118%) skewX(-18deg);
+      opacity: 0;
+    }
+    100% {
+      transform: translateX(118%) skewX(-18deg);
+      opacity: 0;
+    }
+  }
 
   @media (max-width: 900px) {
+    .import-page {
+      min-height: calc(100vh - 80px);
+    }
+
+    .import-shell,
+    .import-error-bar {
+      width: 100%;
+    }
+
+    .import-toast,
     .import-dialog,
     .import-online-dialog {
       left: 50%;
-      width: min(360px, calc(100vw - 32px));
     }
+  }
+
+  @media (max-width: 640px) {
+    .import-page {
+      min-height: calc(100vh - 72px);
+    }
+
+    .import-card {
+      padding: 28px 22px;
+      border-radius: 22px;
+    }
+
+    .import-card-header,
+    .import-actions,
+    .import-dialog-actions {
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    .import-progress-actions {
+      justify-content: stretch;
+    }
+
+    .import-showcase {
+      height: 236px;
+    }
+
+    .import-showcase-stack {
+      width: 250px;
+      height: 174px;
+      transform: translate(-50%, -45%) rotateX(58deg) rotateZ(-18deg);
+    }
+
+    .import-showcase-float-left {
+      left: 2%;
+      top: 18%;
+    }
+
+    .import-showcase-float-right {
+      right: 2%;
+      bottom: 18%;
+    }
+
+    .import-cancel-btn {
+      width: 100%;
+    }
+
+    .import-dialog,
     .import-online-dialog {
-      width: min(460px, calc(100vw - 32px));
+      width: min(460px, calc(100vw - 24px));
+      padding: 24px 20px 18px;
     }
   }
 </style>

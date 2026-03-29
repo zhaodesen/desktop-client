@@ -5,12 +5,14 @@
   interface Props {
     document: SubtitleDocument | undefined;
     lastMainPage: string;
+    saveNotice?: string;
+    isSaving?: boolean;
     onBack: () => void;
     onSave: () => void;
     onCueChange: (index: number, field: "text" | "secondaryText", value: string) => void;
   }
 
-  const { document, lastMainPage, onBack, onSave, onCueChange }: Props = $props();
+  const { document, lastMainPage, saveNotice, isSaving = false, onBack, onSave, onCueChange }: Props = $props();
 
   function formatCueTime(cue: SubtitleCue): string {
     return `${formatDuration(cue.startMs)} - ${formatDuration(cue.endMs)}`;
@@ -27,9 +29,20 @@
     </div>
     <div class="header-actions">
       <button class="btn btn-outline" type="button" onclick={onBack}>返回</button>
-      <button class="btn btn-primary" type="button" onclick={onSave}>保存</button>
+      <button class="btn btn-primary" type="button" disabled={isSaving} onclick={onSave}>
+        {isSaving ? "保存中…" : "保存"}
+      </button>
     </div>
   </header>
+
+  {#if saveNotice}
+    <div class="subtitle-save-notice" role="status">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M20 6 9 17l-5-5"/>
+      </svg>
+      <span>{saveNotice}</span>
+    </div>
+  {/if}
 
   <div class="card subtitle-editor-card">
     <div class="subtitle-editor-head">
@@ -71,3 +84,33 @@
     {/if}
   </div>
 </section>
+
+<style>
+  .subtitle-save-notice {
+    position: fixed;
+    top: 64px;
+    left: calc(var(--sidebar-w) + ((100vw - var(--sidebar-w)) / 2));
+    transform: translateX(-50%);
+    z-index: var(--z-toast);
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    max-width: min(520px, calc(100vw - var(--sidebar-w) - 48px));
+    border-radius: var(--radius-pill);
+    background: var(--success-soft);
+    color: var(--success);
+    border: 1px solid rgba(52, 211, 153, 0.18);
+    font-size: var(--font-xs);
+    font-weight: 600;
+    box-shadow: var(--shadow-md);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    animation: subtitle-save-notice-in 160ms ease;
+  }
+
+  @keyframes subtitle-save-notice-in {
+    from { opacity: 0; transform: translateX(-50%) translateY(-4px); }
+    to { opacity: 1; transform: translateX(-50%) translateY(0); }
+  }
+</style>

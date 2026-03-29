@@ -36,9 +36,10 @@ import type {
   ModelDownloadStartedPayload,
   ModelInfo,
   ModelStatus,
-  OverlayRenderPayload,
-  OverlayWindowState,
-  PlaybackHistoryItem,
+    OverlayRenderPayload,
+    PlaybackState,
+    OverlayWindowState,
+    PlaybackHistoryItem,
   ShutdownCleanupOutput,
   ShutdownTaskSummary,
   StartAsrJobInput,
@@ -69,6 +70,11 @@ export const backend = {
   },
   updateSettings(settings: AppSettings) {
     return callCommand<AppSettings>("update_settings", { settings });
+  },
+  updatePlaybackState(playbackState?: PlaybackState) {
+    return callCommand<PlaybackState | null>("update_playback_state", {
+      playbackState: playbackState ?? null,
+    });
   },
   showOverlay() {
     return callCommand<OverlayWindowState>("show_overlay");

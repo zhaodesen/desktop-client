@@ -164,10 +164,10 @@ let builder = builder.transparent(true);
 悬浮窗 `decorations: false` 且没有自定义关闭按钮，用户只能回到主窗口取消勾选"开启悬浮窗"来关闭它。应在悬浮窗上提供一个小型关闭/隐藏按钮。
 
 ### 5.9 没有键盘快捷键支持
-作为字幕工作台，缺少播放/暂停（空格）、前进/后退（←/→）、单句循环（L）等常用快捷键，严重影响使用效率。
+作为muyu，缺少播放/暂停（空格）、前进/后退（←/→）、单句循环（L）等常用快捷键，严重影响使用效率。
 
 ### 5.10 应用标题中英混杂
-窗口标题是 "Floating Subtitle Player"，侧边栏品牌是"字幕工作台"，品牌 kicker 是 "Desktop Subtitle Studio"。建议统一使用中文或英文。
+窗口标题是 "Floating Subtitle Player"，侧边栏品牌是"muyu"，品牌 kicker 是 "Desktop Subtitle Studio"。建议统一使用中文或英文。
 
 ---
 

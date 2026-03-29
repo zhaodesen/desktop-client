@@ -27,16 +27,24 @@
 </script>
 
 {#if visible}
-  <dialog open class="confirm-dialog">
-    <div class="dialog-body">
-      <h3>{title}</h3>
-      <p>{message}</p>
-      <div class="dialog-actions">
-        <button class="btn btn-outline" type="button" onclick={onCancel}>取消</button>
-        <button class="btn btn-danger-solid" type="button" onclick={onConfirm}>确认</button>
+  <div class="confirm-dialog-shell" role="presentation">
+    <div
+      class="confirm-dialog"
+      role="alertdialog"
+      aria-modal="true"
+      aria-labelledby="confirm-dialog-title"
+      aria-describedby="confirm-dialog-message"
+    >
+      <div class="dialog-body">
+        <h3 id="confirm-dialog-title">{title}</h3>
+        <p id="confirm-dialog-message">{message}</p>
+        <div class="dialog-actions">
+          <button class="btn btn-outline" type="button" onclick={onCancel}>取消</button>
+          <button class="btn btn-danger-solid" type="button" onclick={onConfirm}>确认</button>
+        </div>
       </div>
     </div>
-  </dialog>
+  </div>
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div class="dialog-backdrop" role="presentation" onclick={onCancel}></div>
 {/if}
@@ -52,17 +60,24 @@
     animation: backdrop-in 0.15s ease;
   }
 
+  .confirm-dialog-shell {
+    position: fixed;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+    z-index: calc(var(--z-confirm) + 1);
+    pointer-events: none;
+  }
+
   @keyframes backdrop-in {
     from { opacity: 0; }
     to { opacity: 1; }
   }
 
   .confirm-dialog {
-    position: fixed;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    z-index: calc(var(--z-confirm) + 1);
+    position: relative;
+    pointer-events: auto;
     border: none;
     border-radius: var(--radius-xl, 20px);
     background: var(--bg-raised);
@@ -75,7 +90,7 @@
   }
 
   @keyframes dialog-pop {
-    from { opacity: 0; transform: translate(-50%, calc(-50% + 8px)) scale(0.97); }
-    to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+    from { opacity: 0; transform: translateY(8px) scale(0.97); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
   }
 </style>
