@@ -501,7 +501,7 @@ fn run_whisper(
         }
 
         let detail = if last_error_lines.is_empty() {
-            format!("exit code: {:?}", status.code())
+            format_exit_code_detail(status.code())
         } else {
             last_error_lines.join("\n")
         };
@@ -529,6 +529,17 @@ fn parse_whisper_detected_language(line: &str) -> Option<String> {
 
 /// 从 whisper stderr 行解析识别进度
 /// 格式: [00:00:05.280 --> 00:00:10.560]  some text...
+fn format_exit_code_detail(code: Option<i32>) -> String {
+    #[cfg(windows)]
+    {
+        if code == Some(-1073741515) {
+            return "exit code: Some(-1073741515) (Windows DLL load failed; whisper-cli could not find its bundled DLLs)".to_string();
+        }
+    }
+
+    format!("exit code: {code:?}")
+}
+
 fn parse_whisper_progress(line: &str, total_duration_ms: u64) -> Option<f64> {
     let line = line.trim();
     if !line.starts_with('[') {

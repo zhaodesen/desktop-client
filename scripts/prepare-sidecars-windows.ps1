@@ -13,6 +13,7 @@ $FfmpegSource = if ($env:FFMPEG_SOURCE) { $env:FFMPEG_SOURCE } elseif ($env:FFMP
 $WhisperCliSource = if ($env:WHISPER_CLI_SOURCE) { $env:WHISPER_CLI_SOURCE } elseif ($env:WHISPER_CLI_BIN) { $env:WHISPER_CLI_BIN } else { "" }
 $YtDlpSource = if ($env:YT_DLP_SOURCE) { $env:YT_DLP_SOURCE } elseif ($env:YT_DLP_BIN) { $env:YT_DLP_BIN } else { "" }
 $YtDlpDownloadUrl = if ($env:YT_DLP_DOWNLOAD_URL) { $env:YT_DLP_DOWNLOAD_URL } else { "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe" }
+$WhisperReleaseApiUrl = if ($env:WHISPER_RELEASE_API_URL) { $env:WHISPER_RELEASE_API_URL } else { "https://api.github.com/repos/ggml-org/whisper.cpp/releases/latest" }
 
 New-Item -ItemType Directory -Force -Path $BinDir | Out-Null
 New-Item -ItemType Directory -Force -Path $CacheDir | Out-Null
@@ -102,6 +103,11 @@ function Resolve-YtDlpSource {
 
 function Resolve-WhisperCliSource {
   if (-not $WhisperCliSource) {
+    $command = Get-Command whisper-cli -ErrorAction SilentlyContinue
+    if ($command -and (Test-PortableExecutable $command.Source)) {
+      return $command.Source
+    }
+
     return $null
   }
 
@@ -114,6 +120,83 @@ function Resolve-WhisperCliSource {
   }
 
   return (Resolve-Path $WhisperCliSource).Path
+}
+
+function Test-CommandAvailable {
+  param([string]$Name)
+
+  return $null -ne (Get-Command $Name -ErrorAction SilentlyContinue)
+}
+
+function Install-WhisperCliFromRelease {
+  param(
+    [string]$TargetPath,
+    [string]$TargetTriple,
+    [string]$BinDir,
+    [string]$CacheDir
+  )
+
+  $assetName = switch ($TargetTriple) {
+    "x86_64-pc-windows-msvc" { "whisper-bin-x64.zip" }
+    "i686-pc-windows-msvc" { "whisper-bin-Win32.zip" }
+    default { $null }
+  }
+
+  if (-not $assetName) {
+    return $false
+  }
+
+  Write-Host "Resolving whisper.cpp release asset: $assetName"
+  $release = Invoke-RestMethod -Uri $WhisperReleaseApiUrl
+  $asset = $release.assets | Where-Object { $_.name -eq $assetName } | Select-Object -First 1
+  if (-not $asset) {
+    throw "Cannot find whisper.cpp release asset: $assetName"
+  }
+
+  $zipPath = Join-Path $CacheDir $asset.name
+  $extractDir = Join-Path $CacheDir ("whisper-release-" + [System.IO.Path]::GetFileNameWithoutExtension($asset.name))
+
+  Write-Host "Downloading whisper.cpp prebuilt package from $($asset.browser_download_url)"
+  Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $zipPath
+
+  if (Test-Path $extractDir) {
+    Remove-Item $extractDir -Recurse -Force
+  }
+  Expand-Archive -Path $zipPath -DestinationPath $extractDir -Force
+
+  $releaseDir = Join-Path $extractDir "Release"
+  $whisperBuilt = Join-Path $releaseDir "whisper-cli.exe"
+  if (-not (Test-Path $whisperBuilt)) {
+    throw "Cannot find whisper-cli.exe in downloaded release package."
+  }
+
+  Copy-Item $whisperBuilt $TargetPath -Force
+
+  $dllNames = @(
+    "ggml-base.dll",
+    "ggml-cpu.dll",
+    "ggml.dll",
+    "whisper.dll"
+  )
+
+  foreach ($dllName in $dllNames) {
+    $dllSource = Join-Path $releaseDir $dllName
+    if (Test-Path $dllSource) {
+      Copy-Item $dllSource (Join-Path $BinDir $dllName) -Force
+    }
+  }
+
+  return $true
+}
+
+function Get-ExecutableExitCode {
+  param(
+    [string]$FilePath,
+    [string[]]$Arguments
+  )
+
+  $process = Start-Process -FilePath $FilePath -ArgumentList $Arguments -NoNewWindow -Wait -PassThru
+  return $process.ExitCode
 }
 
 $ffmpeg = Find-Ffmpeg
@@ -150,50 +233,69 @@ if ((Resolve-Path $ytDlp).Path -ne (Resolve-Path $YtDlpTargetPath -ErrorAction S
 if ($resolvedWhisper = Resolve-WhisperCliSource) {
   Copy-Item $resolvedWhisper $WhisperTargetPath -Force
 } else {
-  if (Test-Path (Join-Path $WhisperDir ".git")) {
-    git -C $WhisperDir fetch --depth 1 origin $WhisperRef
-    git -C $WhisperDir checkout -f FETCH_HEAD
-  } else {
-    if (Test-Path $WhisperDir) {
-      Remove-Item $WhisperDir -Recurse -Force
+  try {
+    if (Install-WhisperCliFromRelease -TargetPath $WhisperTargetPath -TargetTriple $TargetTriple -BinDir $BinDir -CacheDir $CacheDir) {
+      Write-Host "Prepared whisper sidecar from prebuilt release: $WhisperTargetPath"
     }
-    git clone --depth 1 --branch $WhisperRef https://github.com/ggml-org/whisper.cpp.git $WhisperDir
+  }
+  catch {
+    Write-Warning "Failed to download prebuilt whisper-cli: $($_.Exception.Message)"
   }
 
-  Push-Location $WhisperDir
-  if (Test-Path build) {
-    Remove-Item build -Recurse -Force
+  if (-not (Test-Path $WhisperTargetPath)) {
+    if (-not (Test-CommandAvailable "git")) {
+      throw "git is required to build whisper-cli automatically. Install Git or set WHISPER_CLI_BIN / WHISPER_CLI_SOURCE to an existing whisper-cli.exe."
+    }
+
+    if (-not (Test-CommandAvailable "cmake")) {
+      throw "cmake is required to build whisper-cli automatically. Install CMake from https://cmake.org/download/ or set WHISPER_CLI_BIN / WHISPER_CLI_SOURCE to an existing whisper-cli.exe."
+    }
+
+    if (Test-Path (Join-Path $WhisperDir ".git")) {
+      git -C $WhisperDir fetch --depth 1 origin $WhisperRef
+      git -C $WhisperDir checkout -f FETCH_HEAD
+    } else {
+      if (Test-Path $WhisperDir) {
+        Remove-Item $WhisperDir -Recurse -Force
+      }
+      git clone --depth 1 --branch $WhisperRef https://github.com/ggml-org/whisper.cpp.git $WhisperDir
+    }
+
+    Push-Location $WhisperDir
+    if (Test-Path build) {
+      Remove-Item build -Recurse -Force
+    }
+    cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF
+    cmake --build build --config Release
+    Pop-Location
+
+    $whisperCandidates = @(
+      (Join-Path $WhisperDir "build/bin/Release/whisper-cli.exe"),
+      (Join-Path $WhisperDir "build/bin/whisper-cli.exe")
+    )
+
+    $whisperBuilt = $whisperCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+    if (-not $whisperBuilt) {
+      throw "Cannot find built whisper-cli.exe."
+    }
+
+    Copy-Item $whisperBuilt $WhisperTargetPath -Force
   }
-  cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF
-  cmake --build build --config Release
-  Pop-Location
-
-  $whisperCandidates = @(
-    (Join-Path $WhisperDir "build/bin/Release/whisper-cli.exe"),
-    (Join-Path $WhisperDir "build/bin/whisper-cli.exe")
-  )
-
-  $whisperBuilt = $whisperCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
-  if (-not $whisperBuilt) {
-    throw "Cannot find built whisper-cli.exe."
-  }
-
-  Copy-Item $whisperBuilt $WhisperTargetPath -Force
 }
 
-& $WhisperTargetPath --help *> $null
-if ($LASTEXITCODE -notin @(0, 1)) {
-  throw "whisper-cli verification failed with exit code $LASTEXITCODE."
+$whisperExitCode = Get-ExecutableExitCode -FilePath $WhisperTargetPath -Arguments @("--help")
+if ($whisperExitCode -notin @(0, 1)) {
+  throw "whisper-cli verification failed with exit code $whisperExitCode."
 }
 
-& $FfmpegTargetPath -version *> $null
-if ($LASTEXITCODE -ne 0) {
-  throw "ffmpeg verification failed with exit code $LASTEXITCODE."
+$ffmpegExitCode = Get-ExecutableExitCode -FilePath $FfmpegTargetPath -Arguments @("-version")
+if ($ffmpegExitCode -ne 0) {
+  throw "ffmpeg verification failed with exit code $ffmpegExitCode."
 }
 
-& $YtDlpTargetPath --help *> $null
-if ($LASTEXITCODE -ne 0) {
-  throw "yt-dlp verification failed with exit code $LASTEXITCODE."
+$ytDlpExitCode = Get-ExecutableExitCode -FilePath $YtDlpTargetPath -Arguments @("--help")
+if ($ytDlpExitCode -ne 0) {
+  throw "yt-dlp verification failed with exit code $ytDlpExitCode."
 }
 
 Write-Host "Prepared whisper sidecar: $WhisperTargetPath"

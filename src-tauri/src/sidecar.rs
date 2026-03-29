@@ -1,8 +1,8 @@
-use std::{env, path::PathBuf, process::Command};
+use std::{env, path::{Path, PathBuf}, process::Command};
 use tauri::{path::BaseDirectory, AppHandle, Manager};
 
 #[cfg(windows)]
-use std::os::windows::process::CommandExt;
+use std::{ffi::OsString, os::windows::process::CommandExt};
 
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
@@ -46,62 +46,50 @@ pub fn locate_executable(
     }
 
     Err(format!(
-        "未找到可用的可执行文件。请把二进制放到 src-tauri/binaries、安装到系统 PATH，或通过环境变量 {} 指定绝对路径。",
-        env_key
+        "未找到可用的可执行文件。请将二进制放到 src-tauri/binaries、安装到系统 PATH，或通过环境变量 {env_key} 指定绝对路径。"
     ))
 }
 
 pub fn resolve_local_candidates(app: &AppHandle, names: &[&str]) -> Result<Vec<PathBuf>, String> {
+    let current_dir =
+        env::current_dir().map_err(|error| format!("读取当前目录失败: {error}"))?;
     let mut candidates = Vec::new();
-    let current_dir = env::current_dir().map_err(|error| format!("读取当前目录失败: {error}"))?;
 
     for name in names {
         let binary_name = with_target_triple(name);
+        let exe_name = with_exe_suffix(name);
+
+        // In dev, prefer the checked-in sidecars over target/debug copies. The
+        // checked-in binaries live next to their DLLs and are safe to launch.
+        for dir in local_sidecar_dirs(&current_dir) {
+            push_unique_path(&mut candidates, dir.join(&binary_name));
+            push_unique_path(&mut candidates, dir.join(&exe_name));
+        }
+
         if let Ok(resource_path) = app.path().resolve(&binary_name, BaseDirectory::Resource) {
-            candidates.push(resource_path);
+            push_unique_path(&mut candidates, resource_path);
+        }
+        if let Ok(resource_path) = app.path().resolve(&exe_name, BaseDirectory::Resource) {
+            push_unique_path(&mut candidates, resource_path);
+        }
+        if let Ok(resource_path) =
+            app.path()
+                .resolve(format!("binaries/{binary_name}"), BaseDirectory::Resource)
+        {
+            push_unique_path(&mut candidates, resource_path);
         }
         if let Ok(resource_path) = app
             .path()
-            .resolve(with_exe_suffix(name), BaseDirectory::Resource)
+            .resolve(format!("binaries/{exe_name}"), BaseDirectory::Resource)
         {
-            candidates.push(resource_path);
-        }
-        if let Ok(resource_path) = app
-            .path()
-            .resolve(format!("binaries/{binary_name}"), BaseDirectory::Resource)
-        {
-            candidates.push(resource_path);
-        }
-        if let Ok(resource_path) = app.path().resolve(
-            format!("binaries/{}", with_exe_suffix(name)),
-            BaseDirectory::Resource,
-        ) {
-            candidates.push(resource_path);
+            push_unique_path(&mut candidates, resource_path);
         }
         if let Ok(executable_path) = app.path().resolve(&binary_name, BaseDirectory::Executable) {
-            candidates.push(executable_path);
+            push_unique_path(&mut candidates, executable_path);
         }
-        if let Ok(executable_path) = app
-            .path()
-            .resolve(with_exe_suffix(name), BaseDirectory::Executable)
-        {
-            candidates.push(executable_path);
+        if let Ok(executable_path) = app.path().resolve(&exe_name, BaseDirectory::Executable) {
+            push_unique_path(&mut candidates, executable_path);
         }
-        candidates.push(current_dir.join("src-tauri/binaries").join(&binary_name));
-        candidates.push(
-            current_dir
-                .join("src-tauri/binaries")
-                .join(with_exe_suffix(name)),
-        );
-        if let Some(parent_dir) = current_dir.parent() {
-            candidates.push(parent_dir.join("src-tauri/binaries").join(&binary_name));
-            candidates.push(
-                parent_dir
-                    .join("src-tauri/binaries")
-                    .join(with_exe_suffix(name)),
-            );
-        }
-        candidates.push(current_dir.join("bin").join(with_exe_suffix(name)));
     }
 
     Ok(candidates)
@@ -156,18 +144,11 @@ pub fn build_command(target: &CommandTarget) -> Command {
     };
 
     #[cfg(windows)]
-    command.creation_flags(CREATE_NO_WINDOW);
+    configure_windows_command(&mut command, target);
 
     command
 }
 
-/// 构建低优先级命令，避免 ffmpeg / whisper-cli 等 CPU 密集型子进程抢占 UI 线程。
-///
-/// - **macOS**: 使用 `taskpolicy -b` 设置 TASK_BACKGROUND_APPLICATION QoS。
-///   这是 XNU 内核级别的调度限制，比 `nice` 有效得多——macOS 几乎忽略 nice 值，
-///   但 `taskpolicy -b` 会让进程真正退让 CPU 给前台应用（WKWebView）。
-/// - **Linux**: 使用 `nice -n 19`（最低优先级），CFS 调度器会正确遵守。
-/// - **Windows**: 退化为普通命令（未来可用 `START /LOW`）。
 pub fn build_nice_command(target: &CommandTarget) -> Command {
     #[cfg(target_os = "macos")]
     {
@@ -229,4 +210,80 @@ pub fn kill_process(pid: u32) -> Result<(), String> {
             Err(format!("终止进程失败，退出码: {:?}", status.code()))
         }
     }
+}
+
+fn local_sidecar_dirs(current_dir: &Path) -> Vec<PathBuf> {
+    let mut dirs = vec![current_dir.join("src-tauri/binaries"), current_dir.join("bin")];
+
+    if let Some(parent_dir) = current_dir.parent() {
+        dirs.push(parent_dir.join("src-tauri/binaries"));
+        dirs.push(parent_dir.join("bin"));
+    }
+
+    dirs
+}
+
+fn push_unique_path(paths: &mut Vec<PathBuf>, candidate: PathBuf) {
+    if !paths.iter().any(|path| path == &candidate) {
+        paths.push(candidate);
+    }
+}
+
+#[cfg(windows)]
+fn configure_windows_command(command: &mut Command, target: &CommandTarget) {
+    command.creation_flags(CREATE_NO_WINDOW);
+
+    let executable_path = match target {
+        CommandTarget::Program(_) => return,
+        CommandTarget::File(path) => path,
+    };
+
+    if let Some(parent) = executable_path.parent() {
+        command.current_dir(parent);
+    }
+
+    let mut path_entries = Vec::new();
+
+    if let Some(parent) = executable_path.parent() {
+        push_unique_os_path(&mut path_entries, parent.to_path_buf());
+    }
+
+    if let Ok(current_dir) = env::current_dir() {
+        for dir in local_sidecar_dirs(&current_dir) {
+            if dir.is_dir() {
+                push_unique_os_path(&mut path_entries, dir);
+            }
+        }
+    }
+
+    if let Some(existing_path) = env::var_os("PATH") {
+        for entry in env::split_paths(&existing_path) {
+            push_unique_os_path(&mut path_entries, entry);
+        }
+    }
+
+    if let Ok(joined) = env::join_paths(path_entries) {
+        command.env("PATH", joined);
+    }
+}
+
+#[cfg(windows)]
+fn push_unique_os_path(paths: &mut Vec<PathBuf>, candidate: PathBuf) {
+    if !candidate.exists() {
+        return;
+    }
+
+    if !paths.iter().any(|path| same_windows_path(path, &candidate)) {
+        paths.push(candidate);
+    }
+}
+
+#[cfg(windows)]
+fn same_windows_path(left: &Path, right: &Path) -> bool {
+    normalize_windows_path(left) == normalize_windows_path(right)
+}
+
+#[cfg(windows)]
+fn normalize_windows_path(path: &Path) -> OsString {
+    OsString::from(path.as_os_str().to_string_lossy().to_ascii_lowercase())
 }
