@@ -212,12 +212,37 @@ git push -u origin master
 
 ### 发版命令
 
-每次想发新版本时，建议先同步版本号：
+现在推荐直接用单命令发版，脚本会自动：
+
+- 读取最新 `v*` tag
+- 默认按 `patch` 递增版本号
+- 同步版本文件
+- 自动提交 `release: v<version>`
+- 推送当前分支
+- 创建并推送对应 tag
+
+执行方式：
+
+```bash
+cd /Users/zhaodesen/Desktop/desktop-client
+npm run release:version
+```
+
+如果你要升 `minor` 或 `major`：
+
+```bash
+npm run release:version -- minor
+npm run release:version -- major
+```
+
+脚本要求工作区必须是干净的；如果有未提交改动，会直接中止，避免把无关内容带进 release commit。
+
+如果你只想手动同步版本号，也可以继续使用：
 
 - [package.json](/Users/zhaodesen/Desktop/desktop-client/package.json)
 - [src-tauri/tauri.conf.json](/Users/zhaodesen/Desktop/desktop-client/src-tauri/tauri.conf.json)
 
-然后执行：
+手工流程如下：
 
 ```bash
 cd /Users/zhaodesen/Desktop/desktop-client

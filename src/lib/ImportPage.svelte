@@ -500,7 +500,7 @@
   }
 
   /* ═══════════════════════════════════════════
-     Idle copy block (title, buttons, note)
+     Step 1 — Idle copy block (first out, last in)
      ═══════════════════════════════════════════ */
   .import-idle {
     display: flex;
@@ -508,45 +508,47 @@
     align-items: center;
     gap: 20px;
     max-width: 42rem;
+    /* REVERSE: reappear last */
     transition:
-      opacity 380ms cubic-bezier(0.4, 0, 0.2, 1) 280ms,
-      transform 420ms cubic-bezier(0.16, 1, 0.3, 1) 280ms,
-      filter 420ms cubic-bezier(0.4, 0, 0.2, 1) 280ms,
-      max-height 500ms cubic-bezier(0.16, 1, 0.3, 1) 200ms,
-      margin 500ms cubic-bezier(0.16, 1, 0.3, 1) 200ms;
+      opacity 360ms cubic-bezier(0.4, 0, 0.2, 1) 380ms,
+      transform 400ms cubic-bezier(0.16, 1, 0.3, 1) 380ms,
+      filter 400ms cubic-bezier(0.4, 0, 0.2, 1) 380ms,
+      max-height 450ms cubic-bezier(0.16, 1, 0.3, 1) 320ms,
+      margin 450ms cubic-bezier(0.16, 1, 0.3, 1) 320ms;
   }
 
   .import-hero[data-mode="active"] .import-idle {
     opacity: 0;
-    transform: translateY(-18px) scale(0.97);
+    transform: translateY(-14px) scale(0.97);
     filter: blur(6px);
     pointer-events: none;
     max-height: 0;
     margin: 0;
     overflow: hidden;
+    /* FORWARD: disappear first (0ms) */
     transition:
-      opacity 300ms cubic-bezier(0.4, 0, 0.2, 1) 0ms,
-      transform 350ms cubic-bezier(0.16, 1, 0.3, 1) 0ms,
-      filter 350ms cubic-bezier(0.4, 0, 0.2, 1) 0ms,
-      max-height 460ms cubic-bezier(0.16, 1, 0.3, 1) 50ms,
-      margin 460ms cubic-bezier(0.16, 1, 0.3, 1) 50ms;
+      opacity 280ms cubic-bezier(0.4, 0, 0.2, 1) 0ms,
+      transform 280ms cubic-bezier(0.16, 1, 0.3, 1) 0ms,
+      filter 280ms cubic-bezier(0.4, 0, 0.2, 1) 0ms,
+      max-height 400ms cubic-bezier(0.16, 1, 0.3, 1) 30ms,
+      margin 400ms cubic-bezier(0.16, 1, 0.3, 1) 30ms;
   }
 
   /* ═══════════════════════════════════════════
-     The morphing card
+     Step 2 — Card grows to 50% and centers
      ═══════════════════════════════════════════ */
   .import-card {
     margin-top: 36px;
     animation: import-card-float 7s ease-in-out infinite;
-    transition:
-      margin-top 650ms cubic-bezier(0.16, 1, 0.3, 1) 80ms;
+    /* REVERSE: margin returns */
+    transition: margin-top 420ms cubic-bezier(0.32, 0.72, 0, 1) 220ms;
   }
 
   .import-hero[data-mode="active"] .import-card {
     margin-top: 0;
     animation: none;
-    transition:
-      margin-top 650ms cubic-bezier(0.16, 1, 0.3, 1) 140ms;
+    /* FORWARD: margin→0 after copy starts collapsing */
+    transition: margin-top 420ms cubic-bezier(0.32, 0.72, 0, 1) 160ms;
   }
 
   .import-card-inner {
@@ -562,26 +564,33 @@
     box-shadow:
       0 20px 60px rgba(0, 0, 0, 0.28),
       0 0 0 1px rgba(255, 255, 255, 0.03);
+    transform: translateZ(0);
+    -webkit-transform: translateZ(0);
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
+    will-change: width, height;
+    /* REVERSE: shrink back */
     transition:
-      width 650ms cubic-bezier(0.16, 1, 0.3, 1) 80ms,
-      height 650ms cubic-bezier(0.16, 1, 0.3, 1) 80ms,
-      border-radius 650ms cubic-bezier(0.16, 1, 0.3, 1) 80ms,
-      box-shadow 700ms cubic-bezier(0.4, 0, 0.2, 1) 80ms;
+      width 440ms cubic-bezier(0.32, 0.72, 0, 1) 220ms,
+      height 440ms cubic-bezier(0.32, 0.72, 0, 1) 220ms,
+      border-radius 440ms cubic-bezier(0.32, 0.72, 0, 1) 220ms,
+      box-shadow 500ms cubic-bezier(0.4, 0, 0.2, 1) 220ms;
   }
 
   .import-hero[data-mode="active"] .import-card-inner {
-    width: min(540px, calc(100vw - 300px));
-    height: clamp(380px, 58vh, 480px);
+    width: min(580px, calc((100vw - var(--sidebar-w, 220px)) * 0.52));
+    height: min(450px, 50vh);
     border-radius: 28px;
     box-shadow:
       0 32px 80px rgba(0, 0, 0, 0.36),
       0 0 0 1px rgba(255, 255, 255, 0.06),
       0 0 80px rgba(var(--accent-rgb), calc(0.04 + var(--import-progress) * 0.12));
+    /* FORWARD: grow after copy starts fading */
     transition:
-      width 650ms cubic-bezier(0.16, 1, 0.3, 1) 140ms,
-      height 650ms cubic-bezier(0.16, 1, 0.3, 1) 140ms,
-      border-radius 650ms cubic-bezier(0.16, 1, 0.3, 1) 140ms,
-      box-shadow 700ms cubic-bezier(0.4, 0, 0.2, 1) 140ms;
+      width 440ms cubic-bezier(0.32, 0.72, 0, 1) 160ms,
+      height 440ms cubic-bezier(0.32, 0.72, 0, 1) 160ms,
+      border-radius 440ms cubic-bezier(0.32, 0.72, 0, 1) 160ms,
+      box-shadow 500ms cubic-bezier(0.4, 0, 0.2, 1) 160ms;
   }
 
   /* Card light sweep */
@@ -605,7 +614,7 @@
   }
 
   /* ═══════════════════════════════════════════
-     Decorative face (idle)
+     Decorative face — fades with copy block
      ═══════════════════════════════════════════ */
   .import-face-decor {
     position: absolute;
@@ -615,18 +624,20 @@
     flex-direction: column;
     gap: 12px;
     padding: 22px;
+    /* REVERSE: reappear with card shrink */
     transition:
-      opacity 320ms cubic-bezier(0.4, 0, 0.2, 1) 240ms,
-      filter 320ms cubic-bezier(0.4, 0, 0.2, 1) 240ms;
+      opacity 300ms cubic-bezier(0.4, 0, 0.2, 1) 280ms,
+      filter 300ms cubic-bezier(0.4, 0, 0.2, 1) 280ms;
   }
 
   .import-hero[data-mode="active"] .import-face-decor {
     opacity: 0;
     filter: blur(8px);
     pointer-events: none;
+    /* FORWARD: fade out immediately with copy */
     transition:
-      opacity 280ms cubic-bezier(0.4, 0, 0.2, 1) 0ms,
-      filter 280ms cubic-bezier(0.4, 0, 0.2, 1) 0ms;
+      opacity 240ms cubic-bezier(0.4, 0, 0.2, 1) 0ms,
+      filter 240ms cubic-bezier(0.4, 0, 0.2, 1) 0ms;
   }
 
   .import-chip {
@@ -684,7 +695,7 @@
   .import-bars span:nth-child(4) { height: 86%; animation-delay: -1.9s; }
 
   /* ═══════════════════════════════════════════
-     Progress face (active)
+     Step 3 — Progress face (last in, first out)
      ═══════════════════════════════════════════ */
   .import-face-progress {
     position: absolute;
@@ -699,10 +710,11 @@
     transform: translateY(10px);
     filter: blur(6px);
     pointer-events: none;
+    /* REVERSE: disappear first (0ms) */
     transition:
-      opacity 350ms cubic-bezier(0.4, 0, 0.2, 1) 0ms,
-      transform 350ms cubic-bezier(0.16, 1, 0.3, 1) 0ms,
-      filter 350ms cubic-bezier(0.4, 0, 0.2, 1) 0ms;
+      opacity 280ms cubic-bezier(0.4, 0, 0.2, 1) 0ms,
+      transform 280ms cubic-bezier(0.16, 1, 0.3, 1) 0ms,
+      filter 280ms cubic-bezier(0.4, 0, 0.2, 1) 0ms;
   }
 
   .import-hero[data-mode="active"] .import-face-progress {
@@ -710,10 +722,11 @@
     transform: translateY(0);
     filter: blur(0);
     pointer-events: auto;
+    /* FORWARD: appear LAST — after card finishes growing (~400ms) */
     transition:
-      opacity 450ms cubic-bezier(0.4, 0, 0.2, 1) 320ms,
-      transform 450ms cubic-bezier(0.16, 1, 0.3, 1) 320ms,
-      filter 450ms cubic-bezier(0.4, 0, 0.2, 1) 320ms;
+      opacity 400ms cubic-bezier(0.4, 0, 0.2, 1) 420ms,
+      transform 400ms cubic-bezier(0.16, 1, 0.3, 1) 420ms,
+      filter 400ms cubic-bezier(0.4, 0, 0.2, 1) 420ms;
   }
 
   .import-fp-head {
@@ -1049,8 +1062,8 @@
      Keyframes
      ═══════════════════════════════════════════ */
   @keyframes import-card-float {
-    0%, 100% { transform: translateY(0); }
-    50% { transform: translateY(-7px); }
+    0%, 100% { translate: 0 0; }
+    50% { translate: 0 -7px; }
   }
 
   @keyframes import-orb-a {
@@ -1109,7 +1122,8 @@
     .import-toast, .import-dialog, .import-online-dialog { left: 50%; }
 
     .import-hero[data-mode="active"] .import-card-inner {
-      width: min(500px, calc(100vw - 60px));
+      width: min(520px, calc(100vw - 60px));
+      height: min(420px, 52vh);
     }
   }
 
@@ -1126,11 +1140,11 @@
 
     .import-fp-head { align-items: flex-start; }
 
-    .import-card-inner { width: 280px; height: 190px; }
+    .import-card-inner { width: 260px; height: 180px; }
 
     .import-hero[data-mode="active"] .import-card-inner {
       width: min(460px, calc(100vw - 32px));
-      height: clamp(360px, 62vh, 460px);
+      height: min(400px, 55vh);
     }
 
     .import-face-progress { padding: 20px; gap: 12px; }
