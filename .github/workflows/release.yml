@@ -184,6 +184,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
           TAG_NAME: ${{ github.ref_name }}
         run: |
           cat > release-notes.md <<'EOF'
@@ -216,11 +217,11 @@ jobs:
             exit 1
           fi
 
-          if gh release view "$TAG_NAME" >/dev/null 2>&1; then
-            gh release edit "$TAG_NAME" --title "字幕工作台 $TAG_NAME" --notes-file release-notes.md
-            gh release upload "$TAG_NAME" "${files[@]}" --clobber
+          if gh release view "$TAG_NAME" --repo "$GH_REPO" >/dev/null 2>&1; then
+            gh release edit "$TAG_NAME" --repo "$GH_REPO" --title "字幕工作台 $TAG_NAME" --notes-file release-notes.md
+            gh release upload "$TAG_NAME" --repo "$GH_REPO" "${files[@]}" --clobber
           else
-            gh release create "$TAG_NAME" "${files[@]}" \
+            gh release create "$TAG_NAME" --repo "$GH_REPO" "${files[@]}" \
               --title "字幕工作台 $TAG_NAME" \
               --notes-file release-notes.md
           fi
