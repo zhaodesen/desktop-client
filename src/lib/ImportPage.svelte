@@ -522,7 +522,6 @@
     height: 300px;
     margin-top: 60px;
     perspective: 1400px;
-    transform-style: preserve-3d;
   }
 
   .import-showcase-halo,
@@ -580,8 +579,22 @@
     width: 320px;
     height: 216px;
     transform: translate(-50%, -44%) rotateX(58deg) rotateZ(-18deg);
-    transform-style: preserve-3d;
     animation: import-stage-float 7s ease-in-out infinite;
+  }
+
+  .import-showcase-stack::before {
+    content: "";
+    position: absolute;
+    left: 10%;
+    right: 10%;
+    bottom: -12%;
+    height: 34%;
+    border-radius: 999px;
+    background: radial-gradient(ellipse at center, rgba(0, 0, 0, 0.32) 0%, rgba(0, 0, 0, 0.14) 48%, transparent 76%);
+    filter: blur(16px);
+    opacity: 0.9;
+    transform: scale(1.05);
+    pointer-events: none;
   }
 
   .import-showcase-card {
@@ -595,13 +608,13 @@
 
   .import-showcase-card-back {
     background: linear-gradient(180deg, rgba(83, 95, 255, 0.12), rgba(14, 18, 28, 0.82));
-    transform: translate3d(-18px, -16px, -60px);
+    transform: translate(-18px, -16px) scale(0.96);
     opacity: 0.6;
   }
 
   .import-showcase-card-middle {
     background: linear-gradient(180deg, rgba(var(--accent-rgb), 0.1), rgba(18, 22, 32, 0.9));
-    transform: translate3d(-6px, -6px, -24px);
+    transform: translate(-6px, -6px) scale(0.985);
     opacity: 0.82;
   }
 

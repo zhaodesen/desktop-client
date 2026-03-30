@@ -36,6 +36,7 @@
   import ResourceListPage from "./lib/ResourceListPage.svelte";
   import PlayerPage from "./lib/PlayerPage.svelte";
   import SettingsPage from "./lib/SettingsPage.svelte";
+  import AboutPage from "./lib/AboutPage.svelte";
   import SubtitleEditor from "./lib/SubtitleEditor.svelte";
   import ConfirmDialog from "./lib/ConfirmDialog.svelte";
   import FirstRunOnboarding from "./lib/FirstRunOnboarding.svelte";
@@ -102,13 +103,22 @@
   const PLAYBACK_STATE_SAVE_DEBOUNCE_MS = 250;
   const PLAYBACK_STATE_PROGRESS_THRESHOLD_MS = 1000;
   const PLAYBACK_DEBUG_LIMIT = 120;
+  const ABOUT_AVATAR_PATH = "/Users/zhaodesen/Pictures/image_20250302231237_93787d518e5b74142c866f21ddc9bce4.jpg";
+  const FORCE_ONBOARDING = parseBooleanEnv(import.meta.env.VITE_FORCE_ONBOARDING);
+  const SHOW_ONBOARDING_PREVIEW_ENTRY = import.meta.env.DEV;
+
+  function parseBooleanEnv(value: unknown): boolean {
+    if (typeof value !== "string") return false;
+    return ["1", "true", "yes", "on"].includes(value.trim().toLowerCase());
+  }
 
   /* ── State ─────────────────────────────────────────────── */
 
   let settings = $state<AppSettings>({ ...DEFAULT_SETTINGS, overlay: { ...DEFAULT_SETTINGS.overlay } });
   let libraryState = $state<LibraryState>({ mediaItems: [], playbackHistory: [] });
   let activePage = $state("import");
-  let lastMainPage = $state<"import" | "resources" | "playlist" | "settings">("import");
+  let lastMainPage = $state<"import" | "resources" | "playlist" | "settings" | "about">("import");
+  let aboutAvatarSrc = $state("");
 
   let currentMediaId = $state<string | undefined>(undefined);
   let pendingPlaylistMediaId = $state<string | undefined>(undefined);
@@ -131,6 +141,7 @@
   let importSuccessName = $state<string | undefined>(undefined);
   let showImportSuccess = $state(false);
   let importSuccessTimer: ReturnType<typeof setTimeout> | undefined;
+  let translationProgressDriftTimer: ReturnType<typeof setInterval> | undefined;
   let isCancellingAsr = $state(false);
 
   let availableModels = $state<ModelInfo[]>([]);
@@ -200,8 +211,17 @@
   let playlistPlayPromise: Promise<void> | null = null;
   let playlistPlayTargetId: string | undefined;
 
+  type ImportSource = "local" | "online";
+  type ImportBackendStage = "downloading" | "copying" | "extracting" | "registering";
+
   function scheduleProgressUpdate(next: ImportProgress) {
-    pendingProgressUpdate = next;
+    const baseline = Math.max(
+      importProgress.active ? importProgress.percent : 0,
+      pendingProgressUpdate?.active ? pendingProgressUpdate.percent : 0,
+    );
+    pendingProgressUpdate = next.active
+      ? { ...next, percent: Math.max(next.percent, baseline) }
+      : next;
     if (!progressRafId) {
       progressRafId = requestAnimationFrame(() => {
         progressRafId = 0;
@@ -229,6 +249,8 @@
 
   // ConfirmDialog ref
   let confirmDialog: ConfirmDialog;
+
+  aboutAvatarSrc = convertFileSrc(ABOUT_AVATAR_PATH);
 
   /* ── Theme ─────────────────────────────────────────────── */
 
@@ -369,6 +391,86 @@
     return new Promise<void>((resolve) => {
       requestAnimationFrame(() => resolve());
     });
+  }
+
+  function stopTranslationProgressDrift() {
+    clearInterval(translationProgressDriftTimer);
+    translationProgressDriftTimer = undefined;
+  }
+
+  function startTranslationProgressDrift() {
+    stopTranslationProgressDrift();
+    translationProgressDriftTimer = setInterval(() => {
+      if (!importProgress.active || importProgress.stage !== "translating") {
+        stopTranslationProgressDrift();
+        return;
+      }
+
+      if (importProgress.percent >= 97) return;
+
+      scheduleProgressUpdate({
+        ...importProgress,
+        percent: Math.min(importProgress.percent + 1, 97),
+      });
+    }, 900);
+  }
+
+  function clampProgressPercent(percent: number | null | undefined) {
+    return Math.max(0, Math.min(100, percent ?? 0));
+  }
+
+  function mapProgressRange(start: number, end: number, percent: number | null | undefined, fallback: number) {
+    if (percent == null) return fallback;
+    const normalized = clampProgressPercent(percent);
+    return start + (normalized / 100) * (end - start);
+  }
+
+  function getImportProgressSource(source = activeImportSource): ImportSource {
+    return source === "online" ? "online" : "local";
+  }
+
+  function getImportSettledPercent(source = activeImportSource) {
+    return getImportProgressSource(source) === "online" ? 60 : 24;
+  }
+
+  function getPreparingOverallPercent(source = activeImportSource) {
+    return getImportProgressSource(source) === "online" ? 66 : 30;
+  }
+
+  function getRecognizingOverallPercent(percent: number | null | undefined, source = activeImportSource) {
+    return getImportProgressSource(source) === "online"
+      ? mapProgressRange(72, 88, percent, 72)
+      : mapProgressRange(36, 88, percent, 36);
+  }
+
+  function getWritingOverallPercent() {
+    return 90;
+  }
+
+  function getTranslatingOverallPercent() {
+    return 92;
+  }
+
+  function getImportStageOverallPercent(
+    stage: ImportBackendStage,
+    percent: number | null | undefined,
+    source = activeImportSource,
+  ) {
+    if (stage === "downloading") {
+      return getImportProgressSource(source) === "online"
+        ? mapProgressRange(4, 52, percent, 10)
+        : 0;
+    }
+
+    if (getImportProgressSource(source) === "online") {
+      if (stage === "copying") return mapProgressRange(52, 58, percent, 54);
+      if (stage === "extracting") return mapProgressRange(52, 58, percent, 55);
+      return percent != null ? 60 : 58;
+    }
+
+    if (stage === "copying") return mapProgressRange(6, 16, percent, 10);
+    if (stage === "extracting") return mapProgressRange(16, 24, percent, 20);
+    return percent != null ? 24 : 22;
   }
 
   function clearRetryAsrCompletionNotice() {
@@ -620,7 +722,7 @@
   }
 
   function setActivePage(page: string) {
-    if (page === "import" || page === "resources" || page === "playlist" || page === "settings") {
+    if (page === "import" || page === "resources" || page === "playlist" || page === "settings" || page === "about") {
       lastMainPage = page;
     }
     activePage = page;
@@ -649,6 +751,16 @@
     await persistSettings();
     setActivePage("import");
     setStatus("已跳过模型选择，可稍后在设置页面下载模型", "warning");
+  }
+
+  function openOnboardingPreview() {
+    showFirstRunOnboarding = true;
+    onboardingStep = "select-model";
+    onboardingSelectedModelId = undefined;
+    onboardingDownloadPercent = 0;
+    onboardingDownloadMessage = "正在准备模型下载…";
+    onboardingError = undefined;
+    setStatus("已打开首次引导预览", "success");
   }
 
   /* ── Persist settings ──────────────────────────────────── */
@@ -1108,11 +1220,12 @@
       active: true,
       stage: source === "online" ? "downloading" : "importing",
       message: initialMessage,
-      percent: source === "online" ? 2 : 5,
+      percent: source === "online" ? 4 : 6,
     };
   }
 
   function resetImportFlowState() {
+    stopTranslationProgressDrift();
     resetScheduledProgressUpdate();
     clearTimeout(importSuccessTimer);
     importProgress = { ...IMPORT_IDLE };
@@ -1134,7 +1247,12 @@
     try {
       await waitForNextPaint();
       const media = await backend.importMedia(selected);
-      importProgress = { active: true, stage: "importing", message: "媒体导入成功，准备生成字幕…", percent: 15 };
+      importProgress = {
+        active: true,
+        stage: "importing",
+        message: "媒体导入成功，准备生成字幕…",
+        percent: getImportSettledPercent("local"),
+      };
       importSuccessName = media.title;
       await refreshLibrary();
       // 不在导入时预加载音频到播放器：
@@ -1155,7 +1273,12 @@
     try {
       await waitForNextPaint();
       const media = await backend.importOnlineMedia(url);
-      importProgress = { active: true, stage: "importing", message: "在线视频已下载，准备生成字幕…", percent: 15 };
+      importProgress = {
+        active: true,
+        stage: "importing",
+        message: "在线视频已导入，准备生成字幕…",
+        percent: getImportSettledPercent("online"),
+      };
       importSuccessName = media.title;
       await refreshLibrary();
       await startAutoAsr(media);
@@ -1619,39 +1742,20 @@
 
       if (stage === "downloading") {
         if (activeImportSource !== "online") return;
-        const overall = percent != null ? 2 + (percent / 100) * 10 : 6;
         scheduleProgressUpdate({
           active: true,
           stage: "downloading",
           message,
-          percent: Math.round(overall),
+          percent: Math.round(getImportStageOverallPercent(stage, percent, "online")),
         });
         return;
       }
-
-      const localFallbackPercent: Record<"copying" | "extracting" | "registering", number> = {
-        copying: 8,
-        extracting: 10,
-        registering: 15,
-      };
-      const onlineFallbackPercent: Record<"copying" | "extracting" | "registering", number> = {
-        copying: 13,
-        extracting: 14,
-        registering: 15,
-      };
-      const overall = activeImportSource === "online"
-        ? percent != null
-          ? 12 + (percent / 100) * 3
-          : onlineFallbackPercent[stage]
-        : percent != null
-          ? 5 + (percent / 100) * 10
-          : localFallbackPercent[stage];
 
       scheduleProgressUpdate({
         active: true,
         stage: "importing",
         message,
-        percent: Math.round(overall),
+        percent: Math.round(getImportStageOverallPercent(stage, percent)),
       });
     });
 
@@ -1686,22 +1790,28 @@
 
       // 使用 requestAnimationFrame 批量更新，避免高频状态变更导致掉帧
       if (stage === "preparing") {
-        scheduleProgressUpdate({ active: true, stage: "preparing", message: "正在检查依赖和模型…", percent: 18 });
+        scheduleProgressUpdate({
+          active: true,
+          stage: "preparing",
+          message: "正在检查依赖和模型…",
+          percent: getPreparingOverallPercent(),
+        });
       } else if (stage === "recognizing") {
-        // whisper 实时回报了识别进度 → 映射到总进度 25%–85%
-        if (percent != null && percent > 0) {
-          const overall = 25 + (percent / 100) * 60; // 25% ~ 85%
-          scheduleProgressUpdate({
-            active: true,
-            stage: "recognizing",
-            message: `正在离线识别字幕… ${Math.round(percent)}%`,
-            percent: Math.round(overall),
-          });
-        } else {
-          scheduleProgressUpdate({ active: true, stage: "recognizing", message: "正在离线识别字幕…", percent: 25 });
-        }
+        scheduleProgressUpdate({
+          active: true,
+          stage: "recognizing",
+          message: percent != null && percent > 0
+            ? `正在离线识别字幕… ${Math.round(percent)}%`
+            : "正在离线识别字幕…",
+          percent: Math.round(getRecognizingOverallPercent(percent)),
+        });
       } else if (stage === "writing") {
-        scheduleProgressUpdate({ active: true, stage: "recognizing", message: "识别完成，正在写入字幕…", percent: 85 });
+        scheduleProgressUpdate({
+          active: true,
+          stage: "recognizing",
+          message: "识别完成，正在写入字幕…",
+          percent: getWritingOverallPercent(),
+        });
       }
     });
 
@@ -1722,8 +1832,14 @@
               updateRetryAsrProgress(mediaIdForSubtitle, 96, "正在生成中文字幕…");
             }
             if (importProgress.active) {
+              startTranslationProgressDrift();
               resetScheduledProgressUpdate();
-              importProgress = { active: true, stage: "translating", message: "正在生成中文翻译…", percent: 85 };
+              importProgress = {
+                active: true,
+                stage: "translating",
+                message: "正在生成中文翻译…",
+                percent: getTranslatingOverallPercent(),
+              };
             }
             try {
               await waitForNextPaint();
@@ -1752,6 +1868,7 @@
 
         // 整个流水线结束 → 显示成功弹框
         if (importProgress.active) {
+          stopTranslationProgressDrift();
           resetScheduledProgressUpdate();
           importProgress = { active: true, stage: "done", message: "全部完成！", percent: 100 };
         }
@@ -1798,6 +1915,7 @@
       if (activeAsrJobId && activeAsrJobId !== jobId) return;
       activeAsrJobId = undefined;
       isCancellingAsr = false;
+      stopTranslationProgressDrift();
       stopRetryAsrProgressDrift();
       retryAsrProgress = undefined;
       pendingSubtitleMediaId = undefined;
@@ -1891,12 +2009,14 @@
       player.setVolume(settings.volume);
       await overlayBridge.updateStyle(settings.overlay);
       if (settings.overlayVisible) await backend.showOverlay();
-      showFirstRunOnboarding = !settings.hasCompletedOnboarding;
+      showFirstRunOnboarding = FORCE_ONBOARDING || !settings.hasCompletedOnboarding;
       onboardingStep = settings.hasCompletedOnboarding ? "ready" : "select-model";
+      if (FORCE_ONBOARDING) onboardingStep = "select-model";
       setStatus("设置已加载", "success");
     } catch (err) {
       console.error(err);
-      showFirstRunOnboarding = !DEFAULT_SETTINGS.hasCompletedOnboarding;
+      showFirstRunOnboarding = FORCE_ONBOARDING || !DEFAULT_SETTINGS.hasCompletedOnboarding;
+      onboardingStep = "select-model";
       setStatus("读取设置失败，已使用默认配置", "warning");
     }
 
@@ -1948,6 +2068,7 @@
       unModelFailed();
       clearTimeout(importSuccessTimer);
       clearTimeout(retryAsrNoticeTimer);
+      clearInterval(translationProgressDriftTimer);
       clearInterval(retryAsrProgressDriftTimer);
       resetScheduledProgressUpdate();
       for (const eventName of audioDebugEvents) {
@@ -2137,10 +2258,16 @@
         {ytDlpStatus}
         {isUpdatingYtDlp}
         onUpdateYtDlp={handleUpdateYtDlp}
+        onOpenOnboarding={openOnboardingPreview}
+        showOnboardingPreviewEntry={SHOW_ONBOARDING_PREVIEW_ENTRY}
         onClearAllCache={handleClearAllCache}
         onDeleteAllModels={handleDeleteAllModels}
         onResetAppData={handleResetAppData}
       />
+      </div>
+    {:else if activePage === "about"}
+      <div class="page-transition" in:fade={{ duration: 160, delay: 40 }}>
+      <AboutPage avatarSrc={aboutAvatarSrc} />
       </div>
     {:else if activePage === "subtitle-editor"}
       <div class="page-transition" in:fade={{ duration: 160, delay: 40 }}>

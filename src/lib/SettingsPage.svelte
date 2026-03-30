@@ -28,6 +28,8 @@
     ytDlpStatus: YtDlpStatus | undefined;
     isUpdatingYtDlp: boolean;
     onUpdateYtDlp: () => void;
+    onOpenOnboarding: () => void;
+    showOnboardingPreviewEntry: boolean;
     onClearAllCache: () => void;
     onDeleteAllModels: () => void;
     onResetAppData: () => void;
@@ -42,6 +44,8 @@
     onSelectModel, onDeleteModel,
     onShortcutChange, onShortcutCommit,
     ytDlpStatus, isUpdatingYtDlp, onUpdateYtDlp,
+    onOpenOnboarding,
+    showOnboardingPreviewEntry,
     onClearAllCache, onDeleteAllModels, onResetAppData,
   }: Props = $props();
 
@@ -388,6 +392,15 @@
                 {#if isUpdatingYtDlp}更新中…{:else}检查更新{/if}
               </button>
             </div>
+            {#if showOnboardingPreviewEntry}
+              <div class="danger-item">
+                <div class="danger-item-text">
+                  <span class="danger-item-label">重新打开首次引导</span>
+                  <span class="danger-item-desc">仅本地调试可见，用于预览首次启动页面，不修改当前数据与模型状态</span>
+                </div>
+                <button class="btn btn-sm btn-outline" type="button" onclick={onOpenOnboarding}>打开</button>
+              </div>
+            {/if}
             <div class="danger-item">
               <div class="danger-item-text">
                 <span class="danger-item-label">删除所有模型</span>

@@ -2,6 +2,7 @@
   import { onDestroy } from "svelte";
   import type { ModelInfo, ModelStatus } from "../shared/types";
   import ParticleGlobe from "./ParticleGlobe.svelte";
+  import NoiseStartButton from "./NoiseStartButton.svelte";
   import StarField from "./StarField.svelte";
 
   type OnboardingStep = "select-model" | "downloading" | "ready";
@@ -166,7 +167,9 @@
                       <h2 class="cta-title">{selectedModel?.label ?? "模型"} 已就绪</h2>
                       <p class="cta-desc">现在可以开始导入音频或视频生成字幕了</p>
                     </div>
-                    <button class="btn btn-primary cta-btn" type="button" disabled={isExitingToHome} onclick={handleStartClick}>开始使用</button>
+                    <div class="cta-btn-shell">
+                      <NoiseStartButton label="开始使用" disabled={isExitingToHome} onClick={handleStartClick} />
+                    </div>
                   </div>
                 </div>
 
@@ -593,10 +596,7 @@
     max-width: 240px;
   }
 
-  .cta-btn {
-    padding: 12px 28px;
-    border-radius: var(--radius-md);
-    font-size: var(--font-md);
+  .cta-btn-shell {
     align-self: flex-start;
   }
 

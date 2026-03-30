@@ -7,18 +7,18 @@ use std::{
     process::Stdio,
     sync::{mpsc, Arc, Mutex},
     thread,
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tauri::{AppHandle, Emitter, Manager};
 
 #[cfg(target_os = "windows")]
 use std::env;
 
+use crate::state::ExternalProcessState;
 use crate::{
     sidecar::{self, CommandTarget},
     yt_dlp,
 };
-use crate::state::ExternalProcessState;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -92,7 +92,7 @@ pub fn get_library_state(app: &AppHandle) -> Result<LibraryState, String> {
 
 pub fn import_media(app: &AppHandle, input: ImportMediaInput) -> Result<MediaItem, String> {
     let source_path = PathBuf::from(input.source_path);
-    import_media_from_source_path(app, &source_path)
+    import_media_from_source_path(app, &source_path, false)
 }
 
 pub fn import_online_media(
@@ -106,10 +106,14 @@ pub fn import_online_media(
     }
 
     let downloaded_path = download_online_media(app, trimmed_url, active_import)?;
-    import_media_from_source_path(app, &downloaded_path)
+    import_media_from_source_path(app, &downloaded_path, true)
 }
 
-fn import_media_from_source_path(app: &AppHandle, source_path: &Path) -> Result<MediaItem, String> {
+fn import_media_from_source_path(
+    app: &AppHandle,
+    source_path: &Path,
+    prefer_move_audio: bool,
+) -> Result<MediaItem, String> {
     if !source_path.exists() {
         return Err("导入文件不存在".to_string());
     }
@@ -143,7 +147,7 @@ fn import_media_from_source_path(app: &AppHandle, source_path: &Path) -> Result<
                 .unwrap_or("mp3");
             let target = media_dir.join(format!("{id}.{extension}"));
             emit_import_progress(app, "copying", "正在复制音频文件…", Some(0.0))?;
-            copy_file_with_progress(app, source_path, &target)?;
+            persist_audio_file(app, source_path, &target, prefer_move_audio)?;
             target
         }
         MediaSourceKind::Video => {
@@ -169,6 +173,29 @@ fn import_media_from_source_path(app: &AppHandle, source_path: &Path) -> Result<
     state.media_items.insert(0, item.clone());
     save_library_state(app, &state)?;
     Ok(item)
+}
+
+fn persist_audio_file(
+    app: &AppHandle,
+    source_path: &Path,
+    target_path: &Path,
+    prefer_move: bool,
+) -> Result<(), String> {
+    if prefer_move {
+        match fs::rename(source_path, target_path) {
+            Ok(()) => {
+                emit_import_progress(app, "copying", "正在整理音频文件… 100%", Some(100.0))?;
+                return Ok(());
+            }
+            Err(_) => {
+                copy_file_with_progress(app, source_path, target_path)?;
+                let _ = fs::remove_file(source_path);
+                return Ok(());
+            }
+        }
+    }
+
+    copy_file_with_progress(app, source_path, target_path)
 }
 
 pub fn delete_media(app: &AppHandle, media_id: &str) -> Result<(), String> {
@@ -396,11 +423,10 @@ fn download_online_media(
     url: &str,
     active_import: Arc<Mutex<Option<ExternalProcessState>>>,
 ) -> Result<PathBuf, String> {
-    emit_import_progress(app, "downloading", "正在检查在线视频组件更新…", None)?;
-    let _ = yt_dlp::maybe_auto_update(app);
     emit_import_progress(app, "downloading", "正在准备在线视频下载…", Some(0.0))?;
 
     let yt_dlp = sidecar::locate_executable(app, "YT_DLP_BIN", &["yt-dlp"])?;
+    kick_off_yt_dlp_auto_update(app.clone());
     let download_dir = ensure_online_download_dir(app)?;
     let output_template = download_dir.join("%(title).160B [%(id)s].%(ext)s");
     let output_template_text = output_template.display().to_string();
@@ -424,7 +450,7 @@ fn download_online_media(
                 emit_import_progress(
                     app,
                     "downloading",
-                    "在线视频下载完成，准备导入…",
+                    "在线视频音频下载完成，准备导入…",
                     Some(100.0),
                 )?;
                 return Ok(path);
@@ -487,7 +513,9 @@ fn run_yt_dlp_download(
 
     let mut downloaded_path: Option<PathBuf> = None;
     let mut last_percent = 0f32;
-    let mut last_message = "正在下载在线视频…".to_string();
+    let mut last_emitted_percent = 0f32;
+    let mut last_progress_emit_at: Option<Instant> = None;
+    let mut last_message = "正在下载在线视频音频…".to_string();
 
     for output in rx {
         let line = output.line.trim();
@@ -499,21 +527,46 @@ fn run_yt_dlp_download(
             let path = PathBuf::from(line);
             if path.is_absolute() {
                 downloaded_path = Some(path);
-                last_message = "视频下载完成，正在导入素材…".to_string();
+                last_message = "音频下载完成，正在导入素材…".to_string();
                 continue;
             }
         }
 
         if let Some(percent) = parse_yt_dlp_percent(line) {
             last_percent = percent.max(last_percent);
-            last_message = format!("正在下载在线视频… {:.0}%", percent);
-            emit_import_progress(app, "downloading", &last_message, Some(percent))?;
+            last_message = format!("正在下载在线视频音频… {:.0}%", percent);
+            if should_emit_yt_dlp_progress(
+                percent,
+                last_emitted_percent,
+                last_progress_emit_at,
+            ) {
+                emit_import_progress(app, "downloading", &last_message, Some(percent))?;
+                last_emitted_percent = percent;
+                last_progress_emit_at = Some(Instant::now());
+            }
+            continue;
+        }
+
+        if line.contains("[ExtractAudio]")
+            || line.contains("Extracting audio")
+            || line.contains("Destination:")
+        {
+            last_percent = last_percent.max(97.0);
+            last_message = "正在提取并整理音频轨道…".to_string();
+            emit_import_progress(app, "downloading", &last_message, Some(last_percent))?;
             continue;
         }
 
         if line.contains("Merging formats") || line.contains("Fixing") {
             last_percent = last_percent.max(96.0);
-            last_message = "正在合并音视频流…".to_string();
+            last_message = "正在整理下载结果…".to_string();
+            emit_import_progress(app, "downloading", &last_message, Some(last_percent))?;
+            continue;
+        }
+
+        if line.contains("Deleting original file") {
+            last_percent = last_percent.max(99.0);
+            last_message = "正在清理中间文件…".to_string();
             emit_import_progress(app, "downloading", &last_message, Some(last_percent))?;
             continue;
         }
@@ -594,13 +647,15 @@ fn build_yt_dlp_attempts(url: &str, output_template: &str) -> Vec<YtDlpAttempt> 
 
 fn build_yt_dlp_args(url: &str, output_template: &str, extra_args: &[String]) -> Vec<String> {
     let mut args = vec![
+        "--ignore-config".to_string(),
         "--no-playlist".to_string(),
         "--newline".to_string(),
         "--progress".to_string(),
-        "--merge-output-format".to_string(),
-        "mp4".to_string(),
+        "--extract-audio".to_string(),
+        "--audio-format".to_string(),
+        "m4a".to_string(),
         "--format".to_string(),
-        "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/bv*+ba/b".to_string(),
+        "ba/b".to_string(),
         "--output".to_string(),
         output_template.to_string(),
         "--print".to_string(),
@@ -634,6 +689,12 @@ fn bilibili_cookie_browsers() -> Vec<&'static str> {
         .into_iter()
         .filter(|browser| browser_cookie_store_available(browser))
         .collect()
+}
+
+fn kick_off_yt_dlp_auto_update(app: AppHandle) {
+    thread::spawn(move || {
+        let _ = yt_dlp::maybe_auto_update(&app);
+    });
 }
 
 #[cfg(target_os = "windows")]
@@ -748,6 +809,64 @@ fn parse_yt_dlp_percent(line: &str) -> Option<f32> {
         .parse::<f32>()
         .ok()
         .map(|value| value.clamp(0.0, 100.0))
+}
+
+fn should_emit_yt_dlp_progress(
+    next_percent: f32,
+    last_emitted_percent: f32,
+    last_emit_at: Option<Instant>,
+) -> bool {
+    if next_percent >= 100.0 || next_percent <= 0.0 {
+        return true;
+    }
+
+    if next_percent >= last_emitted_percent + 2.0 {
+        return true;
+    }
+
+    let Some(last_emit_at) = last_emit_at else {
+        return true;
+    };
+
+    next_percent > last_emitted_percent && last_emit_at.elapsed() >= Duration::from_millis(400)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{build_yt_dlp_args, parse_yt_dlp_percent, should_emit_yt_dlp_progress};
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn yt_dlp_args_switch_to_audio_only_pipeline() {
+        let args = build_yt_dlp_args("https://example.com/video", "/tmp/%(title)s.%(ext)s", &[]);
+
+        assert!(args.iter().any(|arg| arg == "--ignore-config"));
+        assert!(args.iter().any(|arg| arg == "--extract-audio"));
+        assert!(args
+            .windows(2)
+            .any(|pair| pair == ["--audio-format", "m4a"]));
+        assert!(args.windows(2).any(|pair| pair == ["--format", "ba/b"]));
+        assert!(!args.iter().any(|arg| arg == "--merge-output-format"));
+    }
+
+    #[test]
+    fn yt_dlp_percent_parser_handles_download_lines() {
+        let line = "[download]  42.3% of 123.45MiB at 2.00MiB/s ETA 00:12";
+        assert_eq!(parse_yt_dlp_percent(line), Some(42.3));
+    }
+
+    #[test]
+    fn yt_dlp_progress_is_throttled_for_tiny_updates() {
+        let just_now = Instant::now();
+
+        assert!(!should_emit_yt_dlp_progress(10.5, 10.0, Some(just_now)));
+        assert!(should_emit_yt_dlp_progress(
+            10.5,
+            10.0,
+            Some(just_now - Duration::from_millis(500)),
+        ));
+        assert!(should_emit_yt_dlp_progress(12.1, 10.0, Some(just_now)));
+    }
 }
 
 fn emit_import_progress(
