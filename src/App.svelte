@@ -2150,7 +2150,11 @@
     onNavigate={setActivePage}
   />
 
-  <section class="content" class:content-player={activePage === "playlist"}>
+  <section
+    class="content"
+    class:content-player={activePage === "playlist"}
+    class:content-resources={activePage === "resources"}
+  >
     {#if activePage === "import"}
       <div class="page-transition" in:fade={{ duration: 160, delay: 40 }}>
       <ImportPage

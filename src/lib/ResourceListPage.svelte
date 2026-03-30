@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onDestroy } from "svelte";
+  import { Virtualizer } from "virtua/svelte";
   import { convertFileSrc } from "@tauri-apps/api/core";
   import type { MediaItem } from "../shared/types";
   import { formatDuration } from "../shared/utils";
@@ -33,8 +34,14 @@
   }: Props = $props();
   let durationLabels = $state<Record<string, string>>({});
   let addedTooltipId = $state<string | undefined>(undefined);
+  let searchQuery = $state("");
   let tooltipTimer: ReturnType<typeof setTimeout> | undefined;
   const pendingDurationIds = new Set<string>();
+  const normalizedSearchQuery = $derived(searchQuery.trim().toLocaleLowerCase("zh-CN"));
+  const filteredItems = $derived.by(() => {
+    if (!normalizedSearchQuery) return items;
+    return items.filter((item) => item.title.toLocaleLowerCase("zh-CN").includes(normalizedSearchQuery));
+  });
 
   function formatTimestamp(ts: number): string {
     return new Date(ts).toLocaleString("zh-CN", {
@@ -115,73 +122,177 @@
     <span class="badge">{items.length}</span>
   </div>
 
+  <label class="resource-search" for="resource-search-input">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <circle cx="11" cy="11" r="7"></circle>
+      <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+    </svg>
+    <input
+      id="resource-search-input"
+      type="text"
+      placeholder="按资源名称搜索"
+      bind:value={searchQuery}
+    />
+    {#if searchQuery}
+      <button
+        class="resource-search-clear"
+        type="button"
+        title="清空搜索"
+        onclick={() => { searchQuery = ""; }}
+      >
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <line x1="18" y1="6" x2="6" y2="18"></line>
+          <line x1="6" y1="6" x2="18" y2="18"></line>
+        </svg>
+      </button>
+    {/if}
+  </label>
+
   {#if items.length === 0}
-    <div class="list empty-state">
+    <div class="resource-list-scroll list empty-state">
       <div class="empty-content">
         <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.4"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
         <span>还没有导入任何资源，前往导入页面添加</span>
       </div>
     </div>
+  {:else if filteredItems.length === 0}
+    <div class="resource-list-scroll list empty-state">
+      <div class="empty-content">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.4"><circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+        <span>没有找到匹配“{searchQuery}”的资源</span>
+      </div>
+    </div>
   {:else}
-    <div class="list">
-      {#each items as item (item.id)}
-        <div
-          class="list-item"
-          class:list-item-retrying={item.id === retryingMediaId}
-          class:list-item-retry-done={item.id === retryCompletedMediaId}
-        >
-          {#if item.id === retryingMediaId}
-            <div
-              class="list-item-progress-bg"
-              aria-hidden="true"
-              style={`width: ${Math.max(retryingProgress, 6)}%;`}
-            ></div>
-          {/if}
-          <div class="list-item-info">
-            <div class="list-item-title">{item.title}</div>
-            <div class="list-item-meta">
-              <span>{item.sourceKind === "video" ? "视频" : "音频"}</span>
-              <span>{durationLabels[item.id] ?? "读取时长中…"}</span>
-              <span>{item.subtitlePath ? "已生成字幕" : "待生成字幕"}</span>
-              <span>{formatTimestamp(item.importedAt)}</span>
-            </div>
+    <div class="resource-list-scroll">
+      <Virtualizer data={filteredItems} overscan={6}>
+        {#snippet children(item)}
+          <div
+            class="list-item"
+            class:list-item-retrying={item.id === retryingMediaId}
+            class:list-item-retry-done={item.id === retryCompletedMediaId}
+          >
             {#if item.id === retryingMediaId}
-              <div class="retry-asr-status" role="status">
-                <span class="retry-asr-status-title">重新识别中 {Math.round(retryingProgress)}%</span>
-                <span class="retry-asr-status-message">{retryingMessage ?? "正在后台处理…"}</span>
-              </div>
+              <div
+                class="list-item-progress-bg"
+                aria-hidden="true"
+                style={`width: ${Math.max(retryingProgress, 6)}%;`}
+              ></div>
             {/if}
-          </div>
-          <div class="list-item-actions">
-            <div class="add-btn-wrap" class:add-btn-wrap-active={addedTooltipId === item.id}>
-              <button
-                class="btn btn-sm btn-icon-sm"
-                title="加入播放列表"
-                onclick={() => handleAdd(item.id)}
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-              </button>
-              {#if addedTooltipId === item.id}
-                <span class="add-tooltip">已添加到播放列表</span>
+            <div class="list-item-info">
+              <div class="list-item-title">{item.title}</div>
+              <div class="list-item-meta">
+                <span>{item.sourceKind === "video" ? "视频" : "音频"}</span>
+                <span>{durationLabels[item.id] ?? "读取时长中…"}</span>
+                <span>{item.subtitlePath ? "已生成字幕" : "待生成字幕"}</span>
+                <span>{formatTimestamp(item.importedAt)}</span>
+              </div>
+              {#if item.id === retryingMediaId}
+                <div class="retry-asr-status" role="status">
+                  <span class="retry-asr-status-title">重新识别中 {Math.round(retryingProgress)}%</span>
+                  <span class="retry-asr-status-message">{retryingMessage ?? "正在后台处理…"}</span>
+                </div>
               {/if}
             </div>
-            <button
-              class="btn btn-sm"
-              disabled={asrBusy}
-              onclick={() => onRetryAsr(item.id)}
-            >
-              {item.id === retryingMediaId ? "识别中…" : "重新识别"}
-            </button>
-            <button class="btn btn-sm" disabled={!item.subtitlePath} onclick={() => onEditSubtitle(item.id)}>编辑字幕</button>
-            <button class="btn btn-sm btn-danger" onclick={() => onDeleteMedia(item.id)}>删除</button>
+            <div class="list-item-actions">
+              <div class="add-btn-wrap" class:add-btn-wrap-active={addedTooltipId === item.id}>
+                <button
+                  class="btn btn-sm btn-icon-sm"
+                  title="加入播放列表"
+                  onclick={() => handleAdd(item.id)}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                </button>
+                {#if addedTooltipId === item.id}
+                  <span class="add-tooltip">已添加到播放列表</span>
+                {/if}
+              </div>
+              <button
+                class="btn btn-sm"
+                disabled={asrBusy}
+                onclick={() => onRetryAsr(item.id)}
+              >
+                {item.id === retryingMediaId ? "识别中…" : "重新识别"}
+              </button>
+              <button class="btn btn-sm" disabled={!item.subtitlePath} onclick={() => onEditSubtitle(item.id)}>编辑字幕</button>
+              <button class="btn btn-sm btn-danger" onclick={() => onDeleteMedia(item.id)}>删除</button>
+            </div>
           </div>
-        </div>
-      {/each}
+        {/snippet}
+      </Virtualizer>
     </div>
   {/if}
 </section>
 
 <style>
+  section.page {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .resource-list-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    scrollbar-gutter: stable;
+  }
+
+  .resource-search {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 42px;
+    padding: 0 14px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--bg-surface);
+    color: var(--text-dim);
+  }
+
+  .resource-search:focus-within {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+  }
+
+  .resource-search input {
+    flex: 1;
+    min-width: 0;
+    border: none;
+    background: transparent;
+    color: var(--text-primary);
+    font: inherit;
+    padding: 0;
+    box-shadow: none;
+  }
+
+  .resource-search input::placeholder {
+    color: var(--text-dim);
+  }
+
+  .resource-search input:focus {
+    outline: none;
+  }
+
+  .resource-search-clear {
+    display: grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border: none;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--text-dim);
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+
+  .resource-search-clear:hover {
+    background: var(--bg-surface-hover);
+    color: var(--text-primary);
+  }
+
   /* btn-icon-sm is now in styles.css */
 
   .add-btn-wrap {

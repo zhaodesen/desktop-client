@@ -208,11 +208,11 @@ git push -u origin master
 - 如果已配置 secrets，macOS 使用 `Developer ID Application` 证书签名，并提交公证
 - 如果已配置 secrets，Windows 使用 `.pfx` 证书签名
 
-构建完成后，安装包会上传到当前版本对应的 GitHub Release 页面；如果额外配置了 Gitee 的 secrets，也会同步上传到 Gitee Release。
+构建完成后，安装包会直接推送到 Gitee 仓库的 `release-assets` 分支，不再创建 GitHub Release。
 
 Gitee 相关说明见：
 
-- [github-actions-gitee-release.md](/Users/zhaodesen/Desktop/desktop-client/docs/github-actions-gitee-release.md)
+- [github-actions-gitee-assets.md](/Users/zhaodesen/Desktop/desktop-client/docs/github-actions-gitee-assets.md)
 
 ### 发版命令
 

@@ -381,7 +381,18 @@ h4 { font-size: var(--font-xs); font-weight: 600; letter-spacing: 0.04em; text-t
   overflow: hidden;
 }
 
+.content.content-resources {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 .content.content-player > .page-transition {
+  flex: 1;
+  min-height: 0;
+}
+
+.content.content-resources > .page-transition {
   flex: 1;
   min-height: 0;
 }

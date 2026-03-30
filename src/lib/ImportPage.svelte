@@ -50,6 +50,7 @@
     { id: "translating", short: "翻译", label: "生成中文字幕", description: "继续生成中文翻译字幕。" },
     { id: "done", short: "完成", label: "导入处理完成", description: "素材已经可以去资源列表查看。" },
   ];
+  const SHOWCASE_BAR_BASES = [0.38, 0.62, 0.5, 0.78];
 
   let suppressDialog = $state(false);
   let dialogSuppressChecked = $state(false);
@@ -73,6 +74,24 @@
   );
   let progressSummary = $derived(progress.message || activeStageMeta.description);
   let importErrorHint = $derived(getImportErrorHint(importError));
+  let progressRatio = $derived(normalizedPercent / 100);
+  let showcaseGlow = $derived(progress.active ? 0.16 + (progressRatio * 0.28) : 0.12);
+  let showcaseBars = $derived.by(() =>
+    SHOWCASE_BAR_BASES.map((base, index) => {
+      const wave = Math.sin((progressRatio * Math.PI * 1.2) + (index * 0.82)) * 0.08;
+      const height = Math.max(
+        0.26,
+        Math.min(0.96, base + (progress.active ? (progressRatio * 0.18) : 0) + wave),
+      );
+      return `${Math.round(height * 100)}%`;
+    }),
+  );
+  let showcaseStyle = $derived(
+    [
+      `--import-progress: ${progressRatio.toFixed(4)}`,
+      `--showcase-glow: ${showcaseGlow.toFixed(4)}`,
+    ].join("; "),
+  );
 
   onMount(() => {
     suppressDialog = localStorage.getItem(SUPPRESS_KEY) === "true";
@@ -228,113 +247,97 @@
 {/if}
 
 <section class="page import-page" data-active="true">
-  <div class="import-shell">
-    {#if progress.active}
-      <article class="import-card import-progress-card" role="status" aria-live="polite">
-        <div class="import-card-header">
-          <span class="import-badge import-badge-live">正在导入</span>
-          <span class="import-progress-number">{Math.round(normalizedPercent)}%</span>
-        </div>
+  <article class="import-hero" data-mode={progress.active ? "active" : "idle"} style={showcaseStyle}>
+    <div class="import-bg" aria-hidden="true">
+      <div class="import-orb import-orb-a"></div>
+      <div class="import-orb import-orb-b"></div>
+    </div>
 
-        <h2 class="import-title">{stageLabel}</h2>
-        <p class="import-description">{progressSummary}</p>
+    <div class="import-idle">
+      <h2 class="import-title">导入素材</h2>
+      <p class="import-desc">
+        支持本地音视频与在线视频链接。导入后会自动完成离线识别和中文字幕生成。
+      </p>
 
-        <div class="import-progress-track" aria-hidden="true">
-          <div class="import-progress-fill" style={`width: ${normalizedPercent}%`}></div>
-        </div>
+      <div class="import-actions">
+        <button class="btn btn-primary btn-lg" type="button" onclick={() => { void handleLocalImport(); }}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 3v12" />
+            <path d="m7 10 5 5 5-5" />
+            <path d="M5 21h14" />
+          </svg>
+          选择本地文件
+        </button>
+        <button class="btn btn-outline btn-lg" type="button" onclick={openOnlineDialog}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M5 12h14" />
+            <path d="m12 5 7 7-7 7" />
+            <path d="M5 5h.01" />
+            <path d="M5 19h.01" />
+          </svg>
+          导入在线视频
+        </button>
+      </div>
 
-        <div class="import-steps">
-          {#each IMPORT_STAGES as item, index}
-            <div class="import-step" data-state={getStageState(index)}>
-              <span class="import-step-dot"></span>
-              <span>{item.short}</span>
-            </div>
-          {/each}
-        </div>
+      <p class="import-note">
+        支持 MP4、MOV、MKV、MP3、WAV、M4A 等常见格式。长视频建议优先本地导入，公开链接适合直接拉取。
+      </p>
+    </div>
 
-        <p class="import-note import-note-progress">
-          {#if progress.stage === "done"}
-            双语字幕已经生成完成，可以前往资源列表继续查看。
-          {:else}
-            {activeStageMeta.description}
-          {/if}
-        </p>
+    <div class="import-card">
+      <div class="import-card-inner">
+        <div class="import-card-shine" aria-hidden="true"></div>
 
-        {#if canCancel}
-          <div class="import-progress-actions">
-            <button class="btn btn-ghost btn-sm import-cancel-btn" type="button" onclick={onCancel} disabled={isCancellingAsr}>
-              {#if isCancellingAsr}正在取消…{:else}取消识别{/if}
-            </button>
+        <div class="import-face-decor" aria-hidden="true">
+          <span class="import-chip">Import</span>
+          <span class="import-skel import-skel-bold"></span>
+          <span class="import-skel"></span>
+          <span class="import-skel import-skel-short"></span>
+          <div class="import-bars">
+            {#each showcaseBars as h}
+              <span style={`height: ${h}`}></span>
+            {/each}
           </div>
-        {/if}
-      </article>
-    {:else}
-      <article class="import-card import-hero-card">
-        <h2 class="import-title">导入素材</h2>
-        <p class="import-description">
-          支持本地音视频与在线视频链接。导入后会自动完成离线识别和中文字幕生成。
-        </p>
-
-        <div class="import-actions">
-          <button class="btn btn-primary btn-lg" type="button" onclick={() => { void handleLocalImport(); }}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M12 3v12" />
-              <path d="m7 10 5 5 5-5" />
-              <path d="M5 21h14" />
-            </svg>
-            选择本地文件
-          </button>
-          <button class="btn btn-outline btn-lg" type="button" onclick={openOnlineDialog}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M5 12h14" />
-              <path d="m12 5 7 7-7 7" />
-              <path d="M5 5h.01" />
-              <path d="M5 19h.01" />
-            </svg>
-            导入在线视频
-          </button>
         </div>
 
-        <div class="import-showcase" aria-hidden="true">
-          <div class="import-showcase-halo import-showcase-halo-a"></div>
-          <div class="import-showcase-halo import-showcase-halo-b"></div>
-          <div class="import-showcase-orbit import-showcase-orbit-a"></div>
-          <div class="import-showcase-orbit import-showcase-orbit-b"></div>
-
-          <div class="import-showcase-float import-showcase-float-left">
-            <span class="import-showcase-float-label">Subtitle</span>
-            <span class="import-showcase-float-value">双语</span>
+        <div class="import-face-progress" role="status" aria-live="polite">
+          <div class="import-fp-head">
+            <span class="import-badge import-badge-live">正在导入</span>
+            <span class="import-pct">{Math.round(normalizedPercent)}%</span>
           </div>
-
-          <div class="import-showcase-float import-showcase-float-right">
-            <span class="import-showcase-float-label">Audio</span>
-            <span class="import-showcase-float-value">Wave</span>
+          <div class="import-fp-body">
+            <h3 class="import-stage-label">{stageLabel}</h3>
+            <p class="import-stage-desc">{progressSummary}</p>
           </div>
-
-          <div class="import-showcase-stack">
-            <div class="import-showcase-card import-showcase-card-back"></div>
-            <div class="import-showcase-card import-showcase-card-middle"></div>
-            <div class="import-showcase-card import-showcase-card-front">
-              <span class="import-showcase-chip">Import</span>
-              <span class="import-showcase-line import-showcase-line-strong"></span>
-              <span class="import-showcase-line"></span>
-              <span class="import-showcase-line import-showcase-line-short"></span>
-              <div class="import-showcase-bars">
-                <span></span>
-                <span></span>
-                <span></span>
-                <span></span>
+          <div class="import-track">
+            <div class="import-track-fill" style={`width: ${normalizedPercent}%`}></div>
+          </div>
+          <div class="import-steps">
+            {#each IMPORT_STAGES as item, index}
+              <div class="import-step" data-state={getStageState(index)}>
+                <span class="import-step-dot"></span>
+                <span>{item.short}</span>
               </div>
-            </div>
+            {/each}
           </div>
+          <p class="import-stage-note">
+            {#if progress.stage === "done"}
+              双语字幕已经生成完成，可以前往资源列表继续查看。
+            {:else}
+              {activeStageMeta.description}
+            {/if}
+          </p>
+          {#if canCancel}
+            <div class="import-cancel-wrap">
+              <button class="btn btn-ghost btn-sm import-cancel-btn" type="button" onclick={onCancel} disabled={isCancellingAsr}>
+                {#if isCancellingAsr}正在取消…{:else}取消识别{/if}
+              </button>
+            </div>
+          {/if}
         </div>
-
-        <p class="import-note">
-          支持 MP4、MOV、MKV、MP3、WAV、M4A 等常见格式。长视频建议优先本地导入，公开链接适合直接拉取。
-        </p>
-      </article>
-    {/if}
-  </div>
+      </div>
+    </div>
+  </article>
 </section>
 
 {#if showToast}
@@ -407,6 +410,9 @@
 {/if}
 
 <style>
+  /* ═══════════════════════════════════════════
+     Layout
+     ═══════════════════════════════════════════ */
   .import-page {
     display: flex !important;
     flex-direction: column;
@@ -414,57 +420,390 @@
     min-height: calc(100vh - 96px);
   }
 
-  .import-shell {
-    width: 100%;
-    margin: 0;
+  .import-hero {
+    --import-progress: 0;
+    --showcase-glow: 0.12;
     flex: 1;
     display: flex;
-    min-height: 100%;
-    align-items: stretch;
-    justify-content: stretch;
-  }
-
-  .import-card {
-    width: 100%;
-    flex: 1;
-    min-height: 100%;
-    padding: 42px 38px;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0;
     position: relative;
     overflow: hidden;
+    padding: 42px 38px;
     text-align: center;
   }
 
-  .import-card::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-    border-radius: inherit;
-  }
-
-  .import-card > * {
+  .import-hero > * {
     position: relative;
     z-index: 1;
   }
 
-  .import-hero-card {
+  /* ═══════════════════════════════════════════
+     Ambient background orbs
+     ═══════════════════════════════════════════ */
+  .import-bg {
+    position: absolute !important;
+    inset: 0;
+    z-index: 0 !important;
+    pointer-events: none;
+    overflow: hidden;
+  }
+
+  .import-orb {
+    position: absolute;
+    border-radius: 50%;
+    will-change: transform, opacity;
+  }
+
+  .import-orb-a {
+    width: 420px;
+    height: 420px;
+    top: 12%;
+    left: 28%;
+    background: radial-gradient(circle, rgba(var(--accent-rgb), 0.18) 0%, transparent 68%);
+    filter: blur(80px);
+    opacity: 0.6;
+    animation: import-orb-a 14s ease-in-out infinite;
+    transition:
+      opacity 900ms cubic-bezier(0.4, 0, 0.2, 1) 200ms,
+      filter 900ms cubic-bezier(0.4, 0, 0.2, 1) 200ms,
+      transform 900ms cubic-bezier(0.16, 1, 0.3, 1) 200ms;
+  }
+
+  .import-orb-b {
+    width: 320px;
+    height: 320px;
+    bottom: 14%;
+    right: 24%;
+    background: radial-gradient(circle, rgba(129, 140, 248, 0.14) 0%, transparent 70%);
+    filter: blur(70px);
+    opacity: 0.45;
+    animation: import-orb-b 16s ease-in-out infinite;
+    transition:
+      opacity 900ms cubic-bezier(0.4, 0, 0.2, 1) 200ms,
+      filter 900ms cubic-bezier(0.4, 0, 0.2, 1) 200ms,
+      transform 900ms cubic-bezier(0.16, 1, 0.3, 1) 200ms;
+  }
+
+  .import-hero[data-mode="active"] .import-orb-a {
+    opacity: calc(0.55 + var(--showcase-glow));
+    filter: blur(100px);
+    transform: scale(calc(1.3 + var(--import-progress) * 0.3));
+  }
+
+  .import-hero[data-mode="active"] .import-orb-b {
+    opacity: calc(0.35 + var(--showcase-glow) * 0.6);
+    filter: blur(90px);
+    transform: scale(calc(1.2 + var(--import-progress) * 0.2));
+  }
+
+  /* ═══════════════════════════════════════════
+     Idle copy block (title, buttons, note)
+     ═══════════════════════════════════════════ */
+  .import-idle {
     display: flex;
     flex-direction: column;
     align-items: center;
     gap: 20px;
+    max-width: 42rem;
+    transition:
+      opacity 380ms cubic-bezier(0.4, 0, 0.2, 1) 280ms,
+      transform 420ms cubic-bezier(0.16, 1, 0.3, 1) 280ms,
+      filter 420ms cubic-bezier(0.4, 0, 0.2, 1) 280ms,
+      max-height 500ms cubic-bezier(0.16, 1, 0.3, 1) 200ms,
+      margin 500ms cubic-bezier(0.16, 1, 0.3, 1) 200ms;
   }
 
-  .import-progress-card {
+  .import-hero[data-mode="active"] .import-idle {
+    opacity: 0;
+    transform: translateY(-18px) scale(0.97);
+    filter: blur(6px);
+    pointer-events: none;
+    max-height: 0;
+    margin: 0;
+    overflow: hidden;
+    transition:
+      opacity 300ms cubic-bezier(0.4, 0, 0.2, 1) 0ms,
+      transform 350ms cubic-bezier(0.16, 1, 0.3, 1) 0ms,
+      filter 350ms cubic-bezier(0.4, 0, 0.2, 1) 0ms,
+      max-height 460ms cubic-bezier(0.16, 1, 0.3, 1) 50ms,
+      margin 460ms cubic-bezier(0.16, 1, 0.3, 1) 50ms;
+  }
+
+  /* ═══════════════════════════════════════════
+     The morphing card
+     ═══════════════════════════════════════════ */
+  .import-card {
+    margin-top: 36px;
+    animation: import-card-float 7s ease-in-out infinite;
+    transition:
+      margin-top 650ms cubic-bezier(0.16, 1, 0.3, 1) 80ms;
+  }
+
+  .import-hero[data-mode="active"] .import-card {
+    margin-top: 0;
+    animation: none;
+    transition:
+      margin-top 650ms cubic-bezier(0.16, 1, 0.3, 1) 140ms;
+  }
+
+  .import-card-inner {
+    position: relative;
+    width: 340px;
+    height: 220px;
+    border-radius: 24px;
+    overflow: hidden;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.045), transparent 40%),
+      linear-gradient(180deg, rgba(23, 27, 39, 0.97), rgba(11, 14, 21, 0.97));
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow:
+      0 20px 60px rgba(0, 0, 0, 0.28),
+      0 0 0 1px rgba(255, 255, 255, 0.03);
+    transition:
+      width 650ms cubic-bezier(0.16, 1, 0.3, 1) 80ms,
+      height 650ms cubic-bezier(0.16, 1, 0.3, 1) 80ms,
+      border-radius 650ms cubic-bezier(0.16, 1, 0.3, 1) 80ms,
+      box-shadow 700ms cubic-bezier(0.4, 0, 0.2, 1) 80ms;
+  }
+
+  .import-hero[data-mode="active"] .import-card-inner {
+    width: min(540px, calc(100vw - 300px));
+    height: clamp(380px, 58vh, 480px);
+    border-radius: 28px;
+    box-shadow:
+      0 32px 80px rgba(0, 0, 0, 0.36),
+      0 0 0 1px rgba(255, 255, 255, 0.06),
+      0 0 80px rgba(var(--accent-rgb), calc(0.04 + var(--import-progress) * 0.12));
+    transition:
+      width 650ms cubic-bezier(0.16, 1, 0.3, 1) 140ms,
+      height 650ms cubic-bezier(0.16, 1, 0.3, 1) 140ms,
+      border-radius 650ms cubic-bezier(0.16, 1, 0.3, 1) 140ms,
+      box-shadow 700ms cubic-bezier(0.4, 0, 0.2, 1) 140ms;
+  }
+
+  /* Card light sweep */
+  .import-card-shine {
+    position: absolute;
+    inset: -18% -34%;
+    z-index: 3;
+    background:
+      linear-gradient(
+        112deg,
+        transparent 36%,
+        rgba(255, 255, 255, 0.02) 43%,
+        rgba(255, 255, 255, 0.18) 50%,
+        rgba(255, 255, 255, 0.04) 57%,
+        transparent 66%
+      );
+    transform: translateX(-130%) skewX(-18deg);
+    mix-blend-mode: screen;
+    pointer-events: none;
+    animation: import-sweep 7s ease-in-out infinite;
+  }
+
+  /* ═══════════════════════════════════════════
+     Decorative face (idle)
+     ═══════════════════════════════════════════ */
+  .import-face-decor {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
     display: flex;
     flex-direction: column;
-    gap: 18px;
+    gap: 12px;
+    padding: 22px;
+    transition:
+      opacity 320ms cubic-bezier(0.4, 0, 0.2, 1) 240ms,
+      filter 320ms cubic-bezier(0.4, 0, 0.2, 1) 240ms;
   }
 
-  .import-card-header {
+  .import-hero[data-mode="active"] .import-face-decor {
+    opacity: 0;
+    filter: blur(8px);
+    pointer-events: none;
+    transition:
+      opacity 280ms cubic-bezier(0.4, 0, 0.2, 1) 0ms,
+      filter 280ms cubic-bezier(0.4, 0, 0.2, 1) 0ms;
+  }
+
+  .import-chip {
+    display: inline-flex;
+    align-items: center;
+    width: fit-content;
+    padding: 6px 10px;
+    border-radius: 999px;
+    background: rgba(var(--accent-rgb), 0.14);
+    border: 1px solid rgba(var(--accent-rgb), 0.18);
+    color: var(--accent);
+    font-size: var(--font-2xs);
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .import-skel {
+    display: block;
+    height: 10px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.08);
+  }
+
+  .import-skel-bold {
+    width: 52%;
+    height: 14px;
+    background: rgba(255, 255, 255, 0.88);
+  }
+
+  .import-skel-short {
+    width: 66%;
+  }
+
+  .import-bars {
+    margin-top: auto;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    align-items: end;
+    gap: 10px;
+    min-height: 72px;
+  }
+
+  .import-bars span {
+    display: block;
+    border-radius: 14px 14px 10px 10px;
+    background: linear-gradient(180deg, rgba(var(--accent-rgb), 0.86), rgba(var(--accent-rgb), 0.28));
+    animation: import-bars-pulse 2.8s ease-in-out infinite;
+    transition: height 420ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .import-bars span:nth-child(1) { height: 46%; animation-delay: -0.8s; }
+  .import-bars span:nth-child(2) { height: 74%; animation-delay: -1.4s; }
+  .import-bars span:nth-child(3) { height: 58%; animation-delay: -0.4s; }
+  .import-bars span:nth-child(4) { height: 86%; animation-delay: -1.9s; }
+
+  /* ═══════════════════════════════════════════
+     Progress face (active)
+     ═══════════════════════════════════════════ */
+  .import-face-progress {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 28px 30px;
+    text-align: left;
+    opacity: 0;
+    transform: translateY(10px);
+    filter: blur(6px);
+    pointer-events: none;
+    transition:
+      opacity 350ms cubic-bezier(0.4, 0, 0.2, 1) 0ms,
+      transform 350ms cubic-bezier(0.16, 1, 0.3, 1) 0ms,
+      filter 350ms cubic-bezier(0.4, 0, 0.2, 1) 0ms;
+  }
+
+  .import-hero[data-mode="active"] .import-face-progress {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+    pointer-events: auto;
+    transition:
+      opacity 450ms cubic-bezier(0.4, 0, 0.2, 1) 320ms,
+      transform 450ms cubic-bezier(0.16, 1, 0.3, 1) 320ms,
+      filter 450ms cubic-bezier(0.4, 0, 0.2, 1) 320ms;
+  }
+
+  .import-fp-head {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    gap: 14px;
+  }
+
+  .import-fp-body {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .import-pct {
+    font-size: clamp(2rem, 4vw, 2.8rem);
+    line-height: 1;
+    font-weight: 800;
+    letter-spacing: -0.04em;
+    color: var(--text-primary);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .import-stage-label {
+    margin: 0;
+    font-size: clamp(1.25rem, 2.5vw, 1.6rem);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: var(--text-primary);
+    line-height: 1.2;
+  }
+
+  .import-stage-desc {
+    margin: 0;
+    font-size: var(--font-sm);
+    line-height: 1.65;
+    color: var(--text-secondary);
+  }
+
+  .import-stage-note {
+    margin: 0;
+    font-size: var(--font-xs);
+    line-height: 1.7;
+    color: var(--text-dim);
+  }
+
+  .import-cancel-wrap {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: auto;
+  }
+
+  .import-cancel-btn {
+    min-width: 120px;
+  }
+
+  /* ═══════════════════════════════════════════
+     Shared typography
+     ═══════════════════════════════════════════ */
+  .import-title {
+    margin: 0;
+    font-size: clamp(2rem, 4vw, 3rem);
+    line-height: 1.08;
+    letter-spacing: -0.05em;
+    color: var(--text-primary);
+  }
+
+  .import-desc {
+    margin: 0 auto;
+    max-width: 34rem;
+    font-size: 1rem;
+    line-height: 1.8;
+    color: var(--text-secondary);
+  }
+
+  .import-actions {
+    display: flex;
+    justify-content: center;
+    flex-wrap: wrap;
     gap: 12px;
+    margin-top: 2px;
+  }
+
+  .import-note {
+    margin: 0 auto;
+    max-width: 38rem;
+    font-size: var(--font-sm);
+    line-height: 1.75;
+    color: var(--text-dim);
   }
 
   .import-badge {
@@ -489,336 +828,50 @@
     border-radius: 999px;
     background: currentColor;
     margin-right: 8px;
-    box-shadow: 0 0 0 6px rgba(var(--accent-rgb), 0.12);
+    animation: import-badge-pulse 2s ease-in-out infinite;
   }
 
-  .import-title {
-    margin: 0;
-    font-size: clamp(2rem, 4vw, 3rem);
-    line-height: 1.08;
-    letter-spacing: -0.05em;
-    color: var(--text-primary);
-  }
-
-  .import-description {
-    margin: 0 auto;
-    max-width: 34rem;
-    font-size: 1rem;
-    line-height: 1.8;
-    color: var(--text-secondary);
-  }
-
-  .import-actions {
-    display: flex;
-    justify-content: center;
-    flex-wrap: wrap;
-    gap: 12px;
-    margin-top: 2px;
-  }
-
-  .import-showcase {
-    position: relative;
-    width: min(760px, 100%);
-    height: 300px;
-    margin-top: 60px;
-    perspective: 1400px;
-  }
-
-  .import-showcase-halo,
-  .import-showcase-orbit {
-    position: absolute;
-    inset: 50% auto auto 50%;
-    transform: translate(-50%, -50%);
-    pointer-events: none;
-  }
-
-  .import-showcase-halo {
-    border-radius: 999px;
-    filter: blur(18px);
-    opacity: 0.75;
-  }
-
-  .import-showcase-halo-a {
-    width: 320px;
-    height: 320px;
-    background: radial-gradient(circle, rgba(var(--accent-rgb), 0.24) 0%, transparent 68%);
-    animation: import-halo-drift 8s ease-in-out infinite;
-  }
-
-  .import-showcase-halo-b {
-    width: 220px;
-    height: 220px;
-    background: radial-gradient(circle, rgba(129, 140, 248, 0.14) 0%, transparent 72%);
-    transform: translate(-30%, -45%);
-    animation: import-halo-drift 9s ease-in-out infinite reverse;
-  }
-
-  .import-showcase-orbit {
-    border-radius: 999px;
-    border: 1px solid rgba(var(--accent-rgb), 0.12);
-  }
-
-  .import-showcase-orbit-a {
-    width: 360px;
-    height: 170px;
-    transform: translate(-50%, -50%) rotate(-10deg);
-    animation: import-orbit-spin 16s linear infinite;
-  }
-
-  .import-showcase-orbit-b {
-    width: 280px;
-    height: 126px;
-    border-color: rgba(255, 255, 255, 0.08);
-    transform: translate(-50%, -50%) rotate(12deg);
-    animation: import-orbit-spin 12s linear infinite reverse;
-  }
-
-  .import-showcase-stack {
-    position: absolute;
-    inset: 50% auto auto 50%;
-    width: 320px;
-    height: 216px;
-    transform: translate(-50%, -44%) rotateX(58deg) rotateZ(-18deg);
-    animation: import-stage-float 7s ease-in-out infinite;
-  }
-
-  .import-showcase-stack::before {
-    content: "";
-    position: absolute;
-    left: 10%;
-    right: 10%;
-    bottom: -12%;
-    height: 34%;
-    border-radius: 999px;
-    background: radial-gradient(ellipse at center, rgba(0, 0, 0, 0.32) 0%, rgba(0, 0, 0, 0.14) 48%, transparent 76%);
-    filter: blur(16px);
-    opacity: 0.9;
-    transform: scale(1.05);
-    pointer-events: none;
-  }
-
-  .import-showcase-card {
-    position: absolute;
-    inset: 0;
-    overflow: hidden;
-    border-radius: 28px;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.34);
-  }
-
-  .import-showcase-card-back {
-    background: linear-gradient(180deg, rgba(83, 95, 255, 0.12), rgba(14, 18, 28, 0.82));
-    transform: translate(-18px, -16px) scale(0.96);
-    opacity: 0.6;
-  }
-
-  .import-showcase-card-middle {
-    background: linear-gradient(180deg, rgba(var(--accent-rgb), 0.1), rgba(18, 22, 32, 0.9));
-    transform: translate(-6px, -6px) scale(0.985);
-    opacity: 0.82;
-  }
-
-  .import-showcase-card-front {
-    position: relative;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    padding: 22px;
-    background:
-      linear-gradient(180deg, rgba(255, 255, 255, 0.045), transparent 36%),
-      linear-gradient(180deg, rgba(23, 27, 39, 0.96), rgba(11, 14, 21, 0.96));
-  }
-
-  .import-showcase-card-front::before {
-    content: "";
-    position: absolute;
-    inset: -18% -34%;
-    background:
-      linear-gradient(
-        112deg,
-        transparent 36%,
-        rgba(255, 255, 255, 0.02) 43%,
-        rgba(255, 255, 255, 0.22) 50%,
-        rgba(255, 255, 255, 0.06) 57%,
-        transparent 66%
-      );
-    transform: translateX(-130%) skewX(-18deg);
-    mix-blend-mode: screen;
-    pointer-events: none;
-    animation: import-card-sweep 6.8s ease-in-out infinite;
-  }
-
-  .import-showcase-card-front > * {
-    position: relative;
-    z-index: 1;
-  }
-
-  .import-showcase-chip {
-    display: inline-flex;
-    align-items: center;
-    width: fit-content;
-    padding: 6px 10px;
-    border-radius: 999px;
-    background: rgba(var(--accent-rgb), 0.14);
-    border: 1px solid rgba(var(--accent-rgb), 0.18);
-    color: var(--accent);
-    font-size: var(--font-2xs);
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-  }
-
-  .import-showcase-line {
-    display: block;
-    height: 10px;
-    border-radius: 999px;
-    background: rgba(255, 255, 255, 0.08);
-  }
-
-  .import-showcase-line-strong {
-    width: 52%;
-    height: 14px;
-    background: rgba(255, 255, 255, 0.92);
-  }
-
-  .import-showcase-line-short {
-    width: 66%;
-  }
-
-  .import-showcase-bars {
-    margin-top: auto;
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    align-items: end;
-    gap: 10px;
-    min-height: 78px;
-  }
-
-  .import-showcase-bars span {
-    display: block;
-    border-radius: 14px 14px 10px 10px;
-    background: linear-gradient(180deg, rgba(var(--accent-rgb), 0.86), rgba(var(--accent-rgb), 0.28));
-    animation: import-bars-pulse 2.8s ease-in-out infinite;
-  }
-
-  .import-showcase-bars span:nth-child(1) {
-    height: 46%;
-    animation-delay: -0.8s;
-  }
-
-  .import-showcase-bars span:nth-child(2) {
-    height: 74%;
-    animation-delay: -1.4s;
-  }
-
-  .import-showcase-bars span:nth-child(3) {
-    height: 58%;
-    animation-delay: -0.4s;
-  }
-
-  .import-showcase-bars span:nth-child(4) {
-    height: 86%;
-    animation-delay: -1.9s;
-  }
-
-  .import-showcase-float {
-    position: absolute;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    min-width: 110px;
-    padding: 14px 16px;
-    border-radius: 20px;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    background: rgba(17, 20, 30, 0.72);
-    backdrop-filter: blur(18px);
-    -webkit-backdrop-filter: blur(18px);
-    box-shadow: 0 18px 42px rgba(0, 0, 0, 0.22);
-  }
-
-  .import-showcase-float-left {
-    left: 12%;
-    top: 26%;
-    animation: import-float-card 6.5s ease-in-out infinite;
-  }
-
-  .import-showcase-float-right {
-    right: 12%;
-    bottom: 22%;
-    animation: import-float-card 7.2s ease-in-out infinite reverse;
-  }
-
-  .import-showcase-float-label {
-    font-size: var(--font-2xs);
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--text-dim);
-  }
-
-  .import-showcase-float-value {
-    font-size: var(--font-md);
-    font-weight: 700;
-    color: var(--text-primary);
-    letter-spacing: -0.02em;
-  }
-
-  .import-note {
-    margin: 0 auto;
-    max-width: 38rem;
-    font-size: var(--font-sm);
-    line-height: 1.75;
-    color: var(--text-dim);
-  }
-
-  .import-note-progress {
-    max-width: none;
-    text-align: left;
-  }
-
-  .import-progress-number {
-    font-size: clamp(2rem, 4vw, 3rem);
-    line-height: 1;
-    font-weight: 800;
-    letter-spacing: -0.05em;
-    color: var(--text-primary);
-    font-variant-numeric: tabular-nums;
-  }
-
-  .import-progress-track {
-    height: 10px;
+  /* ═══════════════════════════════════════════
+     Progress track
+     ═══════════════════════════════════════════ */
+  .import-track {
+    height: 8px;
     border-radius: 999px;
     overflow: hidden;
     background: rgba(255, 255, 255, 0.05);
-    border: 1px solid var(--border-subtle);
+    border: 1px solid rgba(255, 255, 255, 0.04);
   }
 
-  .import-progress-fill {
+  .import-track-fill {
     height: 100%;
     border-radius: inherit;
     background-image: linear-gradient(90deg, var(--accent) 0%, var(--accent-hover) 48%, var(--accent) 100%);
     background-size: 200% 100%;
     animation: import-shimmer 2.4s linear infinite;
-    box-shadow: 0 0 18px rgba(var(--accent-rgb), 0.24);
+    box-shadow: 0 0 14px rgba(var(--accent-rgb), 0.28);
+    transition: width 300ms cubic-bezier(0.16, 1, 0.3, 1);
   }
 
+  /* ═══════════════════════════════════════════
+     Steps
+     ═══════════════════════════════════════════ */
   .import-steps {
     display: flex;
     flex-wrap: wrap;
-    justify-content: center;
-    gap: 10px;
+    gap: 8px;
   }
 
   .import-step {
     display: inline-flex;
     align-items: center;
-    gap: 8px;
-    padding: 7px 12px;
+    gap: 6px;
+    padding: 6px 12px;
     border-radius: var(--radius-pill);
     background: var(--bg-inset);
     border: 1px solid var(--border-subtle);
     font-size: var(--font-xs);
     color: var(--text-dim);
+    transition: color 300ms, background 300ms, border-color 300ms;
   }
 
   .import-step-dot {
@@ -827,6 +880,7 @@
     border-radius: 999px;
     background: currentColor;
     opacity: 0.45;
+    transition: opacity 300ms;
   }
 
   .import-step[data-state="done"] {
@@ -835,21 +889,19 @@
     border-color: rgba(52, 211, 153, 0.18);
   }
 
+  .import-step[data-state="done"] .import-step-dot { opacity: 0.8; }
+
   .import-step[data-state="active"] {
     color: var(--accent);
     background: rgba(var(--accent-rgb), 0.1);
     border-color: rgba(var(--accent-rgb), 0.18);
   }
 
-  .import-progress-actions {
-    display: flex;
-    justify-content: flex-end;
-  }
+  .import-step[data-state="active"] .import-step-dot { opacity: 1; }
 
-  .import-cancel-btn {
-    min-width: 120px;
-  }
-
+  /* ═══════════════════════════════════════════
+     Error bar
+     ═══════════════════════════════════════════ */
   .import-error-bar {
     position: sticky;
     top: 0;
@@ -878,10 +930,7 @@
     gap: 8px;
   }
 
-  .import-error-msg {
-    min-width: 0;
-    word-break: break-word;
-  }
+  .import-error-msg { min-width: 0; word-break: break-word; }
 
   .import-error-hint {
     padding: 10px 12px;
@@ -913,6 +962,9 @@
     background: rgba(248, 113, 113, 0.08);
   }
 
+  /* ═══════════════════════════════════════════
+     Toast
+     ═══════════════════════════════════════════ */
   .import-toast {
     position: fixed;
     left: calc(var(--sidebar-w, 220px) + (100vw - var(--sidebar-w, 220px)) / 2);
@@ -932,8 +984,12 @@
     backdrop-filter: blur(16px);
     -webkit-backdrop-filter: blur(16px);
     z-index: var(--z-toast);
+    animation: import-toast-enter 420ms cubic-bezier(0.16, 1, 0.3, 1) both;
   }
 
+  /* ═══════════════════════════════════════════
+     Dialogs
+     ═══════════════════════════════════════════ */
   .import-dialog-backdrop {
     position: fixed;
     inset: 0;
@@ -941,6 +997,7 @@
     backdrop-filter: blur(8px);
     -webkit-backdrop-filter: blur(8px);
     z-index: var(--z-overlay);
+    animation: import-backdrop-enter 300ms cubic-bezier(0.4, 0, 0.2, 1) both;
   }
 
   .import-dialog {
@@ -960,13 +1017,10 @@
     gap: 12px;
     text-align: center;
     z-index: var(--z-modal);
+    animation: import-dialog-enter 400ms cubic-bezier(0.16, 1, 0.3, 1) 60ms both;
   }
 
-  .import-online-dialog {
-    width: 460px;
-    align-items: stretch;
-    text-align: left;
-  }
+  .import-online-dialog { width: 460px; align-items: stretch; text-align: left; }
 
   .import-dialog-check {
     width: 58px;
@@ -979,216 +1033,137 @@
     color: var(--success);
   }
 
-  .import-dialog-title {
-    font-size: var(--font-xl);
-    letter-spacing: -0.02em;
-    color: var(--text-primary);
+  .import-dialog-title { font-size: var(--font-xl); letter-spacing: -0.02em; color: var(--text-primary); }
+  .import-dialog-desc { max-width: 320px; font-size: var(--font-sm); line-height: 1.7; color: var(--text-secondary); }
+  .import-dialog-suppress { display: flex; align-items: center; gap: 8px; font-size: var(--font-xs); color: var(--text-dim); cursor: pointer; user-select: none; }
+  .import-dialog-suppress input { cursor: pointer; accent-color: var(--accent); }
+  .import-dialog-actions { width: 100%; display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+  .import-dialog-tip { font-size: var(--font-xs); }
+
+  .online-input-block { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; font-size: var(--font-xs); color: var(--text-secondary); }
+  .online-input-block input { width: 100%; padding: 12px 14px; border-radius: 16px; border: 1px solid var(--border); background: var(--bg-inset); color: var(--text-primary); font: inherit; transition: border-color var(--transition-fast), background var(--transition-fast), box-shadow var(--transition-fast); }
+  .online-input-block input:focus-visible { background: var(--bg-surface); }
+  .online-input-error { font-size: var(--font-xs); color: var(--danger); margin-top: -2px; }
+
+  /* ═══════════════════════════════════════════
+     Keyframes
+     ═══════════════════════════════════════════ */
+  @keyframes import-card-float {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-7px); }
   }
 
-  .import-dialog-desc {
-    max-width: 320px;
-    font-size: var(--font-sm);
-    line-height: 1.7;
-    color: var(--text-secondary);
+  @keyframes import-orb-a {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    33% { transform: translate(20px, -15px) scale(1.06); }
+    66% { transform: translate(-12px, 10px) scale(0.97); }
   }
 
-  .import-dialog-suppress {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: var(--font-xs);
-    color: var(--text-dim);
-    cursor: pointer;
-    user-select: none;
+  @keyframes import-orb-b {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    33% { transform: translate(-18px, 12px) scale(1.04); }
+    66% { transform: translate(14px, -10px) scale(0.95); }
   }
 
-  .import-dialog-suppress input {
-    cursor: pointer;
-    accent-color: var(--accent);
-  }
-
-  .import-dialog-actions {
-    width: 100%;
-    display: flex;
-    justify-content: flex-end;
-    gap: 8px;
-    margin-top: 4px;
-  }
-
-  .online-input-block {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    margin-top: 4px;
-    font-size: var(--font-xs);
-    color: var(--text-secondary);
-  }
-
-  .online-input-block input {
-    width: 100%;
-    padding: 12px 14px;
-    border-radius: 16px;
-    border: 1px solid var(--border);
-    background: var(--bg-inset);
-    color: var(--text-primary);
-    font: inherit;
-    transition: border-color var(--transition-fast), background var(--transition-fast), box-shadow var(--transition-fast);
-  }
-
-  .online-input-block input:focus-visible {
-    background: var(--bg-surface);
-  }
-
-  .online-input-error {
-    font-size: var(--font-xs);
-    color: var(--danger);
-    margin-top: -2px;
-  }
-
-  .import-dialog-tip {
-    font-size: var(--font-xs);  
-  }
-
-  @keyframes import-shimmer {
-    0% {
-      background-position: 200% 0;
-    }
-    100% {
-      background-position: -200% 0;
-    }
-  }
-
-  @keyframes import-stage-float {
-    0%, 100% {
-      transform: translate(-50%, -44%) rotateX(58deg) rotateZ(-18deg) translateY(0);
-    }
-    50% {
-      transform: translate(-50%, -46%) rotateX(58deg) rotateZ(-18deg) translateY(-8px);
-    }
-  }
-
-  @keyframes import-orbit-spin {
-    0% {
-      transform: translate(-50%, -50%) rotate(0deg);
-    }
-    100% {
-      transform: translate(-50%, -50%) rotate(360deg);
-    }
-  }
-
-  @keyframes import-halo-drift {
-    0%, 100% {
-      transform: translate(-50%, -50%) scale(1);
-    }
-    50% {
-      transform: translate(-46%, -54%) scale(1.08);
-    }
-  }
-
-  @keyframes import-float-card {
-    0%, 100% {
-      transform: translateY(0);
-    }
-    50% {
-      transform: translateY(-10px);
-    }
+  @keyframes import-sweep {
+    0%, 12% { transform: translateX(-130%) skewX(-18deg); opacity: 0; }
+    24% { opacity: 0.9; }
+    46%, 100% { transform: translateX(118%) skewX(-18deg); opacity: 0; }
   }
 
   @keyframes import-bars-pulse {
-    0%, 100% {
-      filter: brightness(0.95);
-      transform: scaleY(0.96);
-    }
-    50% {
-      filter: brightness(1.08);
-      transform: scaleY(1.02);
-    }
+    0%, 100% { filter: brightness(0.95); transform: scaleY(0.96); }
+    50% { filter: brightness(1.08); transform: scaleY(1.02); }
   }
 
-  @keyframes import-card-sweep {
-    0%, 12% {
-      transform: translateX(-130%) skewX(-18deg);
-      opacity: 0;
-    }
-    24% {
-      opacity: 0.9;
-    }
-    46% {
-      transform: translateX(118%) skewX(-18deg);
-      opacity: 0;
-    }
-    100% {
-      transform: translateX(118%) skewX(-18deg);
-      opacity: 0;
-    }
+  @keyframes import-shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
   }
 
+  @keyframes import-badge-pulse {
+    0%, 100% { opacity: 1; box-shadow: 0 0 0 0 currentColor; }
+    50% { opacity: 0.5; box-shadow: 0 0 0 6px transparent; }
+  }
+
+  @keyframes import-toast-enter {
+    0% { opacity: 0; transform: translateX(-50%) translateY(10px) scale(0.96); }
+    100% { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+  }
+
+  @keyframes import-backdrop-enter {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  @keyframes import-dialog-enter {
+    0% { opacity: 0; transform: translate(-50%, -46%) scale(0.94); }
+    100% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  }
+
+  /* ═══════════════════════════════════════════
+     Responsive
+     ═══════════════════════════════════════════ */
   @media (max-width: 900px) {
-    .import-page {
-      min-height: calc(100vh - 80px);
-    }
+    .import-page { min-height: calc(100vh - 80px); }
+    .import-toast, .import-dialog, .import-online-dialog { left: 50%; }
 
-    .import-shell,
-    .import-error-bar {
-      width: 100%;
-    }
-
-    .import-toast,
-    .import-dialog,
-    .import-online-dialog {
-      left: 50%;
+    .import-hero[data-mode="active"] .import-card-inner {
+      width: min(500px, calc(100vw - 60px));
     }
   }
 
   @media (max-width: 640px) {
-    .import-page {
-      min-height: calc(100vh - 72px);
-    }
+    .import-page { min-height: calc(100vh - 72px); }
+    .import-hero { padding: 28px 22px; }
 
-    .import-card {
-      padding: 28px 22px;
-      border-radius: 22px;
-    }
-
-    .import-card-header,
     .import-actions,
-    .import-dialog-actions {
+    .import-dialog-actions,
+    .import-fp-head {
       flex-direction: column;
       align-items: stretch;
     }
 
-    .import-progress-actions {
-      justify-content: stretch;
+    .import-fp-head { align-items: flex-start; }
+
+    .import-card-inner { width: 280px; height: 190px; }
+
+    .import-hero[data-mode="active"] .import-card-inner {
+      width: min(460px, calc(100vw - 32px));
+      height: clamp(360px, 62vh, 460px);
     }
 
-    .import-showcase {
-      height: 236px;
-    }
+    .import-face-progress { padding: 20px; gap: 12px; }
 
-    .import-showcase-stack {
-      width: 250px;
-      height: 174px;
-      transform: translate(-50%, -45%) rotateX(58deg) rotateZ(-18deg);
-    }
+    .import-steps { gap: 6px; }
+    .import-step { padding: 5px 10px; }
+    .import-cancel-btn { width: 100%; }
 
-    .import-showcase-float-left {
-      left: 2%;
-      top: 18%;
-    }
-
-    .import-showcase-float-right {
-      right: 2%;
-      bottom: 18%;
-    }
-
-    .import-cancel-btn {
-      width: 100%;
-    }
-
-    .import-dialog,
-    .import-online-dialog {
+    .import-dialog, .import-online-dialog {
       width: min(460px, calc(100vw - 24px));
       padding: 24px 20px 18px;
+    }
+  }
+
+  /* ═══════════════════════════════════════════
+     Reduced motion
+     ═══════════════════════════════════════════ */
+  @media (prefers-reduced-motion: reduce) {
+    .import-idle,
+    .import-card,
+    .import-card-inner,
+    .import-face-decor,
+    .import-face-progress,
+    .import-orb,
+    .import-track-fill,
+    .import-toast,
+    .import-dialog,
+    .import-dialog-backdrop,
+    .import-badge-live::before,
+    .import-bars span,
+    .import-step {
+      animation: none !important;
+      transition-duration: 0ms !important;
     }
   }
 </style>
