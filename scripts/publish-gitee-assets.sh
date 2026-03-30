@@ -7,6 +7,17 @@ if [[ $# -eq 0 ]]; then
   exit 1
 fi
 
+asset_files=()
+for asset_path in "$@"; do
+  if [[ ! -f "$asset_path" ]]; then
+    echo "Asset file does not exist: $asset_path" >&2
+    exit 1
+  fi
+
+  asset_dir="$(cd "$(dirname "$asset_path")" && pwd)"
+  asset_files+=("$asset_dir/$(basename "$asset_path")")
+done
+
 : "${GITEE_USERNAME:?GITEE_USERNAME is required}"
 : "${GITEE_ACCESS_TOKEN:?GITEE_ACCESS_TOKEN is required}"
 : "${GITEE_REPOSITORY:?GITEE_REPOSITORY is required}"
@@ -58,12 +69,7 @@ latest_dir="$repo_dir/$GITEE_ASSETS_PREFIX/latest"
 rm -rf "$target_dir" "$latest_dir"
 mkdir -p "$target_dir" "$latest_dir"
 
-for asset_path in "$@"; do
-  if [[ ! -f "$asset_path" ]]; then
-    echo "Asset file does not exist: $asset_path" >&2
-    exit 1
-  fi
-
+for asset_path in "${asset_files[@]}"; do
   asset_name="$(basename "$asset_path")"
   cp "$asset_path" "$target_dir/$asset_name"
   cp "$asset_path" "$latest_dir/$asset_name"
