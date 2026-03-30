@@ -56,51 +56,30 @@ function runCommand(command, args) {
   }
 }
 
-function ensureWindowsSidecars(targetTriple) {
+function verifyBundledSidecars(targetTriple) {
   const expected = ['ffmpeg', 'whisper-cli', 'yt-dlp'].map((name) =>
     path.join(binariesDir, targetSidecarName(name, targetTriple)),
   );
-  const missing = expected.filter((candidate) => !existsSync(candidate));
+  if (targetTriple.includes('windows')) {
+    expected.push(
+      path.join(binariesDir, 'ggml-base.dll'),
+      path.join(binariesDir, 'ggml-cpu.dll'),
+      path.join(binariesDir, 'ggml.dll'),
+      path.join(binariesDir, 'whisper.dll'),
+    );
+  }
 
+  const missing = expected.filter((candidate) => !existsSync(candidate));
   if (missing.length === 0) {
     return;
   }
 
-  console.log('[sidecar] 检测到 Windows sidecar 缺失，开始自动准备：');
+  console.error('[sidecar] 检测到缺失的预置 sidecar：');
   for (const candidate of missing) {
-    console.log(`- ${path.relative(rootDir, candidate)}`);
+    console.error(`- ${path.relative(rootDir, candidate)}`);
   }
-
-  const scriptPath = path.join(rootDir, 'scripts', 'prepare-sidecars-windows.ps1');
-  const powershellCandidates = ['pwsh', 'powershell'];
-  let launched = false;
-
-  for (const shell of powershellCandidates) {
-    const result = spawnSync(
-      shell,
-      ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptPath, '-TargetTriple', targetTriple],
-      {
-        cwd: rootDir,
-        env: process.env,
-        stdio: 'inherit',
-      },
-    );
-
-    if (result.error) {
-      continue;
-    }
-
-    launched = true;
-    if (typeof result.status === 'number' && result.status !== 0) {
-      process.exit(result.status);
-    }
-    break;
-  }
-
-  if (!launched) {
-    console.error('未找到可用的 PowerShell，可手动执行 scripts/prepare-sidecars-windows.ps1。');
-    process.exit(1);
-  }
+  console.error('构建已改为只校验仓库内的 sidecar，不再在构建阶段自动下载。');
+  process.exit(1);
 }
 
 const targetTriple = process.env.TARGET_TRIPLE || detectTargetTriple();
@@ -109,9 +88,7 @@ if (!targetTriple) {
   process.exit(1);
 }
 
-if (process.platform === 'win32') {
-  ensureWindowsSidecars(targetTriple);
-}
+verifyBundledSidecars(targetTriple);
 
 const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 runCommand(npmCommand, ['run', mode]);

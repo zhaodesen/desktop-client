@@ -14,7 +14,7 @@ detect_target_triple() {
   rustc -vV | awk '/^host:/ { print $2 }'
 }
 
-TARGET_TRIPLE="$(detect_target_triple)"
+TARGET_TRIPLE="${TARGET_TRIPLE:-$(detect_target_triple)}"
 
 target_suffix() {
   local name="$1"
@@ -39,6 +39,14 @@ echo "Checking sidecars in: $BIN_DIR"
 echo "Found whisper-cli: $WHISPER"
 echo "Found ffmpeg: $FFMPEG"
 echo "Found yt-dlp: $YT_DLP"
+
+if [[ "$TARGET_TRIPLE" == *windows* ]]; then
+  for dll in ggml-base.dll ggml-cpu.dll ggml.dll whisper.dll; do
+    candidate="$BIN_DIR/$dll"
+    [[ -f "$candidate" ]] || { echo "Missing: $candidate" >&2; exit 1; }
+    echo "Found DLL: $candidate"
+  done
+fi
 
 "$WHISPER" --help >/dev/null 2>&1 || {
   echo "whisper-cli exists but failed to execute: $WHISPER" >&2

@@ -39,6 +39,12 @@ pub fn locate_executable(
         return Ok(CommandTarget::Program(value));
     }
 
+    for candidate in resolve_app_data_candidates(app, file_candidates)? {
+        if candidate.exists() {
+            return Ok(CommandTarget::File(candidate));
+        }
+    }
+
     for candidate in resolve_local_candidates(app, file_candidates)? {
         if candidate.exists() {
             return Ok(CommandTarget::File(candidate));
@@ -52,6 +58,14 @@ pub fn locate_executable(
     Err(format!(
         "未找到可用的可执行文件。请将二进制放到 src-tauri/binaries、安装到系统 PATH，或通过环境变量 {env_key} 指定绝对路径。"
     ))
+}
+
+pub fn app_data_sidecar_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("读取应用数据目录失败: {error}"))?
+        .join("sidecars"))
 }
 
 pub fn resolve_local_candidates(app: &AppHandle, names: &[&str]) -> Result<Vec<PathBuf>, String> {
@@ -93,6 +107,18 @@ pub fn resolve_local_candidates(app: &AppHandle, names: &[&str]) -> Result<Vec<P
         if let Ok(executable_path) = app.path().resolve(&exe_name, BaseDirectory::Executable) {
             push_unique_path(&mut candidates, executable_path);
         }
+    }
+
+    Ok(candidates)
+}
+
+fn resolve_app_data_candidates(app: &AppHandle, names: &[&str]) -> Result<Vec<PathBuf>, String> {
+    let dir = app_data_sidecar_dir(app)?;
+    let mut candidates = Vec::new();
+
+    for name in names {
+        push_unique_path(&mut candidates, dir.join(with_target_triple(name)));
+        push_unique_path(&mut candidates, dir.join(with_exe_suffix(name)));
     }
 
     Ok(candidates)

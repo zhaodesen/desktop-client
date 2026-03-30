@@ -43,9 +43,23 @@ Thumbs.db
 Desktop.ini
 
 # ===================== Tauri Sidecar Binaries =====================
-# Keep .gitkeep but ignore actual binaries (large, platform-specific)
+# Keep tracked sidecars under version control, ignore any other ad-hoc files.
 src-tauri/binaries/*
 !src-tauri/binaries/.gitkeep
+!src-tauri/binaries/README.md
+!src-tauri/binaries/ffmpeg-aarch64-apple-darwin
+!src-tauri/binaries/ffmpeg-x86_64-apple-darwin
+!src-tauri/binaries/ffmpeg-x86_64-pc-windows-msvc.exe
+!src-tauri/binaries/whisper-cli-aarch64-apple-darwin
+!src-tauri/binaries/whisper-cli-x86_64-apple-darwin
+!src-tauri/binaries/whisper-cli-x86_64-pc-windows-msvc.exe
+!src-tauri/binaries/yt-dlp-aarch64-apple-darwin
+!src-tauri/binaries/yt-dlp-x86_64-apple-darwin
+!src-tauri/binaries/yt-dlp-x86_64-pc-windows-msvc.exe
+!src-tauri/binaries/ggml-base.dll
+!src-tauri/binaries/ggml-cpu.dll
+!src-tauri/binaries/ggml.dll
+!src-tauri/binaries/whisper.dll
 
 # ===================== Tauri Generated Schemas =====================
 src-tauri/gen/schemas/

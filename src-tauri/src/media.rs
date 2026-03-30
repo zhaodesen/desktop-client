@@ -14,7 +14,10 @@ use tauri::{AppHandle, Emitter, Manager};
 #[cfg(target_os = "windows")]
 use std::env;
 
-use crate::sidecar::{self, CommandTarget};
+use crate::{
+    sidecar::{self, CommandTarget},
+    yt_dlp,
+};
 use crate::state::ExternalProcessState;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -393,6 +396,8 @@ fn download_online_media(
     url: &str,
     active_import: Arc<Mutex<Option<ExternalProcessState>>>,
 ) -> Result<PathBuf, String> {
+    emit_import_progress(app, "downloading", "正在检查在线视频组件更新…", None)?;
+    let _ = yt_dlp::maybe_auto_update(app);
     emit_import_progress(app, "downloading", "正在准备在线视频下载…", Some(0.0))?;
 
     let yt_dlp = sidecar::locate_executable(app, "YT_DLP_BIN", &["yt-dlp"])?;

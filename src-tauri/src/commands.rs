@@ -14,6 +14,7 @@ use crate::{
     store,
     subtitle::{self, SubtitleCue, SubtitleDocument},
     window,
+    yt_dlp::{self, YtDlpStatus},
 };
 use tauri::{async_runtime, AppHandle, Manager, State};
 
@@ -298,6 +299,24 @@ pub fn delete_model(app: AppHandle, model_id: String) -> CommandResponse<Cleanup
     match model::delete_model(&app, &model_id) {
         Ok(result) => CommandResponse::ok(result),
         Err(error) => CommandResponse::err("delete_model_failed", error),
+    }
+}
+
+#[tauri::command]
+pub fn get_yt_dlp_status(app: AppHandle) -> CommandResponse<YtDlpStatus> {
+    match yt_dlp::get_status(&app) {
+        Ok(status) => CommandResponse::ok(status),
+        Err(error) => CommandResponse::err("yt_dlp_status_failed", error),
+    }
+}
+
+#[tauri::command]
+pub async fn update_yt_dlp(app: AppHandle) -> CommandResponse<YtDlpStatus> {
+    let app_handle = app.clone();
+
+    match run_blocking_task(move || yt_dlp::force_update(&app_handle)).await {
+        Ok(status) => CommandResponse::ok(status),
+        Err(error) => CommandResponse::err("yt_dlp_update_failed", error),
     }
 }
 

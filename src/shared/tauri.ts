@@ -40,10 +40,11 @@ import type {
   ModelDownloadStartedPayload,
   ModelInfo,
   ModelStatus,
-    OverlayRenderPayload,
-    PlaybackState,
-    OverlayWindowState,
-    PlaybackHistoryItem,
+  OverlayRenderPayload,
+  PlaybackState,
+  OverlayWindowState,
+  PlaybackHistoryItem,
+  YtDlpStatus,
   ShutdownCleanupOutput,
   ShutdownTaskSummary,
   StartAsrJobInput,
@@ -126,6 +127,12 @@ export const backend = {
   },
   deleteModel(modelId: string) {
     return callCommand<CleanupResult>("delete_model", { modelId });
+  },
+  getYtDlpStatus() {
+    return callCommand<YtDlpStatus>("get_yt_dlp_status");
+  },
+  updateYtDlp() {
+    return callCommand<YtDlpStatus>("update_yt_dlp");
   },
   getLibraryState() {
     return callCommand<LibraryState>("get_library_state");

@@ -202,6 +202,18 @@ export type ModelStatus = {
   downloadUrl: string;
 };
 
+export type YtDlpStatus = {
+  currentVersion?: string;
+  bundledVersion?: string;
+  overrideVersion?: string;
+  currentPath?: string;
+  source: string;
+  lastCheckedAt?: number;
+  lastUpdatedAt?: number;
+  lastError?: string;
+  updateSupported: boolean;
+};
+
 export type AllModelsStatus = {
   models: ModelStatus[];
 };

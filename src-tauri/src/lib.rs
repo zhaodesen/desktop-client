@@ -10,6 +10,7 @@ mod storage;
 mod store;
 mod subtitle;
 mod window;
+mod yt_dlp;
 
 use state::{AppSettings, AppState};
 use std::sync::atomic::Ordering;
@@ -144,6 +145,8 @@ pub fn run() {
             commands::pause_model_download,
             commands::resume_model_download,
             commands::delete_model,
+            commands::get_yt_dlp_status,
+            commands::update_yt_dlp,
             commands::get_library_state,
             commands::probe_media_path,
             commands::import_media,

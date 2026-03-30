@@ -59,15 +59,9 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: Prepare bundled sidecars
-        if: matrix.target != 'x86_64-pc-windows-msvc'
+      - name: Verify bundled sidecars
         shell: bash
-        run: ./scripts/prepare-sidecars-ci.sh "${TARGET_TRIPLE}"
-
-      - name: Prepare bundled sidecars on Windows
-        if: matrix.target == 'x86_64-pc-windows-msvc'
-        shell: pwsh
-        run: ./scripts/prepare-sidecars-windows.ps1 -TargetTriple "${env:TARGET_TRIPLE}"
+        run: ./scripts/verify-sidecars.sh
 
       - name: Install NSIS on Windows
         if: matrix.target == 'x86_64-pc-windows-msvc'

@@ -24,6 +24,7 @@
     SubtitleCue,
     SubtitleDocument,
     ThemeMode,
+    YtDlpStatus,
   } from "./shared/types";
   import { PlayerController } from "./main/player-controller";
   import { parseSubtitleText } from "./main/subtitle-parser";
@@ -118,6 +119,8 @@
   let isDownloadPaused = $state(false);
   let modelDownloadSuccessLabel = $state<string | undefined>(undefined);
   let modelDownloadSuccessTimer: ReturnType<typeof setTimeout> | undefined;
+  let ytDlpStatus = $state<YtDlpStatus | undefined>(undefined);
+  let isUpdatingYtDlp = $state(false);
   let pendingSubtitleMediaId = $state<string | undefined>(undefined);
   let overlayLocked = $state(false);
 
@@ -1161,6 +1164,8 @@
       importError = formatError(err);
       resetImportFlowState();
       throw err;
+    } finally {
+      void refreshYtDlpStatus({ silent: true });
     }
   }
 
@@ -1342,6 +1347,39 @@
     }
   }
 
+  async function refreshYtDlpStatus(options?: { silent?: boolean }) {
+    try {
+      ytDlpStatus = await backend.getYtDlpStatus();
+    } catch (err) {
+      console.error(err);
+      if (!options?.silent) {
+        setStatus("读取在线视频组件状态失败", "warning");
+      }
+    }
+  }
+
+  async function handleUpdateYtDlp() {
+    if (isUpdatingYtDlp) return;
+    isUpdatingYtDlp = true;
+    const previousVersion = ytDlpStatus?.currentVersion;
+    try {
+      ytDlpStatus = await backend.updateYtDlp();
+      const nextVersion = ytDlpStatus.currentVersion;
+      if (nextVersion && nextVersion !== previousVersion) {
+        setStatus(`在线视频组件已更新到 ${nextVersion}`, "success");
+      } else if (nextVersion) {
+        setStatus(`在线视频组件已是最新版本 (${nextVersion})`, "success");
+      } else {
+        setStatus("在线视频组件检查完成", "success");
+      }
+    } catch (err) {
+      console.error(err);
+      setStatus(formatError(err), "warning");
+    } finally {
+      isUpdatingYtDlp = false;
+    }
+  }
+
   /* ── Danger zone ───────────────────────────────────────── */
 
   async function handleClearAllCache() {
@@ -1399,6 +1437,7 @@
       await backend.hideOverlay();
       await resetPlaybackUi();
       await refreshLibrary();
+      await refreshYtDlpStatus({ silent: true });
       setStatus(`应用数据已重置，${fmtCleanup(r)}`, "success");
     } catch (err) { console.error(err); setStatus("重置应用数据失败", "warning"); }
   }
@@ -1891,6 +1930,8 @@
       modelStatusLabel = "模型状态读取失败";
     }
 
+    await refreshYtDlpStatus({ silent: true });
+
     return () => {
       unlistenLock();
       unlistenAppClose();
@@ -2093,6 +2134,9 @@
           settings = { ...settings, shortcuts };
         }}
         onShortcutCommit={persistSettings}
+        {ytDlpStatus}
+        {isUpdatingYtDlp}
+        onUpdateYtDlp={handleUpdateYtDlp}
         onClearAllCache={handleClearAllCache}
         onDeleteAllModels={handleDeleteAllModels}
         onResetAppData={handleResetAppData}
