@@ -1233,6 +1233,12 @@
     isCancellingAsr = false;
   }
 
+  function closeImportSuccess() {
+    showImportSuccess = false;
+    importSuccessName = undefined;
+    resetImportFlowState();
+  }
+
   async function handleImportMedia() {
     const selected = await open({
       multiple: false,
@@ -1894,7 +1900,6 @@
           clearTimeout(importSuccessTimer);
           importSuccessTimer = setTimeout(() => {
             showImportSuccess = true;
-            importProgress = { ...IMPORT_IDLE };
             activeImportSource = undefined;
           }, 550);
         }
@@ -2168,8 +2173,11 @@
         onImportOnline={handleImportOnlineMedia}
         onCancel={() => { void handleCancelAsr(); }}
         onDismissError={() => { importError = undefined; }}
-        onImportSuccessClose={() => { showImportSuccess = false; importSuccessName = undefined; }}
-        onGoToResources={() => setActivePage("resources")}
+        onImportSuccessClose={closeImportSuccess}
+        onGoToResources={() => {
+          closeImportSuccess();
+          setActivePage("resources");
+        }}
       />
       </div>
     {:else if activePage === "resources"}

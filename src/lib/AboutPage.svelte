@@ -1,12 +1,47 @@
 <script lang="ts">
+  import { onDestroy } from "svelte";
+
   interface Props {
     avatarSrc: string;
   }
 
+  const EMAIL_ADDRESS = "1026108026@qq.com";
+
   const { avatarSrc }: Props = $props();
+
+  let showCopyToast = $state(false);
+  let copyToastTimer: ReturnType<typeof setTimeout> | undefined;
+
+  onDestroy(() => {
+    clearTimeout(copyToastTimer);
+  });
+
+  async function handleCopyEmail(event: MouseEvent) {
+    event.preventDefault();
+
+    try {
+      await navigator.clipboard.writeText(EMAIL_ADDRESS);
+      showCopyToast = true;
+      clearTimeout(copyToastTimer);
+      copyToastTimer = setTimeout(() => {
+        showCopyToast = false;
+      }, 2200);
+    } catch (error) {
+      console.error("复制邮箱地址失败", error);
+    }
+  }
 </script>
 
 <section class="page about-page" data-active="true">
+  {#if showCopyToast}
+    <div class="about-copy-toast" role="status" aria-live="polite">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <polyline points="20 6 9 17 4 12" />
+      </svg>
+      <span>已复制邮箱地址</span>
+    </div>
+  {/if}
+
   <div class="about-scene" aria-hidden="true">
     <span class="scene-glow glow-a"></span>
     <span class="scene-glow glow-b"></span>
@@ -33,7 +68,14 @@
        <br/>
 
        希望这个工具也可以帮助到你，如果在使用过程中遇到问题，我会尽快修复，也欢迎通过
-        <a href="mailto:1026108026@qq.com">1026108026@qq.com</a>
+        <a
+          href={`mailto:${EMAIL_ADDRESS}`}
+          onclick={handleCopyEmail}
+          aria-label={`点击复制邮箱地址 ${EMAIL_ADDRESS}`}
+          title="点击复制邮箱地址"
+        >
+          {EMAIL_ADDRESS}
+        </a>
         联系我。
       </p>
     </div>
@@ -70,6 +112,28 @@
     inset: 0;
     pointer-events: none;
     overflow: hidden;
+  }
+
+  .about-copy-toast {
+    position: fixed;
+    top: 24px;
+    left: calc(var(--sidebar-w, 220px) + (100vw - var(--sidebar-w, 220px)) / 2);
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 11px 18px;
+    border-radius: var(--radius-pill);
+    background: var(--bg-glass);
+    border: 1px solid var(--border);
+    color: var(--success);
+    font-size: var(--font-sm);
+    font-weight: 600;
+    box-shadow: var(--shadow-md);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    z-index: var(--z-toast);
+    animation: about-toast-enter 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
   }
 
   .scene-orbit,
@@ -405,9 +469,14 @@
   }
 
   .about-intro a {
+    cursor: pointer;
     color: var(--accent);
     text-decoration: none;
     border-bottom: 1px solid rgba(var(--accent-rgb), 0.28);
+    transition:
+      color 160ms ease,
+      border-color 160ms ease,
+      opacity 160ms ease;
   }
 
   .about-intro a:hover {
@@ -547,6 +616,17 @@
     }
   }
 
+  @keyframes about-toast-enter {
+    from {
+      opacity: 0;
+      transform: translate(-50%, -8px);
+    }
+    to {
+      opacity: 1;
+      transform: translate(-50%, 0);
+    }
+  }
+
   @media (max-width: 860px) {
     .about-page {
       min-height: auto;
@@ -575,6 +655,12 @@
 
     .model-stage {
       width: min(340px, 100%);
+    }
+
+    .about-copy-toast {
+      top: 18px;
+      left: 50%;
+      max-width: calc(100vw - 32px);
     }
   }
 </style>
