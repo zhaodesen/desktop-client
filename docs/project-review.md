@@ -1,4 +1,4 @@
-# Floating Subtitle Player — 项目审查报告
+# muyu — 项目审查报告
 
 > 审查范围：代码逻辑、项目架构、页面样式、用户体验、Git 工程化
 > 项目技术栈：Tauri v2 + TypeScript (Vite) + Rust
@@ -167,7 +167,7 @@ let builder = builder.transparent(true);
 作为muyu，缺少播放/暂停（空格）、前进/后退（←/→）、单句循环（L）等常用快捷键，严重影响使用效率。
 
 ### 5.10 应用标题中英混杂
-窗口标题是 "Floating Subtitle Player"，侧边栏品牌是"muyu"，品牌 kicker 是 "Desktop Subtitle Studio"。建议统一使用中文或英文。
+窗口标题、侧边栏品牌和对外发布名都应该统一为 "muyu"，不要再混用历史名称。
 
 ---
 

@@ -1,4 +1,4 @@
-# Floating Subtitle Player
+# muyu
 
 基于 `Tauri 2 + Rust + Vanilla TypeScript` 的跨平台桌面悬浮字幕播放器，当前已经支持：
 
@@ -204,13 +204,15 @@ git push -u origin master
 
 构建过程中还会自动完成：
 
-- 在 CI 中安装 `ffmpeg`，并复制为 Tauri 需要的 sidecar 命名
-- 在 CI 中下载官方 standalone `yt-dlp`，并复制为 Tauri 需要的 sidecar 命名
-- 在 CI 中编译 `whisper-cli`，并复制为 Tauri 需要的 sidecar 命名
+- 校验仓库内置 sidecar 是否齐全
 - 如果已配置 secrets，macOS 使用 `Developer ID Application` 证书签名，并提交公证
 - 如果已配置 secrets，Windows 使用 `.pfx` 证书签名
 
-构建完成后，安装包会上传到当前版本对应的 GitHub Release 页面，你可以直接在 Release 的 `Assets` 区域下载。
+构建完成后，安装包会上传到当前版本对应的 GitHub Release 页面；如果额外配置了 Gitee 的 secrets，也会同步上传到 Gitee Release。
+
+Gitee 相关说明见：
+
+- [github-actions-gitee-release.md](/Users/zhaodesen/Desktop/desktop-client/docs/github-actions-gitee-release.md)
 
 ### 发版命令
 
