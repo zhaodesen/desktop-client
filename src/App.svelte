@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, tick } from "svelte";
+  import { onMount } from "svelte";
   import { fade } from "svelte/transition";
   import { convertFileSrc } from "@tauri-apps/api/core";
   import { emitTo, listen } from "@tauri-apps/api/event";
@@ -38,8 +38,6 @@
   import SubtitleEditor from "./lib/SubtitleEditor.svelte";
   import ConfirmDialog from "./lib/ConfirmDialog.svelte";
   import FirstRunOnboarding from "./lib/FirstRunOnboarding.svelte";
-  import MainTourOverlay from "./lib/MainTourOverlay.svelte";
-
   import "./styles.css";
 
   /* ── Constants ─────────────────────────────────────────── */
@@ -104,37 +102,6 @@
   const PLAYBACK_STATE_PROGRESS_THRESHOLD_MS = 1000;
   const PLAYBACK_DEBUG_LIMIT = 120;
 
-  const MAIN_TOUR_STEPS = [
-    {
-      id: "import",
-      page: "import" as const,
-      title: "从导入开始",
-      description: "这里负责把本地音视频或在线视频拉进应用。导入后会自动开始离线识别并生成双语字幕。",
-      hint: "先点击“导入”，再选择文件导入或在线视频导入。",
-    },
-    {
-      id: "resources",
-      page: "resources" as const,
-      title: "资源列表",
-      description: "所有已导入的素材都会在这里集中管理，你可以查看状态、编辑字幕，或把条目加入播放列表。",
-      hint: "导入完成后，优先来这里检查字幕是否已经生成。",
-    },
-    {
-      id: "playlist",
-      page: "playlist" as const,
-      title: "播放列表",
-      description: "这里用来播放最近使用或手动加入的素材，可以边听边看字幕，也能直接重跑识别任务。",
-      hint: "适合复听、复查和快速切换多个素材。",
-    },
-    {
-      id: "settings",
-      page: "settings" as const,
-      title: "设置",
-      description: "这里可以更换离线模型、调整悬浮字幕样式、修改快捷键，以及清理缓存数据。",
-      hint: "如果以后想切模型或重下模型，就来这里。",
-    },
-  ];
-
   /* ── State ─────────────────────────────────────────────── */
 
   let settings = $state<AppSettings>({ ...DEFAULT_SETTINGS, overlay: { ...DEFAULT_SETTINGS.overlay } });
@@ -180,12 +147,6 @@
   let onboardingDownloadPercent = $state(0);
   let onboardingDownloadMessage = $state("正在准备模型下载…");
   let onboardingError = $state<string | undefined>(undefined);
-  let showMainTour = $state(false);
-  let mainTourStepIndex = $state(0);
-  let mainTourTargetRect = $state<
-    | { top: number; left: number; right: number; bottom: number; width: number; height: number }
-    | undefined
-  >(undefined);
 
   // Player state (published by PlayerController)
   let snap = $state<PlaybackSnapshot>({ playing: false, currentTimeMs: 0, durationMs: 0, rate: 1, volume: 1 });
@@ -565,6 +526,23 @@
     }, PLAYBACK_STATE_SAVE_DEBOUNCE_MS);
   }
 
+  async function clearPlaybackPersistenceState() {
+    if (playbackStateSaveTimer) {
+      clearTimeout(playbackStateSaveTimer);
+      playbackStateSaveTimer = undefined;
+    }
+
+    pendingPlaybackState = undefined;
+
+    if (playbackStateSavePromise) {
+      await playbackStateSavePromise;
+    }
+
+    lastSavedPlaybackState = undefined;
+    pendingPlaybackState = undefined;
+    settings = { ...settings, playbackState: undefined };
+  }
+
   async function restorePlaybackState() {
     const playbackState = getSavedPlaybackState();
     if (!playbackState?.mediaId) return;
@@ -645,69 +623,13 @@
     activePage = page;
   }
 
-  function updateMainTourTargetRect() {
-    if (!showMainTour) {
-      mainTourTargetRect = undefined;
-      return;
-    }
-    const step = MAIN_TOUR_STEPS[mainTourStepIndex];
-    const el = document.querySelector<HTMLElement>(`[data-guide-id="${step.id}"]`);
-    if (!el) {
-      mainTourTargetRect = undefined;
-      return;
-    }
-    const rect = el.getBoundingClientRect();
-    mainTourTargetRect = {
-      top: rect.top,
-      left: rect.left,
-      right: rect.right,
-      bottom: rect.bottom,
-      width: rect.width,
-      height: rect.height,
-    };
-  }
-
-  async function openMainTour() {
-    mainTourStepIndex = 0;
-    showMainTour = true;
-    setActivePage("import");
-    await tick();
-    updateMainTourTargetRect();
-  }
-
-  async function completeMainTour() {
-    showMainTour = false;
-    mainTourTargetRect = undefined;
-    setActivePage("import");
-    if (settings.hasSeenMainTour) return;
-    settings = { ...settings, hasSeenMainTour: true };
-    await persistSettings();
-  }
-
-  async function handleMainTourNext() {
-    const nextIndex = mainTourStepIndex + 1;
-    if (nextIndex >= MAIN_TOUR_STEPS.length) {
-      await completeMainTour();
-      return;
-    }
-
-    mainTourStepIndex = nextIndex;
-    setActivePage(MAIN_TOUR_STEPS[nextIndex].page);
-    await tick();
-    updateMainTourTargetRect();
-  }
-
   async function handleOnboardingStart() {
+    setActivePage("import");
     showFirstRunOnboarding = false;
     onboardingError = undefined;
     onboardingStep = "ready";
     settings = { ...settings, hasCompletedOnboarding: true };
     await persistSettings();
-    setActivePage("import");
-
-    if (!settings.hasSeenMainTour) {
-      await openMainTour();
-    }
   }
 
   async function handleOnboardingSkip() {
@@ -1452,13 +1374,19 @@
   async function handleResetAppData() {
     if (!await confirmDialog.show("删除全部数据", "所有离线模型、音频字幕缓存及应用设置都将被彻底清空，此操作不可逆！")) return;
     try {
+      await clearPlaybackPersistenceState();
       const r = await backend.resetAppData();
-      settings = { ...DEFAULT_SETTINGS, overlay: { ...DEFAULT_SETTINGS.overlay } };
+      settings = {
+        ...DEFAULT_SETTINGS,
+        overlay: { ...DEFAULT_SETTINGS.overlay },
+        hasCompletedOnboarding: true,
+        hasSeenMainTour: true,
+        playbackState: undefined,
+      };
       player.setPlaybackRate(settings.playbackRate);
       player.setVolume(settings.volume);
-      showFirstRunOnboarding = true;
-      showMainTour = false;
-      onboardingStep = "select-model";
+      showFirstRunOnboarding = false;
+      onboardingStep = "ready";
       onboardingSelectedModelId = undefined;
       onboardingDownloadPercent = 0;
       onboardingDownloadMessage = "正在准备模型下载…";
@@ -1647,12 +1575,6 @@
         closingConfirmVisible = false;
       }
     });
-    const handleViewportUpdate = () => {
-      updateMainTourTargetRect();
-    };
-    window.addEventListener("resize", handleViewportUpdate);
-    document.addEventListener("scroll", handleViewportUpdate, true);
-
     const unImportProgress = await importEvents.onProgress(({ stage, message, percent }) => {
       if (!importProgress.active) return;
 
@@ -1969,17 +1891,11 @@
       modelStatusLabel = "模型状态读取失败";
     }
 
-    if (!showFirstRunOnboarding && !settings.hasSeenMainTour) {
-      await openMainTour();
-    }
-
     return () => {
       unlistenLock();
       unlistenAppClose();
       unlistenClose();
       unlistenWindowResized?.();
-      window.removeEventListener("resize", handleViewportUpdate);
-      document.removeEventListener("scroll", handleViewportUpdate, true);
       unImportProgress();
       unAsrStarted();
       unAsrProgress();
@@ -2220,17 +2136,5 @@
     onBack={handleBackToOnboardingSelection}
     onSkip={() => { void handleOnboardingSkip(); }}
     onStart={() => { void handleOnboardingStart(); }}
-  />
-{/if}
-
-{#if showMainTour}
-  <MainTourOverlay
-    step={MAIN_TOUR_STEPS[mainTourStepIndex]}
-    index={mainTourStepIndex}
-    total={MAIN_TOUR_STEPS.length}
-    targetRect={mainTourTargetRect}
-    onSkip={() => { void completeMainTour(); }}
-    onNext={() => { void handleMainTourNext(); }}
-    onFinish={() => { void completeMainTour(); }}
   />
 {/if}

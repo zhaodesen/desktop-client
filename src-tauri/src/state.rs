@@ -134,6 +134,16 @@ impl Default for AppSettings {
     }
 }
 
+impl AppSettings {
+    pub fn reset_defaults() -> Self {
+        Self {
+            has_completed_onboarding: true,
+            has_seen_main_tour: true,
+            ..Self::default()
+        }
+    }
+}
+
 pub struct AppState {
     pub settings: Arc<Mutex<AppSettings>>,
     pub active_asr_job: Arc<Mutex<Option<AsrJobState>>>,

@@ -486,7 +486,7 @@ pub fn reset_app_data(
     match storage::reset_app_data(&app) {
         Ok(result) => {
             if let Ok(mut guard) = state.settings.lock() {
-                *guard = AppSettings::default();
+                *guard = AppSettings::reset_defaults();
             }
             CommandResponse::ok(result)
         }

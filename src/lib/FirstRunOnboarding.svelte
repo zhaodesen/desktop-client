@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy } from "svelte";
   import type { ModelInfo, ModelStatus } from "../shared/types";
   import ParticleGlobe from "./ParticleGlobe.svelte";
   import StarField from "./StarField.svelte";
@@ -48,6 +49,9 @@
   const selectedModel = $derived(models.find((model) => model.id === selectedModelId));
   const isDownloadStage = $derived(step !== "select-model");
   const isDownloadComplete = $derived(downloadPercent >= 100 && !error);
+  const START_EXIT_DURATION_MS = 760;
+  let isExitingToHome = $state(false);
+  let startExitTimer: ReturnType<typeof setTimeout> | undefined;
 
   const modelHints: Record<string, string> = {
     tiny: "最快最轻，低配优先",
@@ -56,9 +60,29 @@
     medium: "长音频更稳",
     "large-v3-turbo": "最高质量",
   };
+
+  function handleStartClick() {
+    if (isExitingToHome) return;
+    isExitingToHome = true;
+    startExitTimer = setTimeout(() => {
+      startExitTimer = undefined;
+      onStart();
+    }, START_EXIT_DURATION_MS);
+  }
+
+  onDestroy(() => {
+    if (startExitTimer) {
+      clearTimeout(startExitTimer);
+    }
+  });
 </script>
 
-<section class="first-run-mask" style={`--top-inset: ${topInset}px;`} aria-label="首次启动引导">
+<section
+  class="first-run-mask"
+  class:is-exiting-home={isExitingToHome}
+  style={`--top-inset: ${topInset}px;`}
+  aria-label="首次启动引导"
+>
   {#if topInset === 0}
     <div class="first-run-drag-region" data-tauri-drag-region></div>
   {/if}
@@ -67,6 +91,7 @@
       class="first-run-panel first-run-panel-shell"
       class:is-download-stage={isDownloadStage}
       class:is-ready-stage={step === "ready"}
+      class:is-exiting-home={isExitingToHome}
     >
       <div class="first-run-viewport">
         <div class="first-run-scene-stack">
@@ -141,7 +166,7 @@
                       <h2 class="cta-title">{selectedModel?.label ?? "模型"} 已就绪</h2>
                       <p class="cta-desc">现在可以开始导入音频或视频生成字幕了</p>
                     </div>
-                    <button class="btn btn-primary cta-btn" type="button" onclick={onStart}>开始使用</button>
+                    <button class="btn btn-primary cta-btn" type="button" disabled={isExitingToHome} onclick={handleStartClick}>开始使用</button>
                   </div>
                 </div>
 
@@ -170,6 +195,12 @@
     padding: 0;
     gap: 0;
     isolation: isolate;
+    transform: translate3d(0, 0, 0);
+    opacity: 1;
+    transition:
+      transform 760ms cubic-bezier(0.22, 1, 0.36, 1),
+      opacity 560ms ease;
+    will-change: transform, opacity;
   }
 
   .first-run-viewport {
@@ -191,6 +222,29 @@
 
   .first-run-panel-shell.is-download-stage .first-run-scene-stack {
     transform: translate3d(0, -50%, 0);
+  }
+
+  .first-run-mask.is-exiting-home {
+    pointer-events: none;
+  }
+
+  .first-run-mask.is-exiting-home .first-run-stage {
+    background: color-mix(in srgb, var(--bg-base, #0c0e14) 22%, transparent);
+    backdrop-filter: blur(0);
+    -webkit-backdrop-filter: blur(0);
+    transition:
+      background 760ms ease,
+      backdrop-filter 760ms ease,
+      -webkit-backdrop-filter 760ms ease;
+  }
+
+  .first-run-panel-shell.is-exiting-home {
+    transform: translate3d(0, -11%, 0);
+    opacity: 0;
+  }
+
+  .first-run-panel-shell.is-exiting-home .first-run-scene-stack {
+    transform: translate3d(0, -66%, 0);
   }
 
   .first-run-scene {
