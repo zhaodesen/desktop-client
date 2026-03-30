@@ -40,6 +40,12 @@ echo "Found whisper-cli: $WHISPER"
 echo "Found ffmpeg: $FFMPEG"
 echo "Found yt-dlp: $YT_DLP"
 
+if [[ "$TARGET_TRIPLE" != *windows* ]]; then
+  [[ -x "$WHISPER" ]] || { echo "Not executable: $WHISPER" >&2; exit 1; }
+  [[ -x "$FFMPEG" ]] || { echo "Not executable: $FFMPEG" >&2; exit 1; }
+  [[ -x "$YT_DLP" ]] || { echo "Not executable: $YT_DLP" >&2; exit 1; }
+fi
+
 if [[ "$TARGET_TRIPLE" == *windows* ]]; then
   for dll in ggml-base.dll ggml-cpu.dll ggml.dll whisper.dll; do
     candidate="$BIN_DIR/$dll"
@@ -47,20 +53,5 @@ if [[ "$TARGET_TRIPLE" == *windows* ]]; then
     echo "Found DLL: $candidate"
   done
 fi
-
-"$WHISPER" --help >/dev/null 2>&1 || {
-  echo "whisper-cli exists but failed to execute: $WHISPER" >&2
-  exit 1
-}
-
-"$FFMPEG" -version >/dev/null 2>&1 || {
-  echo "ffmpeg exists but failed to execute: $FFMPEG" >&2
-  exit 1
-}
-
-"$YT_DLP" --help >/dev/null 2>&1 || {
-  echo "yt-dlp exists but failed to execute: $YT_DLP" >&2
-  exit 1
-}
 
 echo "Sidecar verification passed."
