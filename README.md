@@ -229,13 +229,13 @@ npm run set-version -- 0.1.12
 git add .
 git commit -m "release: v0.1.12"
 git push origin master
-git tag v0.1.12
-git push origin v0.1.12
+npm run tag:version
 ```
 
 注意：
 
 - 用 `npm run set-version -- <版本号>` 只会更新真正需要同步的版本文件。
+- 用 `npm run tag:version` 会读取 [package.json](/Users/zhaodesen/Desktop/desktop-client/package.json) 里的 `version`，自动创建并推送 `v<version>` tag。
 - 不要对 [src-tauri/Cargo.lock](/Users/zhaodesen/Desktop/desktop-client/src-tauri/Cargo.lock) 做全局字符串替换，否则会把第三方依赖版本一并改坏。
 
 ### 重要说明
