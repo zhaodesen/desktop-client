@@ -5,6 +5,7 @@
   import { emitTo, listen } from "@tauri-apps/api/event";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { open } from "@tauri-apps/plugin-dialog";
+  import aboutAvatarAsset from "./assets/about-avatar.jpg";
   import { OVERLAY_CLOSE_EVENT, OVERLAY_LOCK_EVENT } from "./shared/events";
   import { appEvents, asrEvents, backend, importEvents, modelEvents, overlayBridge } from "./shared/tauri";
   import type {
@@ -71,7 +72,6 @@
   const PLAYBACK_STATE_PROGRESS_THRESHOLD_MS = 1000;
   const PLAYBACK_DEBUG_LIMIT = 120;
   const DEFAULT_VOLUME = 1;
-  const LOCAL_DEV_ABOUT_AVATAR_PATH = "/Users/zhaodesen/Pictures/image_20250302231237_93787d518e5b74142c866f21ddc9bce4.jpg";
   const BOOTSTRAP_SETTINGS: AppSettings = {
     playbackRate: 1,
     volume: DEFAULT_VOLUME,
@@ -103,7 +103,7 @@
     hasSeenMainTour: false,
     themeMode: "dark",
   };
-  const ABOUT_AVATAR_PATH = resolveAboutAvatarPath();
+  const ABOUT_AVATAR_SRC = resolveAboutAvatarSrc();
   const FORCE_ONBOARDING = parseBooleanEnv(import.meta.env.VITE_FORCE_ONBOARDING);
   const SHOW_ONBOARDING_PREVIEW_ENTRY = import.meta.env.DEV;
 
@@ -112,14 +112,14 @@
     return ["1", "true", "yes", "on"].includes(value.trim().toLowerCase());
   }
 
-  function resolveAboutAvatarPath(): string {
+  function resolveAboutAvatarSrc(): string {
     const envPath = typeof import.meta.env.VITE_ABOUT_AVATAR_PATH === "string"
       ? import.meta.env.VITE_ABOUT_AVATAR_PATH.trim()
       : "";
 
-    if (envPath) return envPath;
-    if (import.meta.env.DEV) return LOCAL_DEV_ABOUT_AVATAR_PATH;
-    return "";
+    if (!envPath) return aboutAvatarAsset;
+    if (/^(asset:|https?:|data:|blob:)/i.test(envPath)) return envPath;
+    return convertFileSrc(envPath);
   }
 
   /* ── State ─────────────────────────────────────────────── */
@@ -258,7 +258,7 @@
   // ConfirmDialog ref
   let confirmDialog: ConfirmDialog;
 
-  aboutAvatarSrc = ABOUT_AVATAR_PATH ? convertFileSrc(ABOUT_AVATAR_PATH) : "";
+  aboutAvatarSrc = ABOUT_AVATAR_SRC;
 
   /* ── Theme ─────────────────────────────────────────────── */
 
