@@ -1590,8 +1590,8 @@
       settings = await backend.getSettings();
       player.setPlaybackRate(settings.playbackRate);
       player.setVolume(settings.volume);
-      showFirstRunOnboarding = false;
-      onboardingStep = "ready";
+      showFirstRunOnboarding = true;
+      onboardingStep = "select-model";
       onboardingSelectedModelId = undefined;
       onboardingDownloadPercent = 0;
       onboardingDownloadMessage = "正在准备模型下载…";

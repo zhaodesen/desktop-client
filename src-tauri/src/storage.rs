@@ -90,7 +90,7 @@ pub fn reset_app_data(app: &AppHandle) -> Result<CleanupResult, String> {
         result.deleted_files += 1;
     }
 
-    store::save_settings(app, &AppSettings::reset_defaults())?;
+    store::save_settings(app, &AppSettings::default())?;
 
     Ok(result)
 }
