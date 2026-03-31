@@ -118,6 +118,11 @@ pub fn resolve_local_candidates(app: &AppHandle, names: &[&str]) -> Result<Vec<P
         if let Ok(executable_dir) = app.path().resolve(".", BaseDirectory::Executable) {
             push_matching_sidecar_paths(&mut candidates, &executable_dir, name);
         }
+        for executable_dir in current_executable_dirs() {
+            push_unique_path(&mut candidates, executable_dir.join(&binary_name));
+            push_unique_path(&mut candidates, executable_dir.join(&exe_name));
+            push_matching_sidecar_paths(&mut candidates, &executable_dir, name);
+        }
     }
 
     Ok(candidates)
@@ -262,6 +267,27 @@ fn local_sidecar_dirs(current_dir: &Path) -> Vec<PathBuf> {
     if let Some(parent_dir) = current_dir.parent() {
         dirs.push(parent_dir.join("src-tauri/binaries"));
         dirs.push(parent_dir.join("bin"));
+    }
+
+    dirs
+}
+
+fn current_executable_dirs() -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+
+    let Ok(current_exe) = env::current_exe() else {
+        return dirs;
+    };
+
+    if let Some(parent) = current_exe.parent() {
+        push_unique_path(&mut dirs, parent.to_path_buf());
+
+        if cfg!(target_os = "macos") {
+            if let Some(contents_dir) = parent.parent() {
+                push_unique_path(&mut dirs, contents_dir.join("Resources"));
+                push_unique_path(&mut dirs, contents_dir.join("MacOS"));
+            }
+        }
     }
 
     dirs
