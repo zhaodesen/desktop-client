@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, realpathSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
@@ -8,6 +8,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, '..');
 const binariesDir = path.join(rootDir, 'src-tauri', 'binaries');
+const offlineTranslatorDir = path.join(rootDir, 'scripts', 'offline_translator');
 const mode = process.argv[2] === 'dev' ? 'dev' : 'build';
 
 function detectTargetTriple() {
@@ -68,6 +69,16 @@ function verifyBundledSidecars(targetTriple) {
       path.join(binariesDir, 'whisper.dll'),
     );
   }
+  if (targetTriple.includes('apple-darwin')) {
+    expected.push(
+      path.join(binariesDir, 'libwhisper.1.dylib'),
+      path.join(binariesDir, 'libggml.0.dylib'),
+      path.join(binariesDir, 'libggml-base.0.dylib'),
+      path.join(binariesDir, 'libggml-cpu.0.dylib'),
+      path.join(binariesDir, 'libggml-blas.0.dylib'),
+      path.join(binariesDir, 'libggml-metal.0.dylib'),
+    );
+  }
 
   const missing = expected.filter((candidate) => !existsSync(candidate));
   if (missing.length === 0) {
@@ -82,6 +93,80 @@ function verifyBundledSidecars(targetTriple) {
   process.exit(1);
 }
 
+function signMacDynamicLibraries(targetTriple) {
+  if (!targetTriple.includes('apple-darwin')) {
+    return;
+  }
+
+  const dylibs = [
+    'libwhisper.1.dylib',
+    'libggml.0.dylib',
+    'libggml-base.0.dylib',
+    'libggml-cpu.0.dylib',
+    'libggml-blas.0.dylib',
+    'libggml-metal.0.dylib',
+  ].map((name) => path.join(binariesDir, name));
+
+  for (const dylib of dylibs) {
+    if (!existsSync(dylib)) continue;
+    const result = spawnSync('codesign', ['--force', '--sign', '-', dylib], {
+      cwd: rootDir,
+      env: process.env,
+      stdio: 'inherit',
+    });
+
+    if (result.error) {
+      throw result.error;
+    }
+
+    if (typeof result.status === 'number' && result.status !== 0) {
+      process.exit(result.status);
+    }
+  }
+}
+
+function prepareOfflineTranslatorRuntime(targetTriple) {
+  if (!targetTriple.includes('apple-darwin')) {
+    return;
+  }
+
+  const venvPythonPath = path.join(offlineTranslatorDir, '.venv', 'bin', 'python');
+  if (!existsSync(venvPythonPath)) {
+    console.error('未找到离线翻译 Python 虚拟环境，请先在 scripts/offline_translator 中准备 .venv。');
+    process.exit(1);
+  }
+
+  const runtimePythonPath = realpathSync(venvPythonPath);
+  const runtimeHome = path.resolve(path.dirname(runtimePythonPath), '..');
+  const targetHome = path.join(offlineTranslatorDir, '.python-home');
+  const pythonBinaryName = path.basename(runtimePythonPath);
+  const versionMatch = pythonBinaryName.match(/^python(\d+\.\d+)$/);
+
+  if (!versionMatch) {
+    console.error(`无法从离线翻译 Python 可执行文件推断版本: ${pythonBinaryName}`);
+    process.exit(1);
+  }
+
+  const pythonVersion = versionMatch[1];
+
+  rmSync(targetHome, { recursive: true, force: true });
+  mkdirSync(path.join(targetHome, 'bin'), { recursive: true });
+  mkdirSync(path.join(targetHome, 'lib'), { recursive: true });
+
+  cpSync(path.join(runtimeHome, 'bin', pythonBinaryName), path.join(targetHome, 'bin', pythonBinaryName));
+  for (const alias of ['python3', 'python']) {
+    cpSync(path.join(runtimeHome, 'bin', pythonBinaryName), path.join(targetHome, 'bin', alias));
+  }
+  cpSync(
+    path.join(runtimeHome, 'lib', `libpython${pythonVersion}.dylib`),
+    path.join(targetHome, 'lib', `libpython${pythonVersion}.dylib`),
+  );
+  cpSync(path.join(runtimeHome, 'lib', `python${pythonVersion}`), path.join(targetHome, 'lib', `python${pythonVersion}`), {
+    recursive: true,
+    dereference: true,
+  });
+}
+
 const targetTriple = process.env.TARGET_TRIPLE || detectTargetTriple();
 if (!targetTriple) {
   console.error('无法确定当前 Rust target triple。');
@@ -89,6 +174,8 @@ if (!targetTriple) {
 }
 
 verifyBundledSidecars(targetTriple);
+prepareOfflineTranslatorRuntime(targetTriple);
+signMacDynamicLibraries(targetTriple);
 
 const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 runCommand(npmCommand, ['run', mode]);

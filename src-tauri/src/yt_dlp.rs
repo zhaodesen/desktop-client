@@ -2,10 +2,11 @@ use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
 use std::{
     cmp::Ordering as CmpOrdering,
+    env,
     fs::{self, File},
     io::copy,
     path::{Path, PathBuf},
-    process::Stdio,
+    process::{Command, Stdio},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tauri::AppHandle;
@@ -201,6 +202,7 @@ fn download_latest_binary(
     }
     fs::rename(&temp_path, &target_path).map_err(|error| format!("启用新版 yt-dlp 失败: {error}"))?;
     ensure_executable(&target_path)?;
+    sign_binary_for_macos(&target_path)?;
 
     Ok(Some(candidate_version))
 }
@@ -317,6 +319,50 @@ fn ensure_executable(path: &Path) -> Result<(), String> {
         permissions.set_mode(0o755);
         fs::set_permissions(path, permissions)
             .map_err(|error| format!("设置 yt-dlp 可执行权限失败: {error}"))?;
+    }
+
+    Ok(())
+}
+
+fn sign_binary_for_macos(path: &Path) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        let entitlements_path = env::temp_dir().join(format!(
+            "muyu-yt-dlp-entitlements-{}.plist",
+            std::process::id()
+        ));
+        let entitlements = r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+</dict>
+</plist>
+"#;
+
+        fs::write(&entitlements_path, entitlements)
+            .map_err(|error| format!("写入 yt-dlp entitlement 失败: {error}"))?;
+
+        let result = Command::new("codesign")
+            .args([
+                "--force",
+                "--sign",
+                "-",
+                "--options",
+                "runtime",
+                "--entitlements",
+            ])
+            .arg(&entitlements_path)
+            .arg(path)
+            .status()
+            .map_err(|error| format!("执行 yt-dlp 签名失败: {error}"))?;
+
+        let _ = fs::remove_file(&entitlements_path);
+
+        if !result.success() {
+            return Err(format!("签名新版 yt-dlp 失败，退出码: {:?}", result.code()));
+        }
     }
 
     Ok(())

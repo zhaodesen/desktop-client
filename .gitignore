@@ -53,6 +53,12 @@ src-tauri/binaries/*
 !src-tauri/binaries/whisper-cli-aarch64-apple-darwin
 !src-tauri/binaries/whisper-cli-x86_64-apple-darwin
 !src-tauri/binaries/whisper-cli-x86_64-pc-windows-msvc.exe
+!src-tauri/binaries/libwhisper.1.dylib
+!src-tauri/binaries/libggml.0.dylib
+!src-tauri/binaries/libggml-base.0.dylib
+!src-tauri/binaries/libggml-cpu.0.dylib
+!src-tauri/binaries/libggml-blas.0.dylib
+!src-tauri/binaries/libggml-metal.0.dylib
 !src-tauri/binaries/yt-dlp-aarch64-apple-darwin
 !src-tauri/binaries/yt-dlp-x86_64-apple-darwin
 !src-tauri/binaries/yt-dlp-x86_64-pc-windows-msvc.exe

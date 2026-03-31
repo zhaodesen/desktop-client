@@ -10,7 +10,7 @@
     "set-version": "node scripts/set-version.mjs",
     "release:version": "node scripts/release-version.mjs",
     "tag:version": "sh -c 'VERSION=$(node -p \"require(\\\"./package.json\\\").version\") && git tag \"v$VERSION\" && git push origin \"v$VERSION\"'",
-    "tauri": "tauri"
+    "tauri": "node scripts/tauri.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
