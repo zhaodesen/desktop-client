@@ -44,38 +44,6 @@
 
   /* ── Constants ─────────────────────────────────────────── */
 
-  const DEFAULT_SETTINGS: AppSettings = {
-    playbackRate: 1,
-    volume: 1,
-    overlayVisible: false,
-    overlay: {
-      fontSize: 34,
-      opacity: 1.0,
-      color: "#ffffff",
-      strokeColor: "#000000",
-      secondaryColor: "#ffffff",
-      secondaryStrokeColor: "#000000",
-      position: "bottom",
-    },
-    playlistMode: "sequential",
-    subtitleDisplayMode: "bilingual",
-    shortcuts: {
-      playPause: "Space",
-      previousTrack: "Comma",
-      nextTrack: "Period",
-      toggleOverlay: "KeyO",
-      volumeUp: "Equal",
-      volumeDown: "Minus",
-      showTranslation: "Digit1",
-      showOriginal: "Digit2",
-      showBilingual: "Digit3",
-    },
-    selectedModel: "base",
-    hasCompletedOnboarding: false,
-    hasSeenMainTour: false,
-    themeMode: "dark" as ThemeMode,
-  };
-
   const ONBOARDING_MODEL_GUIDES: Record<string, { pros: string[]; cons: string[]; recommended?: boolean }> = {
     tiny: {
       pros: ["下载最快", "占用最小", "老机器也能跑"],
@@ -103,6 +71,38 @@
   const PLAYBACK_STATE_SAVE_DEBOUNCE_MS = 250;
   const PLAYBACK_STATE_PROGRESS_THRESHOLD_MS = 1000;
   const PLAYBACK_DEBUG_LIMIT = 120;
+  const DEFAULT_VOLUME = 1;
+  const BOOTSTRAP_SETTINGS: AppSettings = {
+    playbackRate: 1,
+    volume: DEFAULT_VOLUME,
+    overlayVisible: true,
+    overlay: {
+      fontSize: 34,
+      opacity: 1,
+      color: "#ffffff",
+      strokeColor: "#000000",
+      secondaryColor: "#ffffff",
+      secondaryStrokeColor: "#000000",
+      position: "bottom",
+    },
+    playlistMode: "sequential",
+    subtitleDisplayMode: "bilingual",
+    shortcuts: {
+      playPause: "Space",
+      previousTrack: "Comma",
+      nextTrack: "Period",
+      toggleOverlay: "KeyO",
+      volumeUp: "Equal",
+      volumeDown: "Minus",
+      showTranslation: "Digit1",
+      showOriginal: "Digit2",
+      showBilingual: "Digit3",
+    },
+    selectedModel: "base",
+    hasCompletedOnboarding: false,
+    hasSeenMainTour: false,
+    themeMode: "dark",
+  };
   const ABOUT_AVATAR_PATH = "/Users/zhaodesen/Pictures/image_20250302231237_93787d518e5b74142c866f21ddc9bce4.jpg";
   const FORCE_ONBOARDING = parseBooleanEnv(import.meta.env.VITE_FORCE_ONBOARDING);
   const SHOW_ONBOARDING_PREVIEW_ENTRY = import.meta.env.DEV;
@@ -114,7 +114,8 @@
 
   /* ── State ─────────────────────────────────────────────── */
 
-  let settings = $state<AppSettings>({ ...DEFAULT_SETTINGS, overlay: { ...DEFAULT_SETTINGS.overlay } });
+  let settings = $state<AppSettings>({ ...BOOTSTRAP_SETTINGS, overlay: { ...BOOTSTRAP_SETTINGS.overlay }, shortcuts: { ...BOOTSTRAP_SETTINGS.shortcuts } });
+  let settingsReady = $state(false);
   let libraryState = $state<LibraryState>({ mediaItems: [], playbackHistory: [] });
   let activePage = $state("import");
   let lastMainPage = $state<"import" | "resources" | "playlist" | "settings" | "about">("import");
@@ -171,7 +172,7 @@
   let currentText = $state("等待播放");
   let currentSecondaryText = $state("");
   let subtitleCues = $state<SubtitleCue[]>([]);
-  let lastAudibleVolume = $state(DEFAULT_SETTINGS.volume);
+  let lastAudibleVolume = $state(DEFAULT_VOLUME);
   let lastSavedPlaybackState: PlaybackState | undefined;
   let pendingPlaybackState: PlaybackState | undefined;
   let playbackStateSaveTimer: ReturnType<typeof setTimeout> | undefined;
@@ -262,7 +263,7 @@
   }
 
   $effect(() => {
-    applyTheme(settings.themeMode);
+    if (settingsReady) applyTheme(settings.themeMode);
   });
 
   /* ── Helpers ────────────────────────────────────────────── */
@@ -530,7 +531,7 @@
   }
 
   function getSavedPlaybackState(): PlaybackState | undefined {
-    return settings.playbackState
+    return settings?.playbackState
       ? normalizePlaybackState(settings.playbackState)
       : undefined;
   }
@@ -589,7 +590,7 @@
       try {
         const saved = await backend.updatePlaybackState(nextPlaybackState);
         const normalized = saved ? normalizePlaybackState(saved) : undefined;
-        settings = { ...settings, playbackState: normalized };
+        if (settings) settings = { ...settings, playbackState: normalized };
         lastSavedPlaybackState = normalized;
       } catch (err) {
         console.error(err);
@@ -608,12 +609,12 @@
     if (!playbackStateHydrated && !immediate) return;
 
     const normalized = playbackState ? normalizePlaybackState(playbackState) : undefined;
-    const baseline = pendingPlaybackState ?? lastSavedPlaybackState ?? settings.playbackState;
+    const baseline = pendingPlaybackState ?? lastSavedPlaybackState ?? settings?.playbackState;
     const toleranceMs = immediate ? 0 : PLAYBACK_STATE_PROGRESS_THRESHOLD_MS;
     if (isSamePlaybackState(baseline, normalized, toleranceMs)) return;
 
     pendingPlaybackState = normalized;
-    settings = { ...settings, playbackState: normalized };
+    if (settings) settings = { ...settings, playbackState: normalized };
 
     if (playbackStateSaveTimer) {
       clearTimeout(playbackStateSaveTimer);
@@ -645,7 +646,7 @@
 
     lastSavedPlaybackState = undefined;
     pendingPlaybackState = undefined;
-    settings = { ...settings, playbackState: undefined };
+    if (settings) settings = { ...settings, playbackState: undefined };
   }
 
   async function restorePlaybackState() {
@@ -729,6 +730,7 @@
   }
 
   async function handleOnboardingStart() {
+    if (!settingsReady) return;
     setActivePage("import");
     showFirstRunOnboarding = false;
     onboardingError = undefined;
@@ -738,6 +740,7 @@
   }
 
   async function handleOnboardingSkip() {
+    if (!settingsReady) return;
     const ok = await confirmDialog.show(
       "跳过模型选择",
       "如果不选择模型，将无法进行音视频识别。你仍可以稍后在设置页面下载模型。",
@@ -766,6 +769,9 @@
   /* ── Persist settings ──────────────────────────────────── */
 
   function buildSettingsForPersist(nextSettings: AppSettings = settings): AppSettings {
+    if (!nextSettings) {
+      throw new Error("设置尚未加载完成");
+    }
     if (nextSettings.playbackState) return nextSettings;
     const playbackState = pendingPlaybackState ?? lastSavedPlaybackState ?? getSavedPlaybackState();
     return playbackState
@@ -781,6 +787,7 @@
   /* ── Model UI helpers ──────────────────────────────────── */
 
   function refreshModelLabels() {
+    if (!settingsReady) return;
     const selected = settings.selectedModel || "base";
     const selectedStatus = modelsStatusMap.get(selected);
     if (selectedStatus) {
@@ -803,6 +810,7 @@
 
   function getDisplayedCue(cue?: SubtitleCue): SubtitleCue | undefined {
     if (!cue) return undefined;
+    if (!settingsReady) return cue;
     if (settings.subtitleDisplayMode === "original") {
       return { ...cue, secondaryText: undefined };
     }
@@ -827,6 +835,7 @@
   }
 
   async function syncOverlay(s: PlaybackSnapshot) {
+    if (!settingsReady) return;
     // 守卫1：悬浮窗隐藏时跳过，避免无效 IPC
     if (!settings.overlayVisible) return;
     // 守卫2：100ms 节流，播放时最多 10fps IPC，避免 ticker+timeupdate 双重触发叠加
@@ -880,6 +889,11 @@
   }
 
   async function loadMediaById(mediaId: string, record: boolean, requestId = createMediaLoadRequestId()) {
+    if (!settingsReady) {
+      setStatus("设置尚未加载完成", "warning");
+      return false;
+    }
+
     const media = libraryState.mediaItems.find((i) => i.id === mediaId);
     if (!media) {
       if (isLatestMediaLoadRequest(requestId)) {
@@ -949,12 +963,14 @@
   }
 
   function applyVolume(volume: number) {
+    if (!settingsReady) return;
     const nextVolume = Math.max(0, Math.min(1, volume));
     settings = { ...settings, volume: nextVolume };
     player.setVolume(nextVolume);
   }
 
   async function toggleMute() {
+    if (!settingsReady) return;
     if (settings.volume > 0) {
       applyVolume(0);
       await commitVolume(false);
@@ -962,13 +978,14 @@
       return;
     }
 
-    const restoredVolume = Math.max(0.05, Math.min(1, lastAudibleVolume || DEFAULT_SETTINGS.volume));
+    const restoredVolume = Math.max(0.05, Math.min(1, lastAudibleVolume || DEFAULT_VOLUME));
     applyVolume(restoredVolume);
     await commitVolume(false);
     setStatus(`已恢复音量 ${Math.round(restoredVolume * 100)}%`, "success");
   }
 
   async function commitVolume(showFeedback = true) {
+    if (!settingsReady) return;
     await persistSettings();
     if (showFeedback) {
       setStatus(`音量已调整为 ${Math.round(settings.volume * 100)}%`, "success");
@@ -976,6 +993,7 @@
   }
 
   async function setSubtitleDisplayMode(mode: AppSettings["subtitleDisplayMode"], showFeedback = true) {
+    if (!settingsReady) return;
     if (settings.subtitleDisplayMode === mode) return;
     settings = { ...settings, subtitleDisplayMode: mode };
     await persistSettings();
@@ -1539,17 +1557,12 @@
   }
 
   async function handleResetAppData() {
+    if (!settingsReady) return;
     if (!await confirmDialog.show("删除全部数据", "所有离线模型、音频字幕缓存及应用设置都将被彻底清空，此操作不可逆！")) return;
     try {
       await clearPlaybackPersistenceState();
       const r = await backend.resetAppData();
-      settings = {
-        ...DEFAULT_SETTINGS,
-        overlay: { ...DEFAULT_SETTINGS.overlay },
-        hasCompletedOnboarding: true,
-        hasSeenMainTour: true,
-        playbackState: undefined,
-      };
+      settings = await backend.getSettings();
       player.setPlaybackRate(settings.playbackRate);
       player.setVolume(settings.volume);
       showFirstRunOnboarding = false;
@@ -1574,6 +1587,7 @@
   /* ── Keyboard shortcuts ────────────────────────────────── */
 
   function handleKeydown(e: KeyboardEvent) {
+    if (!settingsReady) return;
     if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement || e.target instanceof HTMLTextAreaElement) return;
     const shortcut = settings.shortcuts;
 
@@ -1700,6 +1714,7 @@
     });
 
     player.onEnded(() => {
+      if (!settingsReady) return;
       if (settings.playlistMode === "single") {
         player.seek(0);
         void handleTogglePlayback("ended-single");
@@ -2003,9 +2018,8 @@
 
     // Load settings
     try {
+      settingsReady = false;
       settings = await backend.getSettings();
-      if (!settings.playlistMode) settings = { ...settings, playlistMode: "sequential" };
-      if (!settings.themeMode) settings = { ...settings, themeMode: "dark" };
       const normalizedPlaybackState = getSavedPlaybackState();
       settings = { ...settings, playbackState: normalizedPlaybackState };
       lastSavedPlaybackState = normalizedPlaybackState;
@@ -2017,11 +2031,29 @@
       showFirstRunOnboarding = FORCE_ONBOARDING || !settings.hasCompletedOnboarding;
       onboardingStep = settings.hasCompletedOnboarding ? "ready" : "select-model";
       if (FORCE_ONBOARDING) onboardingStep = "select-model";
+      settingsReady = true;
       setStatus("设置已加载", "success");
     } catch (err) {
       console.error(err);
-      showFirstRunOnboarding = FORCE_ONBOARDING || !DEFAULT_SETTINGS.hasCompletedOnboarding;
-      onboardingStep = "select-model";
+      settings = {
+        ...BOOTSTRAP_SETTINGS,
+        overlay: { ...BOOTSTRAP_SETTINGS.overlay },
+        shortcuts: { ...BOOTSTRAP_SETTINGS.shortcuts },
+      };
+      lastSavedPlaybackState = undefined;
+      pendingPlaybackState = undefined;
+      player.setPlaybackRate(settings.playbackRate);
+      player.setVolume(settings.volume);
+      try {
+        await overlayBridge.updateStyle(settings.overlay);
+        if (settings.overlayVisible) await backend.showOverlay();
+      } catch (overlayErr) {
+        console.error(overlayErr);
+      }
+      showFirstRunOnboarding = FORCE_ONBOARDING || !settings.hasCompletedOnboarding;
+      onboardingStep = settings.hasCompletedOnboarding ? "ready" : "select-model";
+      if (FORCE_ONBOARDING) onboardingStep = "select-model";
+      settingsReady = true;
       setStatus("读取设置失败，已使用默认配置", "warning");
     }
 
@@ -2150,160 +2182,164 @@
     {/if}
   </div>
 
-  <Sidebar
-    {activePage}
-    onNavigate={setActivePage}
-  />
+  {#if settingsReady}
+    <Sidebar
+      {activePage}
+      onNavigate={setActivePage}
+    />
 
-  <section
-    class="content"
-    class:content-player={activePage === "playlist"}
-    class:content-resources={activePage === "resources"}
-  >
-    {#if activePage === "import"}
-      <div class="page-transition" in:fade={{ duration: 160, delay: 40 }}>
-      <ImportPage
-        progress={importProgress}
-        {importError}
-        {importSuccessName}
-        showSuccess={showImportSuccess}
-        canCancel={Boolean(activeAsrJobId) && importProgress.stage !== "done"}
-        {isCancellingAsr}
-        onImportMedia={handleImportMedia}
-        onImportOnline={handleImportOnlineMedia}
-        onCancel={() => { void handleCancelAsr(); }}
-        onDismissError={() => { importError = undefined; }}
-        onImportSuccessClose={closeImportSuccess}
-        onGoToResources={() => {
-          closeImportSuccess();
-          setActivePage("resources");
-        }}
-      />
-      </div>
-    {:else if activePage === "resources"}
-      <div class="page-transition" in:fade={{ duration: 160, delay: 40 }}>
-      <ResourceListPage
-        items={libraryState.mediaItems}
-        retryingMediaId={retryAsrProgress?.mediaId}
-        retryingProgress={retryAsrProgress?.percent ?? 0}
-        retryingMessage={retryAsrProgress?.message}
-        retryCompletedMediaId={retryAsrCompletedMediaId}
-        retryCompletedMessage={retryAsrCompletedMessage}
-        asrBusy={Boolean(activeAsrJobId)}
-        onRetryAsr={(id) => void retryAsrForMedia(id)}
-        onEditSubtitle={(id) => void openSubtitleEditor(id)}
-        onDeleteMedia={(id) => void deleteMediaById(id)}
-        onAddToPlaylist={(id) => void handleAddToPlaylist(id)}
-      />
-      </div>
-    {:else if activePage === "playlist"}
-      <div class="page-transition" in:fade={{ duration: 160, delay: 40 }}>
-      <PlayerPage
-        {snap}
-        {hasMedia}
-        {audioFileLabel}
-        {subtitleFileLabel}
-        {cueTiming}
-        {currentText}
-        {currentSecondaryText}
-        {subtitleCues}
-        overlayVisible={settings.overlayVisible}
-        playbackRate={settings.playbackRate}
-        playlistMode={settings.playlistMode}
-        playlist={libraryState.playbackHistory}
-        {pendingPlaylistMediaId}
-        {currentMediaId}
-        volume={settings.volume}
-        {playbackDebugEntries}
-        onClearPlaybackDebug={clearPlaybackDebug}
-        onTogglePlayback={() => void handleTogglePlayback("player-bar")}
-        onToggleCurrentItem={() => void handleTogglePlayback("playlist-current-item")}
-        onSeek={(ms) => player.seek(ms)}
-        onRateChange={async (rate) => {
-          settings = { ...settings, playbackRate: rate };
-          player.setPlaybackRate(rate);
-          await persistSettings();
-          setStatus(`播放倍率已更新为 ${rate.toFixed(2)}x`, "success");
-        }}
-        onPlaylistModeChange={async (mode: PlaylistMode) => {
-          settings = { ...settings, playlistMode: mode };
-          await persistSettings();
-          setStatus(mode === "single" ? "已切换为单曲循环" : "已切换为顺序播放", "success");
-        }}
-        onToggleOverlayVisible={() => { void handleOverlayVisibleChange(!settings.overlayVisible); }}
-        onToggleMute={() => { void toggleMute(); }}
-        onVolumeChange={(volume) => applyVolume(volume)}
-        onVolumeCommit={() => { void commitVolume(); }}
-        onPlayItem={(id) => { void playPlaylistItem(id, true); }}
-        onRemoveItem={(id) => { void removePlaybackItem(id); }}
-        onPrevTrack={() => { void playHistoryDirection(-1); }}
-        onNextTrack={() => { void playHistoryDirection(1); }}
-      />
-      </div>
-    {:else if activePage === "settings"}
-      <div class="page-transition" in:fade={{ duration: 160, delay: 40 }}>
-      <SettingsPage
-        {settings}
-        {availableModels}
-        {modelsStatusMap}
-        isDownloading={Boolean(activeModelDownloadJobId)}
-        {downloadingModelId}
-        {modelDownloadPercent}
-        {isDownloadPaused}
-        modelStatusLabel={modelStatusLabel}
-        modelPathLabel={modelPathLabel}
-        {overlayLocked}
-        onOverlayVisibleChange={handleOverlayVisibleChange}
-        onOverlayLockToggle={handleOverlayLockToggle}
-        onOverlayStyleChange={handleOverlayStyleChange}
-        onOverlayStyleCommit={persistSettings}
-        onDownloadModel={handleDownloadModel}
-        onCancelDownload={handleCancelModelDownload}
-        onPauseDownload={handlePauseModelDownload}
-        onResumeDownload={handleResumeModelDownload}
-        onSelectModel={handleSelectModel}
-        onDeleteModel={handleDeleteModel}
-        onShortcutChange={(shortcuts) => {
-          settings = { ...settings, shortcuts };
-        }}
-        onShortcutCommit={persistSettings}
-        {ytDlpStatus}
-        {isUpdatingYtDlp}
-        onUpdateYtDlp={handleUpdateYtDlp}
-        onOpenOnboarding={openOnboardingPreview}
-        showOnboardingPreviewEntry={SHOW_ONBOARDING_PREVIEW_ENTRY}
-        onClearAllCache={handleClearAllCache}
-        onDeleteAllModels={handleDeleteAllModels}
-        onResetAppData={handleResetAppData}
-      />
-      </div>
-    {:else if activePage === "about"}
-      <div class="page-transition" in:fade={{ duration: 160, delay: 40 }}>
-      <AboutPage avatarSrc={aboutAvatarSrc} />
-      </div>
-    {:else if activePage === "subtitle-editor"}
-      <div class="page-transition" in:fade={{ duration: 160, delay: 40 }}>
-      <SubtitleEditor
-        document={activeSubtitleDocument}
-        lastMainPage={lastMainPage}
-        saveNotice={subtitleEditorNotice}
-        isSaving={subtitleEditorSaving}
-        onBack={() => {
-          subtitleEditorNotice = undefined;
-          subtitleEditorSaving = false;
-          setActivePage(lastMainPage);
-        }}
-        onSave={() => void saveSubtitleEditor()}
-        onCueChange={handleCueChange}
-      />
-      </div>
-    {/if}
-  </section>
+    <section
+      class="content"
+      class:content-player={activePage === "playlist"}
+      class:content-resources={activePage === "resources"}
+    >
+      {#if activePage === "import"}
+        <div class="page-transition" in:fade={{ duration: 160, delay: 40 }}>
+        <ImportPage
+          progress={importProgress}
+          {importError}
+          {importSuccessName}
+          showSuccess={showImportSuccess}
+          canCancel={Boolean(activeAsrJobId) && importProgress.stage !== "done"}
+          {isCancellingAsr}
+          onImportMedia={handleImportMedia}
+          onImportOnline={handleImportOnlineMedia}
+          onCancel={() => { void handleCancelAsr(); }}
+          onDismissError={() => { importError = undefined; }}
+          onImportSuccessClose={closeImportSuccess}
+          onGoToResources={() => {
+            closeImportSuccess();
+            setActivePage("resources");
+          }}
+        />
+        </div>
+      {:else if activePage === "resources"}
+        <div class="page-transition" in:fade={{ duration: 160, delay: 40 }}>
+        <ResourceListPage
+          items={libraryState.mediaItems}
+          retryingMediaId={retryAsrProgress?.mediaId}
+          retryingProgress={retryAsrProgress?.percent ?? 0}
+          retryingMessage={retryAsrProgress?.message}
+          retryCompletedMediaId={retryAsrCompletedMediaId}
+          retryCompletedMessage={retryAsrCompletedMessage}
+          asrBusy={Boolean(activeAsrJobId)}
+          onRetryAsr={(id) => void retryAsrForMedia(id)}
+          onEditSubtitle={(id) => void openSubtitleEditor(id)}
+          onDeleteMedia={(id) => void deleteMediaById(id)}
+          onAddToPlaylist={(id) => void handleAddToPlaylist(id)}
+        />
+        </div>
+      {:else if activePage === "playlist"}
+        <div class="page-transition" in:fade={{ duration: 160, delay: 40 }}>
+        <PlayerPage
+          {snap}
+          {hasMedia}
+          {audioFileLabel}
+          {subtitleFileLabel}
+          {cueTiming}
+          {currentText}
+          {currentSecondaryText}
+          {subtitleCues}
+          overlayVisible={settings.overlayVisible}
+          playbackRate={settings.playbackRate}
+          playlistMode={settings.playlistMode}
+          playlist={libraryState.playbackHistory}
+          {pendingPlaylistMediaId}
+          {currentMediaId}
+          volume={settings.volume}
+          {playbackDebugEntries}
+          onClearPlaybackDebug={clearPlaybackDebug}
+          onTogglePlayback={() => void handleTogglePlayback("player-bar")}
+          onToggleCurrentItem={() => void handleTogglePlayback("playlist-current-item")}
+          onSeek={(ms) => player.seek(ms)}
+          onRateChange={async (rate) => {
+            settings = { ...settings, playbackRate: rate };
+            player.setPlaybackRate(rate);
+            await persistSettings();
+            setStatus(`播放倍率已更新为 ${rate.toFixed(2)}x`, "success");
+          }}
+          onPlaylistModeChange={async (mode: PlaylistMode) => {
+            settings = { ...settings, playlistMode: mode };
+            await persistSettings();
+            setStatus(mode === "single" ? "已切换为单曲循环" : "已切换为顺序播放", "success");
+          }}
+          onToggleOverlayVisible={() => { void handleOverlayVisibleChange(!settings.overlayVisible); }}
+          onToggleMute={() => { void toggleMute(); }}
+          onVolumeChange={(volume) => applyVolume(volume)}
+          onVolumeCommit={() => { void commitVolume(); }}
+          onPlayItem={(id) => { void playPlaylistItem(id, true); }}
+          onRemoveItem={(id) => { void removePlaybackItem(id); }}
+          onPrevTrack={() => { void playHistoryDirection(-1); }}
+          onNextTrack={() => { void playHistoryDirection(1); }}
+        />
+        </div>
+      {:else if activePage === "settings"}
+        <div class="page-transition" in:fade={{ duration: 160, delay: 40 }}>
+        <SettingsPage
+          {settings}
+          {availableModels}
+          {modelsStatusMap}
+          isDownloading={Boolean(activeModelDownloadJobId)}
+          {downloadingModelId}
+          {modelDownloadPercent}
+          {isDownloadPaused}
+          modelStatusLabel={modelStatusLabel}
+          modelPathLabel={modelPathLabel}
+          {overlayLocked}
+          onOverlayVisibleChange={handleOverlayVisibleChange}
+          onOverlayLockToggle={handleOverlayLockToggle}
+          onOverlayStyleChange={handleOverlayStyleChange}
+          onOverlayStyleCommit={persistSettings}
+          onDownloadModel={handleDownloadModel}
+          onCancelDownload={handleCancelModelDownload}
+          onPauseDownload={handlePauseModelDownload}
+          onResumeDownload={handleResumeModelDownload}
+          onSelectModel={handleSelectModel}
+          onDeleteModel={handleDeleteModel}
+          onShortcutChange={(shortcuts) => {
+            settings = { ...settings, shortcuts };
+          }}
+          onShortcutCommit={persistSettings}
+          {ytDlpStatus}
+          {isUpdatingYtDlp}
+          onUpdateYtDlp={handleUpdateYtDlp}
+          onOpenOnboarding={openOnboardingPreview}
+          showOnboardingPreviewEntry={SHOW_ONBOARDING_PREVIEW_ENTRY}
+          onClearAllCache={handleClearAllCache}
+          onDeleteAllModels={handleDeleteAllModels}
+          onResetAppData={handleResetAppData}
+        />
+        </div>
+      {:else if activePage === "about"}
+        <div class="page-transition" in:fade={{ duration: 160, delay: 40 }}>
+        <AboutPage avatarSrc={aboutAvatarSrc} />
+        </div>
+      {:else if activePage === "subtitle-editor"}
+        <div class="page-transition" in:fade={{ duration: 160, delay: 40 }}>
+        <SubtitleEditor
+          document={activeSubtitleDocument}
+          lastMainPage={lastMainPage}
+          saveNotice={subtitleEditorNotice}
+          isSaving={subtitleEditorSaving}
+          onBack={() => {
+            subtitleEditorNotice = undefined;
+            subtitleEditorSaving = false;
+            setActivePage(lastMainPage);
+          }}
+          onSave={() => void saveSubtitleEditor()}
+          onCueChange={handleCueChange}
+        />
+        </div>
+      {/if}
+    </section>
+  {:else}
+    <section class="content"></section>
+  {/if}
 </main>
 
 <ConfirmDialog bind:this={confirmDialog} />
 
-{#if showFirstRunOnboarding}
+{#if settingsReady && showFirstRunOnboarding}
   <FirstRunOnboarding
     topInset={useWindowsCustomFrame ? 48 : 0}
     step={onboardingStep}

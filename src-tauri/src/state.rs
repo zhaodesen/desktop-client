@@ -120,7 +120,7 @@ impl Default for AppSettings {
         Self {
             playback_rate: 1.0,
             volume: 1.0,
-            overlay_visible: false,
+            overlay_visible: true,
             overlay: OverlaySettings::default(),
             playlist_mode: "sequential".to_string(),
             subtitle_display_mode: SubtitleDisplayMode::Bilingual,
