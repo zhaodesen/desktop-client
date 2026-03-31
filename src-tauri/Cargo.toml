@@ -1,6 +1,6 @@
 [package]
 name = "muyu"
-version = "0.1.2"
+version = "0.1.3"
 description = "Floating subtitle player desktop client"
 authors = ["zhaodesen"]
 edition = "2021"
