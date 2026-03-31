@@ -164,3 +164,64 @@ jobs:
           if-no-files-found: error
           path: |
             src-tauri/target/${{ matrix.target }}/release/bundle/**
+
+  publish:
+    name: Publish Release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v6
+        with:
+          path: release-artifacts
+          pattern: bundle-*
+          merge-multiple: true
+
+      - name: Create or update GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          cat > release-notes.md <<'EOF'
+          自动构建产物如下：
+          - macOS Apple Silicon
+          - macOS Intel
+          - Windows x64
+
+          当前工作流会直接使用仓库内置 sidecar。
+          如果已配置证书 secrets，会自动启用 macOS / Windows 代码签名。
+          请在 Assets 中下载对应平台安装包。
+          EOF
+
+          mapfile -t files < <(
+            find release-artifacts -type f \
+              \( -name '*.dmg' \
+              -o -name '*.app.tar.gz' \
+              -o -name '*.app.tar.gz.sig' \
+              -o -name '*.nsis.zip' \
+              -o -name '*.msi.zip' \
+              -o -name '*.exe' \
+              -o -name '*.msi' \
+              -o -name '*.sig' \
+              \) \
+              -print | sort
+          )
+
+          if [[ ${#files[@]} -eq 0 ]]; then
+            echo "No release assets found under release-artifacts." >&2
+            exit 1
+          fi
+
+          if gh release view "$TAG_NAME" --repo "$GH_REPO" >/dev/null 2>&1; then
+            gh release edit "$TAG_NAME" --repo "$GH_REPO" --title "字幕工作台 $TAG_NAME" --notes-file release-notes.md
+            gh release upload "$TAG_NAME" --repo "$GH_REPO" "${files[@]}" --clobber
+          else
+            gh release create "$TAG_NAME" --repo "$GH_REPO" "${files[@]}" \
+              --title "字幕工作台 $TAG_NAME" \
+              --notes-file release-notes.md
+          fi
