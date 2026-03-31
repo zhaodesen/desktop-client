@@ -32,20 +32,32 @@
     onDeleteMedia,
     onAddToPlaylist,
   }: Props = $props();
+
   let durationLabels = $state<Record<string, string>>({});
   let addedTooltipId = $state<string | undefined>(undefined);
   let searchQuery = $state("");
   let tooltipTimer: ReturnType<typeof setTimeout> | undefined;
   const pendingDurationIds = new Set<string>();
+
   const normalizedSearchQuery = $derived(searchQuery.trim().toLocaleLowerCase("zh-CN"));
   const filteredItems = $derived.by(() => {
     if (!normalizedSearchQuery) return items;
     return items.filter((item) => item.title.toLocaleLowerCase("zh-CN").includes(normalizedSearchQuery));
   });
 
+  const subtitledCount = $derived(items.filter((item) => Boolean(item.subtitlePath)).length);
+  const filteredCount = $derived(filteredItems.length);
+  const pendingSubtitleCount = $derived(items.length - subtitledCount);
+
   function formatTimestamp(ts: number): string {
     return new Date(ts).toLocaleString("zh-CN", {
-      month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
     });
   }
 
@@ -103,7 +115,7 @@
   });
 </script>
 
-<section class="page" data-active="true">
+<section class="page resource-page" data-active="true">
   {#if retryCompletedMediaId}
     <div class="retry-complete-notice" role="status">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -113,64 +125,70 @@
     </div>
   {/if}
 
-  <header class="page-header">
-    <h2>资源列表</h2>
+  <header class="page-header resource-header">
+    <div class="resource-header-copy">
+      <h2>资源列表</h2>
+      <p>管理已导入的音频与视频。</p>
+    </div>
   </header>
 
-  <div class="section-bar">
-    <span class="section-title">已导入</span>
-    <span class="badge">{items.length}</span>
-  </div>
-
-  <label class="resource-search" for="resource-search-input">
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-      <circle cx="11" cy="11" r="7"></circle>
-      <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-    </svg>
-    <input
-      id="resource-search-input"
-      type="text"
-      placeholder="按资源名称搜索"
-      bind:value={searchQuery}
-    />
-    {#if searchQuery}
-      <button
-        class="resource-search-clear"
-        type="button"
-        title="清空搜索"
-        onclick={() => { searchQuery = ""; }}
-      >
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <line x1="18" y1="6" x2="6" y2="18"></line>
-          <line x1="6" y1="6" x2="18" y2="18"></line>
+  <section class="resource-toolbar" aria-label="资源筛选与概览">
+    <div class="toolbar-search-row">
+      <label class="resource-search" for="resource-search-input">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="11" cy="11" r="7"></circle>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
         </svg>
-      </button>
-    {/if}
-  </label>
-
+        <input
+          id="resource-search-input"
+          type="text"
+          placeholder="按资源名称搜索"
+          bind:value={searchQuery}
+        />
+        {#if searchQuery}
+          <button
+            class="resource-search-clear"
+            type="button"
+            title="清空搜索"
+            onclick={() => { searchQuery = ""; }}
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
+        {/if}
+      </label>
+    </div>
+  </section>
   {#if items.length === 0}
     <div class="resource-list-scroll list empty-state">
-      <div class="empty-content">
+      <div class="empty-content resource-empty">
         <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.4"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
-        <span>还没有导入任何资源，前往导入页面添加</span>
+        <strong>片库还是空的</strong>
+        <span>先去导入页面加入音频或视频，资源列表会按播放器的方式整理它们。</span>
       </div>
     </div>
   {:else if filteredItems.length === 0}
     <div class="resource-list-scroll list empty-state">
-      <div class="empty-content">
+      <div class="empty-content resource-empty">
         <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.4"><circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-        <span>没有找到匹配“{searchQuery}”的资源</span>
+        <strong>没有匹配结果</strong>
+        <span>当前关键词“{searchQuery}”没有命中任何资源，换个片名或清空搜索试试。</span>
       </div>
     </div>
   {:else}
-    <div class="resource-list-scroll">
-      <Virtualizer data={filteredItems} overscan={6}>
-        {#snippet children(item)}
-          <div
-            class="list-item"
+    <div class="resource-list-scroll resource-library-scroll">
+      <Virtualizer data={filteredItems} overscan={6} itemSize={88} getKey={(item) => item.id}>
+        {#snippet children(item, index)}
+          <article
+            class="list-item library-row"
             class:list-item-retrying={item.id === retryingMediaId}
             class:list-item-retry-done={item.id === retryCompletedMediaId}
           >
+            {#if !item.subtitlePath}
+              <span class="library-pending-badge">待识别</span>
+            {/if}
             {#if item.id === retryingMediaId}
               <div
                 class="list-item-progress-bg"
@@ -178,45 +196,59 @@
                 style={`width: ${Math.max(retryingProgress, 6)}%;`}
               ></div>
             {/if}
-            <div class="list-item-info">
-              <div class="list-item-title">{item.title}</div>
-              <div class="list-item-meta">
-                <span>{item.sourceKind === "video" ? "视频" : "音频"}</span>
-                <span>{durationLabels[item.id] ?? "读取时长中…"}</span>
-                <span>{item.subtitlePath ? "已生成字幕" : "待生成字幕"}</span>
-                <span>{formatTimestamp(item.importedAt)}</span>
-              </div>
-              {#if item.id === retryingMediaId}
-                <div class="retry-asr-status" role="status">
-                  <span class="retry-asr-status-title">重新识别中 {Math.round(retryingProgress)}%</span>
-                  <span class="retry-asr-status-message">{retryingMessage ?? "正在后台处理…"}</span>
+
+            <div class="library-main">
+              <div class="library-index-pill" aria-hidden="true">{String(index + 1).padStart(2, "0")}</div>
+
+              <div class="list-item-info library-copy">
+                <div class="library-title-row">
+                  <div class="list-item-title library-title">{item.title}</div>
                 </div>
-              {/if}
-            </div>
-            <div class="list-item-actions">
-              <div class="add-btn-wrap" class:add-btn-wrap-active={addedTooltipId === item.id}>
-                <button
-                  class="btn btn-sm btn-icon-sm"
-                  title="加入播放列表"
-                  onclick={() => handleAdd(item.id)}
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                </button>
-                {#if addedTooltipId === item.id}
-                  <span class="add-tooltip">已添加到播放列表</span>
+
+                <div class="list-item-meta library-meta">
+                  <span>时长 {durationLabels[item.id] ?? "读取中"}</span>
+                  <span>导入 {formatTimestamp(item.importedAt)}</span>
+                </div>
+
+                {#if item.id === retryingMediaId}
+                  <div class="retry-asr-status" role="status">
+                    <span class="retry-asr-status-title">重新识别中 {Math.round(retryingProgress)}%</span>
+                    <span class="retry-asr-status-message">{retryingMessage ?? "正在后台处理…"}</span>
+                  </div>
                 {/if}
               </div>
-              <button
-                class="btn btn-sm"
-                disabled={asrBusy}
-                onclick={() => onRetryAsr(item.id)}
-              >
-                {item.id === retryingMediaId ? "识别中…" : "重新识别"}
-              </button>
-              <button class="btn btn-sm" disabled={!item.subtitlePath} onclick={() => onEditSubtitle(item.id)}>编辑字幕</button>
-              <button class="btn btn-sm btn-danger" onclick={() => onDeleteMedia(item.id)}>删除</button>
             </div>
-          </div>
+
+            <div class="library-side">
+              <div class="list-item-actions library-actions">
+                <div class="add-btn-wrap" class:add-btn-wrap-active={addedTooltipId === item.id}>
+                  <button
+                    class="btn btn-sm btn-icon-sm btn-primary-soft"
+                    title="加入播放列表"
+                    onclick={() => handleAdd(item.id)}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <line x1="12" y1="5" x2="12" y2="19"/>
+                      <line x1="5" y1="12" x2="19" y2="12"/>
+                    </svg>
+                  </button>
+                  {#if addedTooltipId === item.id}
+                    <span class="add-tooltip">已添加到播放列表</span>
+                  {/if}
+                </div>
+
+                <button
+                  class="btn btn-sm btn-ghost"
+                  disabled={asrBusy}
+                  onclick={() => onRetryAsr(item.id)}
+                >
+                  {item.id === retryingMediaId ? "识别中…" : "重新识别"}
+                </button>
+                <button class="btn btn-sm" disabled={!item.subtitlePath} onclick={() => onEditSubtitle(item.id)}>编辑字幕</button>
+                <button class="btn btn-sm btn-danger" onclick={() => onDeleteMedia(item.id)}>删除</button>
+              </div>
+            </div>
+          </article>
         {/snippet}
       </Virtualizer>
     </div>
@@ -224,29 +256,52 @@
 </section>
 
 <style>
-  section.page {
+  section.page.resource-page {
     flex: 1;
     min-height: 0;
     overflow: hidden;
+    gap: 12px;
   }
 
-  .resource-list-scroll {
-    flex: 1;
-    min-height: 0;
-    overflow-y: auto;
-    overflow-x: hidden;
-    scrollbar-gutter: stable;
+  .resource-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    gap: 16px;
+  }
+
+  .resource-header-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .resource-header-copy p {
+    font-size: var(--font-xs);
+    color: var(--text-dim);
+  }
+
+  .resource-toolbar {
+    display: block;
+  }
+
+  .toolbar-search-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+    align-items: center;
   }
 
   .resource-search {
     display: flex;
     align-items: center;
     gap: 10px;
-    min-height: 42px;
-    padding: 0 14px;
+    min-height: 40px;
+    padding: 0 12px;
     border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-    background: var(--bg-surface);
+    border-radius: 12px;
+    background: transparent;
     color: var(--text-dim);
   }
 
@@ -293,7 +348,144 @@
     color: var(--text-primary);
   }
 
-  /* btn-icon-sm is now in styles.css */
+  .resource-list-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    scrollbar-gutter: stable;
+  }
+
+  .resource-library-scroll {
+    padding-right: 2px;
+  }
+
+  .library-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 12px;
+    min-height: 74px;
+    padding: 8px 10px;
+    border-radius: 12px;
+    background: transparent;
+    border: 1px solid var(--border-subtle);
+  }
+
+  .library-main,
+  .library-side {
+    position: relative;
+    z-index: 1;
+  }
+
+  .library-main {
+    display: grid;
+    grid-template-columns: 34px minmax(0, 1fr);
+    gap: 10px;
+    align-items: center;
+    min-width: 0;
+  }
+
+  .library-pending-badge {
+    position: absolute;
+    top: 6px;
+    left: 6px;
+    display: inline-flex;
+    align-items: center;
+    height: 16px;
+    padding: 0 5px;
+    border-radius: 999px;
+    font-size: 9px;
+    line-height: 1;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    color: rgba(255, 255, 255, 0.72);
+    background: rgba(255, 255, 255, 0.12);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    z-index: 2;
+  }
+
+  .library-index-pill {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    line-height: 1;
+    font-weight: 700;
+    color: var(--text-secondary);
+    font-family: "SF Mono", "JetBrains Mono", "IBM Plex Mono", "Roboto Mono", ui-monospace, monospace;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+  }
+
+  .library-copy {
+    gap: 4px;
+  }
+
+  .library-title-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    min-width: 0;
+  }
+
+  .library-title {
+    font-size: var(--font-base);
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+
+  .library-meta {
+    gap: 4px;
+    font-size: 11px;
+  }
+
+  .library-meta span {
+    max-width: 100%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .library-side {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  .library-actions {
+    justify-content: flex-end;
+  }
+
+  .btn-primary-soft {
+    background: transparent;
+    border-color: var(--border);
+    color: var(--accent);
+  }
+
+  .btn-primary-soft:hover {
+    background: var(--accent-soft);
+    border-color: var(--accent-border);
+  }
+
+  .resource-empty {
+    gap: 8px;
+    text-align: center;
+  }
+
+  .resource-empty strong {
+    font-size: var(--font-base);
+    color: var(--text-primary);
+  }
+
+  .resource-empty span {
+    max-width: 32ch;
+  }
 
   .add-btn-wrap {
     position: relative;
@@ -334,23 +526,16 @@
     background: linear-gradient(
       90deg,
       rgba(var(--accent-rgb), 0.18) 0%,
-      rgba(var(--accent-rgb), 0.1) 100%
+      rgba(var(--accent-rgb), 0.08) 100%
     );
     pointer-events: none;
     transition: width 180ms ease;
-  }
-
-  .list-item-info,
-  .list-item-actions {
-    position: relative;
-    z-index: 1;
   }
 
   .retry-asr-status {
     display: flex;
     align-items: baseline;
     gap: 10px;
-    margin-top: 8px;
     font-size: var(--font-xs);
     color: var(--accent);
     flex-wrap: wrap;
@@ -415,6 +600,42 @@
 
   @keyframes tooltip-in {
     from { opacity: 0; transform: translateX(-50%) translateY(4px); }
-    to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+    to { opacity: 1; transform: translateX(-50%) translateY(0); }
+  }
+
+  @media (max-width: 1120px) {
+    .resource-header {
+      align-items: flex-start;
+      flex-direction: column;
+    }
+
+    .library-row {
+      grid-template-columns: 1fr;
+      gap: 10px;
+    }
+  }
+
+  @media (max-width: 760px) {
+    section.page.resource-page {
+      gap: 10px;
+    }
+
+    .toolbar-search-row {
+      grid-template-columns: 1fr;
+    }
+
+    .library-title-row {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+
+    .library-side {
+      justify-content: flex-start;
+    }
+
+    .library-actions {
+      flex-wrap: wrap;
+      justify-content: flex-start;
+    }
   }
 </style>
