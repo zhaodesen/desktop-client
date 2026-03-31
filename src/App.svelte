@@ -661,7 +661,9 @@
 
     restoringPlaybackState = true;
     try {
-      setActivePage("playlist");
+      if (playbackState.wasPlaying) {
+        setActivePage("playlist");
+      }
       const loaded = await loadMediaById(playbackState.mediaId, false);
       if (!loaded) return;
 
