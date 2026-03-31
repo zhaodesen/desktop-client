@@ -24,7 +24,6 @@
     SubtitleCue,
     SubtitleDocument,
     ThemeMode,
-    YtDlpStatus,
   } from "./shared/types";
   import { PlayerController } from "./main/player-controller";
   import { parseSubtitleText } from "./main/subtitle-parser";
@@ -72,6 +71,7 @@
   const PLAYBACK_STATE_PROGRESS_THRESHOLD_MS = 1000;
   const PLAYBACK_DEBUG_LIMIT = 120;
   const DEFAULT_VOLUME = 1;
+  const LOCAL_DEV_ABOUT_AVATAR_PATH = "/Users/zhaodesen/Pictures/image_20250302231237_93787d518e5b74142c866f21ddc9bce4.jpg";
   const BOOTSTRAP_SETTINGS: AppSettings = {
     playbackRate: 1,
     volume: DEFAULT_VOLUME,
@@ -103,15 +103,23 @@
     hasSeenMainTour: false,
     themeMode: "dark",
   };
-  const ABOUT_AVATAR_PATH = typeof import.meta.env.VITE_ABOUT_AVATAR_PATH === "string"
-    ? import.meta.env.VITE_ABOUT_AVATAR_PATH.trim()
-    : "";
+  const ABOUT_AVATAR_PATH = resolveAboutAvatarPath();
   const FORCE_ONBOARDING = parseBooleanEnv(import.meta.env.VITE_FORCE_ONBOARDING);
   const SHOW_ONBOARDING_PREVIEW_ENTRY = import.meta.env.DEV;
 
   function parseBooleanEnv(value: unknown): boolean {
     if (typeof value !== "string") return false;
     return ["1", "true", "yes", "on"].includes(value.trim().toLowerCase());
+  }
+
+  function resolveAboutAvatarPath(): string {
+    const envPath = typeof import.meta.env.VITE_ABOUT_AVATAR_PATH === "string"
+      ? import.meta.env.VITE_ABOUT_AVATAR_PATH.trim()
+      : "";
+
+    if (envPath) return envPath;
+    if (import.meta.env.DEV) return LOCAL_DEV_ABOUT_AVATAR_PATH;
+    return "";
   }
 
   /* ── State ─────────────────────────────────────────────── */
@@ -132,8 +140,6 @@
   let isDownloadPaused = $state(false);
   let modelDownloadSuccessLabel = $state<string | undefined>(undefined);
   let modelDownloadSuccessTimer: ReturnType<typeof setTimeout> | undefined;
-  let ytDlpStatus = $state<YtDlpStatus | undefined>(undefined);
-  let isUpdatingYtDlp = $state(false);
   let pendingSubtitleMediaId = $state<string | undefined>(undefined);
   let overlayLocked = $state(false);
 
@@ -213,7 +219,6 @@
   let mediaLoadRequestId = 0;
   let playlistPlayPromise: Promise<void> | null = null;
   let playlistPlayTargetId: string | undefined;
-
   type ImportSource = "local" | "online";
   type ImportBackendStage = "downloading" | "copying" | "extracting" | "registering";
 
@@ -788,6 +793,54 @@
     await overlayBridge.updateStyle(settings.overlay);
   }
 
+  async function initializeOverlayAfterStartup() {
+    if (!settings.overlayVisible) return;
+
+    try {
+      await waitForNextPaint();
+      await backend.showOverlay();
+      await overlayBridge.updateStyle(settings.overlay);
+      await syncOverlay(player.getSnapshot());
+    } catch (err) {
+      console.error(err);
+      setStatus("初始化悬浮窗失败", "warning");
+    }
+  }
+
+  async function hydrateInitialData() {
+    try {
+      await waitForNextPaint();
+      await refreshLibrary();
+    } catch (err) {
+      console.error(err);
+      setStatus("读取素材库失败", "warning");
+    }
+
+    try {
+      await restorePlaybackState();
+    } catch (err) {
+      console.error(err);
+      setStatus("恢复上次播放失败", "warning");
+    } finally {
+      playbackStateHydrated = true;
+    }
+
+    try {
+      const [models, allStatus] = await Promise.all([
+        backend.getAvailableModels(),
+        backend.getAllModelsStatus(),
+      ]);
+      availableModels = models;
+      const newMap = new Map<string, ModelStatus>();
+      for (const s of allStatus.models) newMap.set(s.modelId, s);
+      modelsStatusMap = newMap;
+      refreshModelLabels();
+    } catch (err) {
+      console.error(err);
+      modelStatusLabel = "模型状态读取失败";
+    }
+  }
+
   /* ── Model UI helpers ──────────────────────────────────── */
 
   function refreshModelLabels() {
@@ -1316,7 +1369,7 @@
       resetImportFlowState();
       throw err;
     } finally {
-      void refreshYtDlpStatus({ silent: true });
+      // no-op: startup and settings no longer probe yt-dlp status
     }
   }
 
@@ -1353,6 +1406,7 @@
     await persistSettings();
     if (visible) {
       await backend.showOverlay();
+      await overlayBridge.updateStyle(settings.overlay);
     } else {
       await backend.hideOverlay();
     }
@@ -1498,39 +1552,6 @@
     }
   }
 
-  async function refreshYtDlpStatus(options?: { silent?: boolean }) {
-    try {
-      ytDlpStatus = await backend.getYtDlpStatus();
-    } catch (err) {
-      console.error(err);
-      if (!options?.silent) {
-        setStatus("读取在线视频组件状态失败", "warning");
-      }
-    }
-  }
-
-  async function handleUpdateYtDlp() {
-    if (isUpdatingYtDlp) return;
-    isUpdatingYtDlp = true;
-    const previousVersion = ytDlpStatus?.currentVersion;
-    try {
-      ytDlpStatus = await backend.updateYtDlp();
-      const nextVersion = ytDlpStatus.currentVersion;
-      if (nextVersion && nextVersion !== previousVersion) {
-        setStatus(`在线视频组件已更新到 ${nextVersion}`, "success");
-      } else if (nextVersion) {
-        setStatus(`在线视频组件已是最新版本 (${nextVersion})`, "success");
-      } else {
-        setStatus("在线视频组件检查完成", "success");
-      }
-    } catch (err) {
-      console.error(err);
-      setStatus(formatError(err), "warning");
-    } finally {
-      isUpdatingYtDlp = false;
-    }
-  }
-
   /* ── Danger zone ───────────────────────────────────────── */
 
   async function handleClearAllCache() {
@@ -1583,7 +1604,6 @@
       await backend.hideOverlay();
       await resetPlaybackUi();
       await refreshLibrary();
-      await refreshYtDlpStatus({ silent: true });
       setStatus(`应用数据已重置，${fmtCleanup(r)}`, "success");
     } catch (err) { console.error(err); setStatus("重置应用数据失败", "warning"); }
   }
@@ -2030,13 +2050,12 @@
       pendingPlaybackState = undefined;
       player.setPlaybackRate(settings.playbackRate);
       player.setVolume(settings.volume);
-      await overlayBridge.updateStyle(settings.overlay);
-      if (settings.overlayVisible) await backend.showOverlay();
       showFirstRunOnboarding = FORCE_ONBOARDING || !settings.hasCompletedOnboarding;
       onboardingStep = settings.hasCompletedOnboarding ? "ready" : "select-model";
       if (FORCE_ONBOARDING) onboardingStep = "select-model";
       settingsReady = true;
       setStatus("设置已加载", "success");
+      void initializeOverlayAfterStartup();
     } catch (err) {
       console.error(err);
       settings = {
@@ -2048,50 +2067,15 @@
       pendingPlaybackState = undefined;
       player.setPlaybackRate(settings.playbackRate);
       player.setVolume(settings.volume);
-      try {
-        await overlayBridge.updateStyle(settings.overlay);
-        if (settings.overlayVisible) await backend.showOverlay();
-      } catch (overlayErr) {
-        console.error(overlayErr);
-      }
       showFirstRunOnboarding = FORCE_ONBOARDING || !settings.hasCompletedOnboarding;
       onboardingStep = settings.hasCompletedOnboarding ? "ready" : "select-model";
       if (FORCE_ONBOARDING) onboardingStep = "select-model";
       settingsReady = true;
       setStatus("读取设置失败，已使用默认配置", "warning");
+      void initializeOverlayAfterStartup();
     }
 
-    // Load library
-    try {
-      await refreshLibrary();
-    } catch (err) {
-      console.error(err);
-      setStatus("读取素材库失败", "warning");
-    }
-
-    try {
-      await restorePlaybackState();
-    } catch (err) {
-      console.error(err);
-      setStatus("恢复上次播放失败", "warning");
-    } finally {
-      playbackStateHydrated = true;
-    }
-
-    // Load model status
-    try {
-      availableModels = await backend.getAvailableModels();
-      const allStatus = await backend.getAllModelsStatus();
-      const newMap = new Map<string, ModelStatus>();
-      for (const s of allStatus.models) newMap.set(s.modelId, s);
-      modelsStatusMap = newMap;
-      refreshModelLabels();
-    } catch (err) {
-      console.error(err);
-      modelStatusLabel = "模型状态读取失败";
-    }
-
-    await refreshYtDlpStatus({ silent: true });
+    void hydrateInitialData();
 
     return () => {
       unlistenLock();
@@ -2304,9 +2288,6 @@
             settings = { ...settings, shortcuts };
           }}
           onShortcutCommit={persistSettings}
-          {ytDlpStatus}
-          {isUpdatingYtDlp}
-          onUpdateYtDlp={handleUpdateYtDlp}
           onOpenOnboarding={openOnboardingPreview}
           showOnboardingPreviewEntry={SHOW_ONBOARDING_PREVIEW_ENTRY}
           onClearAllCache={handleClearAllCache}

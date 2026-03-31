@@ -1,14 +1,13 @@
-use crate::state::AppSettings;
 use tauri::{window::Color, AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 
-pub fn ensure_overlay_window(app: &AppHandle, settings: &AppSettings) -> Result<(), String> {
+pub fn ensure_overlay_window_with_visibility(app: &AppHandle, visible: bool) -> Result<(), String> {
     if app.get_webview_window("overlay").is_some() {
         return Ok(());
     }
 
     let _window = WebviewWindowBuilder::new(app, "overlay", WebviewUrl::App("overlay.html".into()))
         .title("悬浮字幕")
-        .visible(settings.overlay_visible)
+        .visible(visible)
         .always_on_top(true)
         .decorations(false)
         .shadow(false)
@@ -31,6 +30,8 @@ pub fn ensure_overlay_window(app: &AppHandle, settings: &AppSettings) -> Result<
 }
 
 pub fn show_overlay(app: &AppHandle) -> Result<bool, String> {
+    ensure_overlay_window_with_visibility(app, true)?;
+
     let window = app
         .get_webview_window("overlay")
         .ok_or_else(|| "未找到悬浮窗".to_string())?;
@@ -48,9 +49,9 @@ pub fn show_overlay(app: &AppHandle) -> Result<bool, String> {
 }
 
 pub fn hide_overlay(app: &AppHandle) -> Result<bool, String> {
-    let window = app
-        .get_webview_window("overlay")
-        .ok_or_else(|| "未找到悬浮窗".to_string())?;
+    let Some(window) = app.get_webview_window("overlay") else {
+        return Ok(false);
+    };
 
     window
         .hide()
@@ -60,9 +61,9 @@ pub fn hide_overlay(app: &AppHandle) -> Result<bool, String> {
 }
 
 pub fn toggle_overlay(app: &AppHandle) -> Result<bool, String> {
-    let window = app
-        .get_webview_window("overlay")
-        .ok_or_else(|| "未找到悬浮窗".to_string())?;
+    let Some(window) = app.get_webview_window("overlay") else {
+        return show_overlay(app);
+    };
 
     let visible = window
         .is_visible()

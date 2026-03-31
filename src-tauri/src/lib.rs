@@ -71,8 +71,6 @@ pub fn run() {
                     .map_err(std::io::Error::other)?;
             }
 
-            window::ensure_overlay_window(&app_handle, &settings).map_err(std::io::Error::other)?;
-
             let tray_show_main = MenuItem::with_id(
                 &app_handle,
                 TRAY_SHOW_MAIN_ID,

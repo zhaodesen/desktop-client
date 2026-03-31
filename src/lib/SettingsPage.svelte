@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { AppSettings, ModelInfo, ModelStatus, OverlaySettings, ShortcutSettings, YtDlpStatus } from "../shared/types";
+  import type { AppSettings, ModelInfo, ModelStatus, OverlaySettings, ShortcutSettings } from "../shared/types";
   import ModelList from "./ModelList.svelte";
 
   interface Props {
@@ -25,9 +25,6 @@
     onDeleteModel: (id: string) => void;
     onShortcutChange: (shortcuts: ShortcutSettings) => void;
     onShortcutCommit: () => void;
-    ytDlpStatus: YtDlpStatus | undefined;
-    isUpdatingYtDlp: boolean;
-    onUpdateYtDlp: () => void;
     onOpenOnboarding: () => void;
     showOnboardingPreviewEntry: boolean;
     onClearAllCache: () => void;
@@ -43,7 +40,6 @@
     onDownloadModel, onCancelDownload, onPauseDownload, onResumeDownload,
     onSelectModel, onDeleteModel,
     onShortcutChange, onShortcutCommit,
-    ytDlpStatus, isUpdatingYtDlp, onUpdateYtDlp,
     onOpenOnboarding,
     showOnboardingPreviewEntry,
     onClearAllCache, onDeleteAllModels, onResetAppData,
@@ -138,45 +134,6 @@
     await onShortcutCommit();
   }
 
-  function describeYtDlpSource(source: string | undefined): string {
-    switch (source) {
-      case "appData":
-        return "应用内更新版本";
-      case "bundle":
-        return "随安装包附带";
-      case "env":
-        return "环境变量指定";
-      case "path":
-        return "系统 PATH";
-      default:
-        return "未找到";
-    }
-  }
-
-  function formatTimeLabel(value: number | undefined): string | undefined {
-    if (!value) return undefined;
-    return new Date(value).toLocaleString("zh-CN", {
-      hour12: false,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  }
-
-  function buildYtDlpDescription(status: YtDlpStatus | undefined): string {
-    if (!status) {
-      return "读取在线视频组件状态中…";
-    }
-
-    const version = status.currentVersion ?? "未知版本";
-    const source = describeYtDlpSource(status.source);
-    const checkedAt = formatTimeLabel(status.lastCheckedAt);
-    return checkedAt
-      ? `当前 ${version}，来源：${source}。上次检查：${checkedAt}。`
-      : `当前 ${version}，来源：${source}。`;
-  }
 </script>
 
 <section class="page settings-page" data-active="true">
@@ -375,23 +332,6 @@
         <div class="sform-section">
           <p class="text-dim text-xs" style="margin-bottom:4px">以下操作均不可逆，请谨慎执行。</p>
           <div class="danger-list">
-            <div class="danger-item">
-              <div class="danger-item-text">
-                <span class="danger-item-label">更新在线视频组件</span>
-                <span class="danger-item-desc">{buildYtDlpDescription(ytDlpStatus)}</span>
-                {#if ytDlpStatus?.lastError}
-                  <span class="danger-item-desc">上次更新失败：{ytDlpStatus.lastError}</span>
-                {/if}
-              </div>
-              <button
-                class="btn btn-sm btn-outline"
-                type="button"
-                onclick={onUpdateYtDlp}
-                disabled={isUpdatingYtDlp || !ytDlpStatus?.updateSupported}
-              >
-                {#if isUpdatingYtDlp}更新中…{:else}检查更新{/if}
-              </button>
-            </div>
             {#if showOnboardingPreviewEntry}
               <div class="danger-item">
                 <div class="danger-item-text">
