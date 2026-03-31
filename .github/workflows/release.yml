@@ -218,10 +218,11 @@ jobs:
           fi
 
           if gh release view "$TAG_NAME" --repo "$GH_REPO" >/dev/null 2>&1; then
-            gh release edit "$TAG_NAME" --repo "$GH_REPO" --title "字幕工作台 $TAG_NAME" --notes-file release-notes.md
+            gh release edit "$TAG_NAME" --repo "$GH_REPO" --draft=false --latest --title "字幕工作台 $TAG_NAME" --notes-file release-notes.md
             gh release upload "$TAG_NAME" --repo "$GH_REPO" "${files[@]}" --clobber
           else
             gh release create "$TAG_NAME" --repo "$GH_REPO" "${files[@]}" \
+              --latest \
               --title "字幕工作台 $TAG_NAME" \
               --notes-file release-notes.md
           fi
