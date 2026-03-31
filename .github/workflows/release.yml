@@ -59,6 +59,15 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Setup uv for offline translator
+        if: startsWith(matrix.target, 'aarch64-apple-darwin') || startsWith(matrix.target, 'x86_64-apple-darwin')
+        uses: astral-sh/setup-uv@v6
+
+      - name: Prepare offline translator virtualenv
+        if: startsWith(matrix.target, 'aarch64-apple-darwin') || startsWith(matrix.target, 'x86_64-apple-darwin')
+        shell: bash
+        run: uv sync --project scripts/offline_translator --frozen
+
       - name: Verify bundled sidecars
         shell: bash
         run: ./scripts/verify-sidecars.sh
