@@ -103,7 +103,9 @@
     hasSeenMainTour: false,
     themeMode: "dark",
   };
-  const ABOUT_AVATAR_PATH = "/Users/zhaodesen/Pictures/image_20250302231237_93787d518e5b74142c866f21ddc9bce4.jpg";
+  const ABOUT_AVATAR_PATH = typeof import.meta.env.VITE_ABOUT_AVATAR_PATH === "string"
+    ? import.meta.env.VITE_ABOUT_AVATAR_PATH.trim()
+    : "";
   const FORCE_ONBOARDING = parseBooleanEnv(import.meta.env.VITE_FORCE_ONBOARDING);
   const SHOW_ONBOARDING_PREVIEW_ENTRY = import.meta.env.DEV;
 
@@ -251,7 +253,7 @@
   // ConfirmDialog ref
   let confirmDialog: ConfirmDialog;
 
-  aboutAvatarSrc = convertFileSrc(ABOUT_AVATAR_PATH);
+  aboutAvatarSrc = ABOUT_AVATAR_PATH ? convertFileSrc(ABOUT_AVATAR_PATH) : "";
 
   /* ── Theme ─────────────────────────────────────────────── */
 

@@ -46,6 +46,7 @@
     },
     "externalBin": ["binaries/ffmpeg", "binaries/whisper-cli", "binaries/yt-dlp"],
     "resources": [
+      "binaries/*.dll",
       "../scripts/offline_translator",
       "../models/argos"
     ],

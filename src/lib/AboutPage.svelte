@@ -8,6 +8,8 @@
   const EMAIL_ADDRESS = "1026108026@qq.com";
 
   const { avatarSrc }: Props = $props();
+  let avatarLoadFailed = $state(false);
+  const avatarAvailable = $derived(Boolean(avatarSrc) && !avatarLoadFailed);
 
   let showCopyToast = $state(false);
   let copyToastTimer: ReturnType<typeof setTimeout> | undefined;
@@ -29,6 +31,10 @@
     } catch (error) {
       console.error("复制邮箱地址失败", error);
     }
+  }
+
+  function handleAvatarLoadError() {
+    avatarLoadFailed = true;
   }
 </script>
 
@@ -86,9 +92,18 @@
         <div class="model-halo"></div>
         <div class="model-ring"></div>
         <div class="model-ring model-ring-delayed"></div>
-        <img class="about-model-shadow" src={avatarSrc} alt="" />
+        {#if avatarAvailable}
+          <img class="about-model-shadow" src={avatarSrc} alt="" />
+        {/if}
         <div class="model-plane"></div>
-        <img class="about-model-image" src={avatarSrc} alt="" />
+        {#if avatarAvailable}
+          <img class="about-model-image" src={avatarSrc} alt="" onerror={handleAvatarLoadError} />
+        {:else}
+          <div class="about-model-fallback">
+            <span class="about-model-fallback-mark">S</span>
+            <span class="about-model-fallback-ring"></span>
+          </div>
+        {/if}
         <span class="model-foreground-shard shard-a"></span>
         <span class="model-foreground-shard shard-b"></span>
         <span class="model-scanline"></span>
@@ -360,10 +375,76 @@
     animation: portraitParallax 5.6s ease-in-out infinite;
   }
 
+  .about-model-fallback {
+    position: relative;
+    z-index: 2;
+    width: 86%;
+    height: 92%;
+    border-radius: 36px;
+    clip-path: polygon(18% 3%, 84% 7%, 100% 23%, 94% 88%, 74% 100%, 18% 96%, 0 70%, 5% 18%);
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+    background:
+      radial-gradient(circle at 30% 22%, rgba(255, 255, 255, 0.35), transparent 28%),
+      radial-gradient(circle at 72% 18%, rgba(105, 168, 255, 0.38), transparent 24%),
+      linear-gradient(160deg, rgba(12, 18, 36, 0.92), rgba(30, 64, 124, 0.88));
+    box-shadow:
+      0 28px 64px rgba(0, 0, 0, 0.28),
+      0 0 0 1px rgba(255, 255, 255, 0.08);
+    animation: portraitParallax 5.6s ease-in-out infinite;
+  }
+
+  .about-model-fallback::before {
+    content: "";
+    position: absolute;
+    inset: 14px;
+    border-radius: 28px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.12), transparent 48%),
+      radial-gradient(circle at center, rgba(var(--accent-rgb), 0.18), transparent 62%);
+  }
+
+  .about-model-fallback-mark {
+    position: relative;
+    z-index: 1;
+    font-size: clamp(4.6rem, 11vw, 7rem);
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    color: rgba(255, 255, 255, 0.92);
+    text-shadow: 0 0 36px rgba(var(--accent-rgb), 0.42);
+  }
+
+  .about-model-fallback-ring {
+    position: absolute;
+    width: 70%;
+    aspect-ratio: 1;
+    border-radius: 50%;
+    border: 1px solid rgba(var(--accent-rgb), 0.34);
+    box-shadow: 0 0 32px rgba(var(--accent-rgb), 0.22);
+    animation: orbitPulse 4.8s ease-in-out infinite;
+  }
+
   :global([data-theme="light"]) .about-model-image {
     box-shadow:
       0 24px 48px rgba(18, 24, 32, 0.12),
       0 0 0 1px rgba(0, 0, 0, 0.06);
+  }
+
+  :global([data-theme="light"]) .about-model-fallback {
+    background:
+      radial-gradient(circle at 30% 22%, rgba(255, 255, 255, 0.78), transparent 28%),
+      radial-gradient(circle at 72% 18%, rgba(105, 168, 255, 0.3), transparent 24%),
+      linear-gradient(160deg, rgba(233, 240, 252, 0.94), rgba(184, 210, 255, 0.9));
+    box-shadow:
+      0 24px 48px rgba(18, 24, 32, 0.12),
+      0 0 0 1px rgba(0, 0, 0, 0.06);
+  }
+
+  :global([data-theme="light"]) .about-model-fallback-mark {
+    color: rgba(28, 53, 98, 0.88);
+    text-shadow: 0 0 28px rgba(var(--accent-rgb), 0.18);
   }
 
   .model-foreground-shard {
@@ -574,6 +655,17 @@
     }
     50% {
       transform: translate3d(0, -10px, 0);
+    }
+  }
+
+  @keyframes orbitPulse {
+    0%, 100% {
+      transform: scale(0.92);
+      opacity: 0.42;
+    }
+    50% {
+      transform: scale(1.04);
+      opacity: 0.82;
     }
   }
 

@@ -1,5 +1,6 @@
 use std::{
     env,
+    fs,
     path::{Path, PathBuf},
     process::Command,
 };
@@ -81,6 +82,7 @@ pub fn resolve_local_candidates(app: &AppHandle, names: &[&str]) -> Result<Vec<P
         for dir in local_sidecar_dirs(&current_dir) {
             push_unique_path(&mut candidates, dir.join(&binary_name));
             push_unique_path(&mut candidates, dir.join(&exe_name));
+            push_matching_sidecar_paths(&mut candidates, &dir, name);
         }
 
         if let Ok(resource_path) = app.path().resolve(&binary_name, BaseDirectory::Resource) {
@@ -101,11 +103,20 @@ pub fn resolve_local_candidates(app: &AppHandle, names: &[&str]) -> Result<Vec<P
         {
             push_unique_path(&mut candidates, resource_path);
         }
+        if let Ok(resource_dir) = app.path().resolve(".", BaseDirectory::Resource) {
+            push_matching_sidecar_paths(&mut candidates, &resource_dir, name);
+        }
+        if let Ok(resource_dir) = app.path().resolve("binaries", BaseDirectory::Resource) {
+            push_matching_sidecar_paths(&mut candidates, &resource_dir, name);
+        }
         if let Ok(executable_path) = app.path().resolve(&binary_name, BaseDirectory::Executable) {
             push_unique_path(&mut candidates, executable_path);
         }
         if let Ok(executable_path) = app.path().resolve(&exe_name, BaseDirectory::Executable) {
             push_unique_path(&mut candidates, executable_path);
+        }
+        if let Ok(executable_dir) = app.path().resolve(".", BaseDirectory::Executable) {
+            push_matching_sidecar_paths(&mut candidates, &executable_dir, name);
         }
     }
 
@@ -119,6 +130,7 @@ fn resolve_app_data_candidates(app: &AppHandle, names: &[&str]) -> Result<Vec<Pa
     for name in names {
         push_unique_path(&mut candidates, dir.join(with_target_triple(name)));
         push_unique_path(&mut candidates, dir.join(with_exe_suffix(name)));
+        push_matching_sidecar_paths(&mut candidates, &dir, name);
     }
 
     Ok(candidates)
@@ -258,6 +270,38 @@ fn local_sidecar_dirs(current_dir: &Path) -> Vec<PathBuf> {
 fn push_unique_path(paths: &mut Vec<PathBuf>, candidate: PathBuf) {
     if !paths.iter().any(|path| path == &candidate) {
         paths.push(candidate);
+    }
+}
+
+fn push_matching_sidecar_paths(paths: &mut Vec<PathBuf>, dir: &Path, name: &str) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+
+        let Some(file_name) = path.file_name().and_then(|value| value.to_str()) else {
+            continue;
+        };
+
+        if is_matching_sidecar_name(file_name, name) {
+            push_unique_path(paths, path);
+        }
+    }
+}
+
+fn is_matching_sidecar_name(file_name: &str, base_name: &str) -> bool {
+    if cfg!(windows) {
+        let lowered = file_name.to_ascii_lowercase();
+        let exact = format!("{base_name}.exe");
+        let prefixed = format!("{base_name}-");
+        lowered == exact || (lowered.starts_with(&prefixed) && lowered.ends_with(".exe"))
+    } else {
+        file_name == base_name || file_name.starts_with(&format!("{base_name}-"))
     }
 }
 
