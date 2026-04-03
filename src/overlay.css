@@ -136,24 +136,36 @@ body { padding: 12px; background: transparent !important; overflow: hidden; }
   line-height: inherit;
   letter-spacing: inherit;
   paint-order: stroke fill;
-  color: color-mix(in srgb, var(--overlay-color) 30%, transparent);
+  color: color-mix(in srgb, var(--overlay-color) 24%, transparent);
+  opacity: 0.42;
+  filter: saturate(0.82) brightness(0.92);
   -webkit-text-stroke: 3px var(--overlay-stroke-color);
   text-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
-  transition: color 70ms linear, text-shadow 120ms ease;
+  transition:
+    color 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    text-shadow 320ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 220ms ease,
+    filter 260ms ease;
 }
 
 .overlay-current-char-filled {
   color: color-mix(in srgb, var(--overlay-color) 20%, white);
+  opacity: 0.78;
+  filter: saturate(1) brightness(0.98);
   text-shadow:
     0 0 8px rgba(255, 255, 255, 0.08),
-    0 0 14px rgba(255, 255, 255, 0.04);
+    0 0 16px rgba(255, 255, 255, 0.04),
+    0 0 24px rgba(0, 0, 0, 0.1);
 }
 
 .overlay-current-char-active {
   color: white;
+  opacity: 1;
+  filter: saturate(1.08) brightness(1.06);
   text-shadow:
-    0 0 10px rgba(255, 255, 255, 0.2),
-    0 0 20px rgba(255, 255, 255, 0.1);
+    0 0 12px rgba(255, 255, 255, 0.22),
+    0 0 24px rgba(255, 255, 255, 0.12),
+    0 0 32px rgba(0, 0, 0, 0.16);
 }
 
 /* ─── 中文译文（原文下方） ─── */

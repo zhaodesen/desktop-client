@@ -46,6 +46,7 @@
   import ImportPage from "./lib/ImportPage.svelte";
   import ResourceListPage from "./lib/ResourceListPage.svelte";
   import PlayerPage from "./lib/PlayerPage.svelte";
+  import PlayerBar from "./lib/PlayerBar.svelte";
   import SettingsPage from "./lib/SettingsPage.svelte";
   import AboutPage from "./lib/AboutPage.svelte";
   import SubtitleEditor from "./lib/SubtitleEditor.svelte";
@@ -2351,45 +2352,17 @@
         <div class="page-transition" in:fade={{ duration: 160, delay: 40 }}>
         <PlayerPage
           {snap}
-          {hasMedia}
-          {audioFileLabel}
-          {subtitleFileLabel}
-          {cueTiming}
-          {currentText}
-          {currentSecondaryText}
           {subtitleCues}
           {playbackAnchor}
-          overlayVisible={settings.overlayVisible}
-          playbackRate={settings.playbackRate}
           subtitleDisplayMode={settings.subtitleDisplayMode}
-          playlistMode={settings.playlistMode}
           playlist={libraryState.playbackHistory}
           {pendingPlaylistMediaId}
           {currentMediaId}
-          volume={settings.volume}
-          onTogglePlayback={() => void handleTogglePlayback("player-bar")}
           onToggleCurrentItem={() => void handleTogglePlayback("playlist-current-item")}
           onSeek={(ms) => player.seek(ms)}
-          onRateChange={async (rate) => {
-            settings = { ...settings, playbackRate: rate };
-            player.setPlaybackRate(rate);
-            await persistSettings();
-            setStatus(`播放倍率已更新为 ${rate.toFixed(2)}x`, "success");
-          }}
           onSubtitleDisplayModeChange={(mode) => { void setSubtitleDisplayMode(mode); }}
-          onPlaylistModeChange={async (mode: PlaylistMode) => {
-            settings = { ...settings, playlistMode: mode };
-            await persistSettings();
-            setStatus(mode === "single" ? "已切换为单曲循环" : "已切换为顺序播放", "success");
-          }}
-          onToggleOverlayVisible={() => { void handleOverlayVisibleChange(!settings.overlayVisible); }}
-          onToggleMute={() => { void toggleMute(); }}
-          onVolumeChange={(volume) => applyVolume(volume)}
-          onVolumeCommit={() => { void commitVolume(); }}
           onPlayItem={(id) => { void playPlaylistItem(id, true); }}
           onRemoveItem={(id) => { void removePlaybackItem(id); }}
-          onPrevTrack={() => { void playHistoryDirection(-1); }}
-          onNextTrack={() => { void playHistoryDirection(1); }}
         />
         </div>
       {:else if activePage === "settings"}
@@ -2457,6 +2430,37 @@
         </div>
       {/if}
     </section>
+
+    <PlayerBar
+      {snap}
+      {hasMedia}
+      {audioFileLabel}
+      {subtitleFileLabel}
+      {cueTiming}
+      overlayVisible={settings.overlayVisible}
+      playbackRate={settings.playbackRate}
+      playlistMode={settings.playlistMode}
+      volume={settings.volume}
+      onTogglePlayback={() => void handleTogglePlayback("player-bar")}
+      onSeek={(ms) => player.seek(ms)}
+      onRateChange={async (rate) => {
+        settings = { ...settings, playbackRate: rate };
+        player.setPlaybackRate(rate);
+        await persistSettings();
+        setStatus(`播放倍率已更新为 ${rate.toFixed(2)}x`, "success");
+      }}
+      onPlaylistModeChange={async (mode: PlaylistMode) => {
+        settings = { ...settings, playlistMode: mode };
+        await persistSettings();
+        setStatus(mode === "single" ? "已切换为单曲循环" : "已切换为顺序播放", "success");
+      }}
+      onToggleOverlayVisible={() => { void handleOverlayVisibleChange(!settings.overlayVisible); }}
+      onToggleMute={() => { void toggleMute(); }}
+      onVolumeChange={(volume) => applyVolume(volume)}
+      onVolumeCommit={() => { void commitVolume(); }}
+      onPrevTrack={() => { void playHistoryDirection(-1); }}
+      onNextTrack={() => { void playHistoryDirection(1); }}
+    />
   {:else}
     <section class="content"></section>
   {/if}

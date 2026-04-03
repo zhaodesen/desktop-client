@@ -149,15 +149,19 @@ h4 { font-size: var(--font-xs); font-weight: 600; letter-spacing: 0.04em; text-t
    ============================================================ */
 
 .app-shell {
+  height: 100vh;
   min-height: 100vh;
   display: grid;
-  grid-template-rows: 48px 1fr;
-  grid-template-columns: var(--sidebar-w) 1fr;
+  grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
+  grid-template-rows: 48px minmax(0, 1fr) auto;
+  grid-template-areas:
+    "drag drag"
+    "sidebar content"
+    "player player";
 }
 
 .window-drag-bar {
-  grid-column: 1 / -1;
-  grid-row: 1;
+  grid-area: drag;
   display: flex;
   align-items: stretch;
   min-height: 48px;
@@ -217,7 +221,8 @@ h4 { font-size: var(--font-xs); font-weight: 600; letter-spacing: 0.04em; text-t
 /* ── Sidebar ── */
 
 .sidebar {
-  grid-row: 2;
+  grid-area: sidebar;
+  min-height: 0;
   padding: 16px 14px 18px;
   border-right: 1px solid var(--border);
   display: flex;
@@ -368,10 +373,9 @@ h4 { font-size: var(--font-xs); font-weight: 600; letter-spacing: 0.04em; text-t
 /* ── Content ── */
 
 .content {
-  grid-row: 2;
+  grid-area: content;
   padding: 24px 32px;
   overflow-y: auto;
-  max-height: calc(100vh - 48px);
   min-height: 0;
 }
 
@@ -1330,7 +1334,15 @@ input:focus-visible {
    ============================================================ */
 
 @media (max-width: 900px) {
-  .app-shell { grid-template-columns: 1fr; }
+  .app-shell {
+    grid-template-columns: 1fr;
+    grid-template-rows: 48px auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      "drag"
+      "sidebar"
+      "content"
+      "player";
+  }
 
   .sidebar {
     flex-direction: row;
@@ -1353,7 +1365,7 @@ input:focus-visible {
 
   .settings-layout { grid-template-columns: 1fr; }
   .danger-grid { grid-template-columns: 1fr; }
-  .content { padding: 16px; max-height: unset; }
+  .content { padding: 16px; }
   .subtitle-editor-head { display: none; }
   .subtitle-editor-row { grid-template-columns: 1fr; }
 }
