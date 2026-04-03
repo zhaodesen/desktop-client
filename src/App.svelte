@@ -21,7 +21,6 @@
     CleanupResult,
     ImportProgress,
     LibraryState,
-    MediaDebugProbe,
     MediaItem,
     ModelInfo,
     ModelStatus,
@@ -80,7 +79,6 @@
 
   const PLAYBACK_STATE_SAVE_DEBOUNCE_MS = 250;
   const PLAYBACK_STATE_PROGRESS_THRESHOLD_MS = 1000;
-  const PLAYBACK_DEBUG_LIMIT = 120;
   const DEFAULT_VOLUME = 1;
   const BOOTSTRAP_SETTINGS: AppSettings = {
     playbackRate: 1,
@@ -205,14 +203,6 @@
   let playbackStateHydrated = false;
   let useWindowsCustomFrame = $state(false);
   let windowMaximized = $state(false);
-  type PlaybackDebugEntry = {
-    id: number;
-    time: string;
-    source: string;
-    message: string;
-  };
-  let playbackDebugEntries = $state<PlaybackDebugEntry[]>([]);
-  let playbackDebugSeq = 0;
 
   // Status bar
   let statusText = $state("导入媒体后自动生成双语字幕");
@@ -307,28 +297,6 @@
     return "未知错误";
   }
 
-  function formatDebugTime(date = new Date()): string {
-    return `${date.toLocaleTimeString("zh-CN", { hour12: false })}.${String(date.getMilliseconds()).padStart(3, "0")}`;
-  }
-
-  function pushPlaybackDebug(source: string, message: string) {
-    playbackDebugSeq += 1;
-    playbackDebugEntries = [
-      {
-        id: playbackDebugSeq,
-        time: formatDebugTime(),
-        source,
-        message,
-      },
-      ...playbackDebugEntries,
-    ].slice(0, PLAYBACK_DEBUG_LIMIT);
-    console.log(`[playback-debug][${source}] ${message}`);
-  }
-
-  function clearPlaybackDebug() {
-    playbackDebugEntries = [];
-  }
-
   function describeMediaError(error: MediaError | null): string {
     if (!error) return "none";
 
@@ -342,70 +310,14 @@
     return `${codeMap[error.code] ?? `UNKNOWN(${error.code})`}: ${error.message || "no message"}`;
   }
 
-  function logAudioSnapshot(source: string) {
-    if (!audioEl) return;
-    pushPlaybackDebug(
-      source,
-      [
-        `paused=${audioEl.paused}`,
-        `currentTime=${audioEl.currentTime.toFixed(3)}`,
-        `duration=${Number.isFinite(audioEl.duration) ? audioEl.duration.toFixed(3) : "NaN"}`,
-        `readyState=${audioEl.readyState}`,
-        `networkState=${audioEl.networkState}`,
-        `currentSrc=${audioEl.currentSrc || "(empty)"}`,
-        `error=${describeMediaError(audioEl.error)}`,
-      ].join(" | "),
-    );
-  }
-
-  async function probeCurrentMedia(trigger: string) {
-    const media = getCurrentMedia();
-    if (!media) {
-      pushPlaybackDebug(trigger, "backend probe skipped: no current media");
-      return;
-    }
-
-    try {
-      const probe = await backend.probeMediaPath(media.audioPath);
-      logMediaProbe(trigger, probe);
-    } catch (err) {
-      pushPlaybackDebug(trigger, `backend probe failed: ${formatError(err)}`);
-    }
-  }
-
-  function logMediaProbe(source: string, probe: MediaDebugProbe) {
-    const sizeLabel = probe.fileSizeBytes == null ? "unknown" : `${probe.fileSizeBytes} bytes`;
-    pushPlaybackDebug(
-      source,
-      [
-        `backend probe`,
-        `exists=${probe.exists}`,
-        `isFile=${probe.isFile}`,
-        `size=${sizeLabel}`,
-        `extension=${probe.extension ?? "(none)"}`,
-        `insideAppData=${probe.insideAppData}`,
-        `requestedPath=${probe.requestedPath}`,
-        `canonicalPath=${probe.canonicalPath ?? "(unresolved)"}`,
-      ].join(" | "),
-    );
-  }
-
   async function handleTogglePlayback(source: string) {
-    pushPlaybackDebug(
-      source,
-      `toggle requested | hasMedia=${hasMedia} | currentMediaId=${currentMediaId ?? "(none)"} | title=${audioFileLabel}`,
-    );
     if (!hasMedia) return;
-
-    await probeCurrentMedia(`${source}:probe`);
-    logAudioSnapshot(`${source}:before`);
 
     try {
       await player.togglePlayback();
-      logAudioSnapshot(`${source}:after`);
     } catch (err) {
-      pushPlaybackDebug(`${source}:error`, formatError(err));
-      logAudioSnapshot(`${source}:error-state`);
+      console.error(err);
+      setStatus(formatError(err), "warning");
     }
   }
 
@@ -997,13 +909,7 @@
     }
 
     const assetUrl = convertFileSrc(media.audioPath);
-    pushPlaybackDebug(
-      "loadMediaById",
-      `mediaId=${media.id} | title=${media.title} | audioPath=${media.audioPath} | assetUrl=${assetUrl} | record=${record}`,
-    );
-
     await player.loadUrl(assetUrl);
-    logAudioSnapshot("loadMediaById:loaded");
     if (!isLatestMediaLoadRequest(requestId)) return false;
 
     currentMediaId = media.id;
@@ -1819,19 +1725,12 @@
 
       if (type === "error") {
         baseMessage.push(`error=${describeMediaError(audioEl.error)}`);
+        console.warn(baseMessage.join(" | "));
       }
-
-      if (type === "loadedmetadata" || type === "canplay" || type === "playing") {
-        baseMessage.push(`duration=${Number.isFinite(audioEl.duration) ? audioEl.duration.toFixed(3) : "NaN"}`);
-      }
-
-      baseMessage.push(`currentSrc=${audioEl.currentSrc || "(empty)"}`);
-      pushPlaybackDebug(`audio:${type}`, baseMessage.join(" | "));
     };
     // Init services
     subtitleEngine = new SubtitleEngine();
     player = new PlayerController(audioEl);
-    pushPlaybackDebug("app", `player initialized | userAgent=${navigator.userAgent}`);
 
     for (const eventName of audioDebugEvents) {
       audioEl.addEventListener(eventName, onAudioDebugEvent);
@@ -2416,8 +2315,6 @@
           {pendingPlaylistMediaId}
           {currentMediaId}
           volume={settings.volume}
-          {playbackDebugEntries}
-          onClearPlaybackDebug={clearPlaybackDebug}
           onTogglePlayback={() => void handleTogglePlayback("player-bar")}
           onToggleCurrentItem={() => void handleTogglePlayback("playlist-current-item")}
           onSeek={(ms) => player.seek(ms)}

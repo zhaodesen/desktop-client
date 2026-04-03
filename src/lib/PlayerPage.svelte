@@ -6,12 +6,6 @@
   import { formatDuration } from "../shared/utils";
 
   type TabId = "lyrics" | "playlist";
-  type PlaybackDebugEntry = {
-    id: number;
-    time: string;
-    source: string;
-    message: string;
-  };
 
   interface Props {
     snap: PlaybackSnapshot;
@@ -29,7 +23,6 @@
     pendingPlaylistMediaId: string | undefined;
     currentMediaId: string | undefined;
     volume: number;
-    playbackDebugEntries: PlaybackDebugEntry[];
     onTogglePlayback: () => void;
     onToggleCurrentItem: () => void;
     onSeek: (ms: number) => void;
@@ -41,7 +34,6 @@
     onRemoveItem: (id: string) => void;
     onVolumeChange: (volume: number) => void;
     onVolumeCommit: () => void;
-    onClearPlaybackDebug: () => void;
     onPrevTrack?: () => void;
     onNextTrack?: () => void;
   }
@@ -50,9 +42,9 @@
     snap, hasMedia, audioFileLabel, subtitleFileLabel, cueTiming,
     currentText: _, currentSecondaryText: __,
     subtitleCues, overlayVisible, playbackRate, playlistMode,
-    playlist, pendingPlaylistMediaId, currentMediaId, volume, playbackDebugEntries,
+    playlist, pendingPlaylistMediaId, currentMediaId, volume,
     onTogglePlayback, onToggleCurrentItem, onSeek, onRateChange, onPlaylistModeChange, onToggleMute, onToggleOverlayVisible,
-    onPlayItem, onRemoveItem, onVolumeChange, onVolumeCommit, onClearPlaybackDebug,
+    onPlayItem, onRemoveItem, onVolumeChange, onVolumeCommit,
     onPrevTrack, onNextTrack,
   }: Props = $props();
 
@@ -83,6 +75,15 @@
       else return mid;
     }
     return -1;
+  });
+
+  const activeCueProgress = $derived.by(() => {
+    if (activeCueIndex < 0) return 0;
+    const cue = subtitleCues[activeCueIndex];
+    if (!cue) return 0;
+    const duration = Math.max(1, cue.endMs - cue.startMs);
+    const elapsed = Math.max(0, Math.min(duration, snap.currentTimeMs - cue.startMs));
+    return elapsed / duration;
   });
 
   $effect(() => {
@@ -164,7 +165,13 @@
                   type="button"
                   onclick={() => onSeek(cue.startMs)}
                 >
-                  <span class="lyric-text">{cue.text}</span>
+                  <span
+                    class="lyric-text"
+                    class:lyric-text-active={i === activeCueIndex}
+                    style={`--lyric-progress: ${i === activeCueIndex ? activeCueProgress : 0};`}
+                  >
+                    {cue.text}
+                  </span>
                   {#if showBilingual && cue.secondaryText}
                     <span class="lyric-translation">{cue.secondaryText}</span>
                   {/if}
@@ -284,26 +291,6 @@
 
   </div>
   {/key}
-
-  <!-- ── Player Bar ── -->
-  <section class="debug-panel">
-    <div class="debug-panel-header">
-      <div>
-        <strong>Playback Debug</strong>
-        <span>{playbackDebugEntries.length} lines</span>
-      </div>
-      <button class="debug-clear-btn" type="button" onclick={onClearPlaybackDebug}>
-        Clear
-      </button>
-    </div>
-    <div class="debug-panel-body">
-      {#if playbackDebugEntries.length === 0}
-        <div class="debug-empty">Click play and the logs will appear here.</div>
-      {:else}
-        <pre class="debug-log">{playbackDebugEntries.map((entry) => `${entry.time} [${entry.source}] ${entry.message}`).join("\n")}</pre>
-      {/if}
-    </div>
-  </section>
 
   <div class="player-bar">
     <div class="player-bar-inner">
@@ -465,81 +452,6 @@
     overflow: hidden;
   }
 
-  /* ── Pill Toggle ── */
-  .debug-panel {
-    flex-shrink: 0;
-    margin: 10px 0 14px;
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    background: rgba(0, 0, 0, 0.18);
-    overflow: hidden;
-  }
-
-  .debug-panel-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    padding: 10px 14px;
-    border-bottom: 1px solid var(--border);
-    background: rgba(255, 255, 255, 0.03);
-  }
-
-  .debug-panel-header div {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    min-width: 0;
-  }
-
-  .debug-panel-header strong {
-    font-size: 12px;
-    color: var(--text-primary);
-  }
-
-  .debug-panel-header span {
-    font-size: 11px;
-    color: var(--text-dim);
-  }
-
-  .debug-clear-btn {
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    background: transparent;
-    color: var(--text-dim);
-    font: inherit;
-    font-size: 11px;
-    padding: 5px 10px;
-    cursor: pointer;
-  }
-
-  .debug-clear-btn:hover {
-    color: var(--text-primary);
-    border-color: var(--border-focus);
-  }
-
-  .debug-panel-body {
-    max-height: 180px;
-    overflow: auto;
-  }
-
-  .debug-empty {
-    padding: 12px 14px;
-    font-size: 12px;
-    color: var(--text-dim);
-  }
-
-  .debug-log {
-    margin: 0;
-    padding: 12px 14px;
-    white-space: pre-wrap;
-    word-break: break-word;
-    font-size: 11px;
-    line-height: 1.5;
-    font-family: Consolas, "Courier New", monospace;
-    color: var(--text-primary);
-  }
-
   .pill-toggle {
     display: flex;
     background: var(--bg-surface);
@@ -689,7 +601,33 @@
     line-height: 1.6;
     text-align: center;
     color: var(--text-ghost, rgba(232, 230, 224, 0.22));
-    transition: color 400ms, font-size 300ms;
+    transition: font-size 300ms, font-weight 220ms, color 180ms ease;
+  }
+
+  .lyric-text-active {
+    color: transparent;
+    --lyric-idle: color-mix(in srgb, var(--text-primary) 28%, transparent);
+    --lyric-fill: color-mix(in srgb, var(--accent) 18%, white);
+    --lyric-glow: white;
+    --lyric-shine: rgba(255, 255, 255, 1);
+    --lyric-edge-start: max(0%, calc(var(--lyric-progress, 0) * 100% - 9%));
+    --lyric-edge-mid: max(0%, calc(var(--lyric-progress, 0) * 100% - 2.2%));
+    --lyric-edge-end: min(100%, calc(var(--lyric-progress, 0) * 100% + 5.2%));
+    background-image: linear-gradient(
+      90deg,
+      var(--lyric-fill) 0,
+      var(--lyric-fill) var(--lyric-edge-start),
+      var(--lyric-glow) var(--lyric-edge-mid),
+      var(--lyric-shine) calc((var(--lyric-edge-mid) + var(--lyric-edge-end)) / 2),
+      var(--lyric-idle) var(--lyric-edge-end),
+      var(--lyric-idle) 100%
+    );
+    background-clip: text;
+    -webkit-background-clip: text;
+    text-shadow:
+      0 0 10px rgba(var(--accent-rgb), 0.08),
+      0 0 24px rgba(var(--accent-rgb), 0.04);
+    transition: background-image 60ms linear, font-size 300ms, font-weight 220ms, text-shadow 180ms ease;
   }
 
   .lyric-translation {
@@ -715,16 +653,18 @@
     opacity: 0.75;
   }
 
-  .lyric-past .lyric-text { color: var(--text-dim); }
-
   .lyric-active {
     background: rgba(var(--accent-rgb), 0.06);
-    transform: scale(1.01);
+    transform: scale(1.025);
   }
   .lyric-active .lyric-text {
     font-size: var(--font-base);
     font-weight: 600;
-    color: var(--text-primary);
+    color: transparent;
+    text-shadow:
+      0 0 14px rgba(var(--accent-rgb), 0.22),
+      0 0 28px rgba(var(--accent-rgb), 0.14),
+      0 0 44px rgba(255, 255, 255, 0.08);
   }
   /* ── Action Bar ── */
   .action-bar {
