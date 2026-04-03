@@ -2,7 +2,14 @@
   "permissions": {
     "allow": [
       "Bash(ls:*)",
-      "Bash(cmake --version)"
+      "Bash(cmake --version)",
+      "Bash(pip3 show:*)",
+      "Bash(pip3 --version)",
+      "Bash(python3 -c \"import transformers; print\\(transformers.__version__\\)\")",
+      "Bash(python3 -c \"import sentencepiece; print\\(sentencepiece.__version__\\)\")",
+      "Bash(pip3 install:*)",
+      "Bash(python3:*)",
+      "Bash(unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY all_proxy ALL_PROXY)"
     ]
   }
 }

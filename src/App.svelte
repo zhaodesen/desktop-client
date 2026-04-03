@@ -148,6 +148,7 @@
   let importProgress = $state<ImportProgress>({ ...IMPORT_IDLE });
   let importError = $state<string | undefined>(undefined);
   let importSuccessName = $state<string | undefined>(undefined);
+  let importSuccessKind = $state<"bilingual" | "original" | "translation-failed">("bilingual");
   let showImportSuccess = $state(false);
   let importSuccessTimer: ReturnType<typeof setTimeout> | undefined;
   let translationProgressDriftTimer: ReturnType<typeof setInterval> | undefined;
@@ -1287,6 +1288,7 @@
   function beginImportFlow(source: "local" | "online", initialMessage: string) {
     activeImportSource = source;
     importError = undefined;
+    importSuccessKind = "bilingual";
     showImportSuccess = false;
     clearTimeout(importSuccessTimer);
     isCancellingAsr = false;
@@ -1311,6 +1313,7 @@
   function closeImportSuccess() {
     showImportSuccess = false;
     importSuccessName = undefined;
+    importSuccessKind = "bilingual";
     resetImportFlowState();
   }
 
@@ -1911,11 +1914,26 @@
           translationError ? "warning" : "success",
         );
 
+        importSuccessKind = translationError
+          ? "translation-failed"
+          : shouldTranslateToChinese
+            ? "bilingual"
+            : "original";
+
         // 整个流水线结束 → 显示成功弹框
         if (importProgress.active) {
           stopTranslationProgressDrift();
           resetScheduledProgressUpdate();
-          importProgress = { active: true, stage: "done", message: "全部完成！", percent: 100 };
+          importProgress = {
+            active: true,
+            stage: "done",
+            message: importSuccessKind === "translation-failed"
+              ? "导入完成，中文字幕生成失败"
+              : importSuccessKind === "original"
+                ? "导入完成，已生成原文字幕"
+                : "导入完成，双语字幕已生成",
+            percent: 100,
+          };
         }
 
         // 延迟执行 refreshLibrary + loadSubtitle，让 UI 先完成 100% 进度渲染
@@ -2187,6 +2205,7 @@
           progress={importProgress}
           {importError}
           {importSuccessName}
+          {importSuccessKind}
           showSuccess={showImportSuccess}
           canCancel={Boolean(activeAsrJobId) && importProgress.stage !== "done"}
           {isCancellingAsr}

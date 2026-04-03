@@ -6,6 +6,7 @@
     progress: ImportProgress;
     importError: string | undefined;
     importSuccessName: string | undefined;
+    importSuccessKind: "bilingual" | "original" | "translation-failed";
     showSuccess: boolean;
     canCancel: boolean;
     isCancellingAsr: boolean;
@@ -29,6 +30,7 @@
     progress,
     importError,
     importSuccessName,
+    importSuccessKind,
     showSuccess,
     canCancel,
     isCancellingAsr,
@@ -73,6 +75,15 @@
     Math.max(0, Math.min(100, Number.isFinite(progress.percent) ? progress.percent : 0)),
   );
   let progressSummary = $derived(progress.message || activeStageMeta.description);
+  let successSummary = $derived.by(() => {
+    if (importSuccessKind === "translation-failed") {
+      return "素材已导入，原文字幕可用，但中文字幕生成失败。";
+    }
+    if (importSuccessKind === "original") {
+      return "素材已导入，已生成原文字幕。";
+    }
+    return "素材已导入，双语字幕已生成完毕。";
+  });
   let importErrorHint = $derived(getImportErrorHint(importError));
   let progressRatio = $derived(normalizedPercent / 100);
   let showcaseGlow = $derived(progress.active ? 0.16 + (progressRatio * 0.28) : 0.12);
@@ -322,7 +333,7 @@
           </div>
           <p class="import-stage-note">
             {#if progress.stage === "done"}
-              双语字幕已经生成完成，可以前往资源列表继续查看。
+              {successSummary} 可以前往资源列表继续查看。
             {:else}
               {activeStageMeta.description}
             {/if}
@@ -345,7 +356,15 @@
     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <polyline points="20 6 9 17 4 12" />
     </svg>
-    <span>全部完成，双语字幕已生成</span>
+    <span>
+      {#if importSuccessKind === "translation-failed"}
+        全部完成，原文字幕已生成，中文字幕生成失败
+      {:else if importSuccessKind === "original"}
+        全部完成，原文字幕已生成
+      {:else}
+        全部完成，双语字幕已生成
+      {/if}
+    </span>
   </div>
 {/if}
 
@@ -393,9 +412,16 @@
     <h3 id="success-dialog-title" class="import-dialog-title">导入成功</h3>
     <p class="import-dialog-desc">
       {#if importSuccessName}
-        「{importSuccessName}」已导入，双语字幕已生成完毕。
+        「{importSuccessName}」已导入，
+        {#if importSuccessKind === "translation-failed"}
+          原文字幕可用，但中文字幕生成失败。
+        {:else if importSuccessKind === "original"}
+          已生成原文字幕。
+        {:else}
+          双语字幕已生成完毕。
+        {/if}
       {:else}
-        媒体文件已导入，双语字幕已生成完毕。
+        {successSummary}
       {/if}
     </p>
     <label class="import-dialog-suppress">

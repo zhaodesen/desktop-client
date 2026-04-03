@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, realpathSync, rmSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
@@ -8,7 +8,6 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, '..');
 const binariesDir = path.join(rootDir, 'src-tauri', 'binaries');
-const offlineTranslatorDir = path.join(rootDir, 'scripts', 'offline_translator');
 const mode = process.argv[2] === 'dev' ? 'dev' : 'build';
 
 function detectTargetTriple() {
@@ -58,7 +57,7 @@ function runCommand(command, args) {
 }
 
 function verifyBundledSidecars(targetTriple) {
-  const expected = ['ffmpeg', 'whisper-cli', 'yt-dlp'].map((name) =>
+  const expected = ['ffmpeg', 'whisper-cli', 'yt-dlp', 'translator-cli', 'ct2-translator', 'spm_encode', 'spm_decode'].map((name) =>
     path.join(binariesDir, targetSidecarName(name, targetTriple)),
   );
   if (targetTriple.includes('windows')) {
@@ -89,7 +88,7 @@ function verifyBundledSidecars(targetTriple) {
   for (const candidate of missing) {
     console.error(`- ${path.relative(rootDir, candidate)}`);
   }
-  console.error('构建已改为只校验仓库内的 sidecar，不再在构建阶段自动下载。');
+  console.error('请先准备原生 sidecar。翻译链路现在额外要求 translator-cli / ct2-translator / spm_encode / spm_decode。');
   process.exit(1);
 }
 
@@ -125,48 +124,6 @@ function signMacDynamicLibraries(targetTriple) {
   }
 }
 
-function prepareOfflineTranslatorRuntime(targetTriple) {
-  if (!targetTriple.includes('apple-darwin')) {
-    return;
-  }
-
-  const venvPythonPath = path.join(offlineTranslatorDir, '.venv', 'bin', 'python');
-  if (!existsSync(venvPythonPath)) {
-    console.error('未找到离线翻译 Python 虚拟环境，请先在 scripts/offline_translator 中准备 .venv。');
-    process.exit(1);
-  }
-
-  const runtimePythonPath = realpathSync(venvPythonPath);
-  const runtimeHome = path.resolve(path.dirname(runtimePythonPath), '..');
-  const targetHome = path.join(offlineTranslatorDir, '.python-home');
-  const pythonBinaryName = path.basename(runtimePythonPath);
-  const versionMatch = pythonBinaryName.match(/^python(\d+\.\d+)$/);
-
-  if (!versionMatch) {
-    console.error(`无法从离线翻译 Python 可执行文件推断版本: ${pythonBinaryName}`);
-    process.exit(1);
-  }
-
-  const pythonVersion = versionMatch[1];
-
-  rmSync(targetHome, { recursive: true, force: true });
-  mkdirSync(path.join(targetHome, 'bin'), { recursive: true });
-  mkdirSync(path.join(targetHome, 'lib'), { recursive: true });
-
-  cpSync(path.join(runtimeHome, 'bin', pythonBinaryName), path.join(targetHome, 'bin', pythonBinaryName));
-  for (const alias of ['python3', 'python']) {
-    cpSync(path.join(runtimeHome, 'bin', pythonBinaryName), path.join(targetHome, 'bin', alias));
-  }
-  cpSync(
-    path.join(runtimeHome, 'lib', `libpython${pythonVersion}.dylib`),
-    path.join(targetHome, 'lib', `libpython${pythonVersion}.dylib`),
-  );
-  cpSync(path.join(runtimeHome, 'lib', `python${pythonVersion}`), path.join(targetHome, 'lib', `python${pythonVersion}`), {
-    recursive: true,
-    dereference: true,
-  });
-}
-
 const targetTriple = process.env.TARGET_TRIPLE || detectTargetTriple();
 if (!targetTriple) {
   console.error('无法确定当前 Rust target triple。');
@@ -174,7 +131,6 @@ if (!targetTriple) {
 }
 
 verifyBundledSidecars(targetTriple);
-prepareOfflineTranslatorRuntime(targetTriple);
 signMacDynamicLibraries(targetTriple);
 
 const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';

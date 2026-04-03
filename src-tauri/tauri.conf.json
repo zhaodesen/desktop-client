@@ -52,11 +52,18 @@
         "./binaries/libggml-metal.0.dylib"
       ]
     },
-    "externalBin": ["binaries/ffmpeg", "binaries/whisper-cli", "binaries/yt-dlp"],
+    "externalBin": [
+      "binaries/ffmpeg",
+      "binaries/whisper-cli",
+      "binaries/yt-dlp",
+      "binaries/translator-cli",
+      "binaries/ct2-translator",
+      "binaries/spm_encode",
+      "binaries/spm_decode"
+    ],
     "resources": [
       "binaries/*.dll",
-      "../scripts/offline_translator",
-      "../models/argos"
+      "../models/translation"
     ],
     "icon": [
       "icons/32x32.png",

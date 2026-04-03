@@ -29,19 +29,6 @@ function run(command, commandArgs) {
   }
 }
 
-function walkFiles(dir, collector) {
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    const fullPath = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      walkFiles(fullPath, collector);
-      continue;
-    }
-    if (entry.isFile()) {
-      collector(fullPath);
-    }
-  }
-}
-
 function signMacBinary(filePath, entitlementsPath) {
   const args = ['--force', '--sign', '-'];
   if (entitlementsPath) {
@@ -49,15 +36,6 @@ function signMacBinary(filePath, entitlementsPath) {
   }
   args.push(filePath);
   run('codesign', args);
-}
-
-function findFirstExisting(paths) {
-  for (const candidate of paths) {
-    if (statSafe(candidate)?.isFile()) {
-      return candidate;
-    }
-  }
-  return null;
 }
 
 function postprocessMacBuild() {
@@ -70,7 +48,12 @@ function postprocessMacBuild() {
   }
 
   const profileDir = args.includes('--debug') ? 'debug' : 'release';
-  const bundleDir = path.join(rootDir, 'src-tauri', 'target', profileDir, 'bundle');
+  const targetIndex = args.findIndex((value) => value === '--target');
+  const targetTriple = targetIndex >= 0 ? args[targetIndex + 1] : null;
+  const targetBaseDir = targetTriple
+    ? path.join(rootDir, 'src-tauri', 'target', targetTriple, profileDir)
+    : path.join(rootDir, 'src-tauri', 'target', profileDir);
+  const bundleDir = path.join(targetBaseDir, 'bundle');
   const macosDir = path.join(bundleDir, 'macos');
   const dmgDir = path.join(bundleDir, 'dmg');
   const entitlementsPath = path.join(rootDir, 'src-tauri', 'entitlements', 'whisper-cli.plist');
@@ -81,33 +64,17 @@ function postprocessMacBuild() {
   }
 
   const appPath = path.join(macosDir, appName);
-  const whisperCliPath = path.join(appPath, 'Contents', 'MacOS', 'whisper-cli');
-  const ytDlpPath = path.join(appPath, 'Contents', 'MacOS', 'yt-dlp');
-  const translatorDir = path.join(appPath, 'Contents', 'Resources', '_up_', 'scripts', 'offline_translator');
-  const translatorPythonPath = findFirstExisting([
-    path.join(translatorDir, '.python-home', 'bin', 'python3.13'),
-    path.join(translatorDir, '.python-home', 'bin', 'python3'),
-    path.join(translatorDir, '.python-home', 'bin', 'python'),
-  ]);
+  const sidecarPaths = [
+    path.join(appPath, 'Contents', 'MacOS', 'whisper-cli'),
+    path.join(appPath, 'Contents', 'MacOS', 'yt-dlp'),
+    path.join(appPath, 'Contents', 'MacOS', 'translator-cli'),
+    path.join(appPath, 'Contents', 'MacOS', 'ct2-translator'),
+    path.join(appPath, 'Contents', 'MacOS', 'spm_encode'),
+    path.join(appPath, 'Contents', 'MacOS', 'spm_decode'),
+  ].filter((candidate) => statSafe(candidate)?.isFile());
 
-  for (const sidecarPath of [whisperCliPath, ytDlpPath]) {
+  for (const sidecarPath of sidecarPaths) {
     signMacBinary(sidecarPath, entitlementsPath);
-  }
-
-  if (translatorPythonPath) {
-    const translatorLibraries = [];
-    walkFiles(translatorDir, (filePath) => {
-      if (
-        filePath.endsWith('.dylib')
-        || filePath.endsWith('.so')
-      ) {
-        translatorLibraries.push(filePath);
-      }
-    });
-    for (const libraryPath of translatorLibraries) {
-      signMacBinary(libraryPath);
-    }
-    signMacBinary(translatorPythonPath, entitlementsPath);
   }
   run('codesign', ['--force', '--sign', '-', appPath]);
 

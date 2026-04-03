@@ -14,8 +14,8 @@ use crate::sidecar;
 use crate::state::ExternalProcessState;
 
 const TRANSLATION_TARGET_LANGUAGE: &str = "zh";
-const TRANSLATION_SCRIPT_NAME: &str = "translate.py";
-const UV_BIN_ENV: &str = "UV_BIN";
+const TRANSLATION_MODEL_DIR_ENV: &str = "MUYU_TRANSLATION_MODEL_DIR";
+const TRANSLATION_MODEL_LAYOUT_NAME: &str = "m2m100_418m";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -368,12 +368,9 @@ fn request_offline_translation(
     lines: &[String],
     source_language: Option<&str>,
 ) -> Result<TranslationResponse, String> {
-    let translator_project = resolve_translator_project_dir(app)?;
-    let translator_script = translator_project.join(TRANSLATION_SCRIPT_NAME);
-    let argos_packages_dir = resolve_argos_packages_dir(app)?;
-    let bundled_model_dirs = resolve_argos_model_dirs(app);
-    let model_dir_env = std::env::join_paths(&bundled_model_dirs)
-        .map_err(|error| format!("拼接离线翻译模型目录失败: {error}"))?;
+    let translator = sidecar::locate_executable(app, "TRANSLATOR_CLI_BIN", &["translator-cli"])
+        .map_err(|error| format!("未找到 translator-cli sidecar: {error}"))?;
+    let translation_model_dir = resolve_translation_model_dir(app)?;
 
     let request_payload = json!({
         "targetLanguage": TRANSLATION_TARGET_LANGUAGE,
@@ -382,50 +379,16 @@ fn request_offline_translation(
     })
     .to_string();
 
-    let bundled_python = resolve_translator_python_bin(&translator_project);
-    // 使用 build_nice_command 降低翻译进程 CPU 优先级，避免 UI 卡顿
-    // macOS: taskpolicy -b，Linux: nice -n 19
-    let mut command = if let Some(python_bin) = bundled_python.as_ref() {
-        let python_target = sidecar::CommandTarget::File(python_bin.clone());
-        let mut command = sidecar::build_nice_command(&python_target);
-        command.arg(&translator_script);
-        if let Some(python_home) = python_bin.parent().and_then(|dir| dir.parent()) {
-            command.env("PYTHONHOME", python_home);
-        }
-        if let Some(site_packages_dir) = resolve_translator_site_packages_dir(&translator_project) {
-            command.env("PYTHONPATH", site_packages_dir);
-        }
-        command.env("PYTHONNOUSERSITE", "1");
-        command.env("PYTHONDONTWRITEBYTECODE", "1");
-        command
-    } else {
-        let uv_bin = env::var(UV_BIN_ENV).unwrap_or_else(|_| "uv".to_string());
-        let uv_target = sidecar::CommandTarget::Program(uv_bin);
-        let mut command = sidecar::build_nice_command(&uv_target);
-        command.args([
-            "run",
-            "--project",
-            &translator_project.display().to_string(),
-            &translator_script.display().to_string(),
-        ]);
-        command
-    };
+    // 使用 build_nice_command 降低翻译进程 CPU 优先级，避免 UI 卡顿。
+    let mut command = sidecar::build_nice_command(&translator);
 
     let mut child = command
-        .env("ARGOS_PACKAGES_DIR", &argos_packages_dir)
-        .env("ARGOS_DEVICE_TYPE", "cpu")
-        .env("OFFLINE_TRANSLATOR_MODEL_DIRS", model_dir_env)
+        .env(TRANSLATION_MODEL_DIR_ENV, &translation_model_dir)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|error| {
-            if bundled_python.is_some() {
-                format!("启动离线翻译进程失败: {error}")
-            } else {
-                format!("启动离线翻译进程失败，请确认已安装 uv: {error}")
-            }
-        })?;
+        .map_err(|error| format!("启动 translator-cli 失败: {error}"))?;
     let pid = child.id();
     if let Ok(mut guard) = active_translation_job.lock() {
         *guard = Some(ExternalProcessState::new("字幕翻译", pid));
@@ -466,9 +429,21 @@ fn request_offline_translation(
     result
 }
 
-fn resolve_translator_project_dir(app: &AppHandle) -> Result<PathBuf, String> {
-    for resource_path in ["scripts/offline_translator", "_up_/scripts/offline_translator"] {
-        if let Ok(resource_dir) = app.path().resolve(resource_path, BaseDirectory::Resource) {
+fn resolve_translation_model_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    if let Ok(value) = env::var(TRANSLATION_MODEL_DIR_ENV) {
+        let path = PathBuf::from(value);
+        if path.exists() {
+            return Ok(path);
+        }
+    }
+
+    for resource_path in [
+        format!("models/translation/{TRANSLATION_MODEL_LAYOUT_NAME}"),
+        "models/translation".to_string(),
+        format!("_up_/models/translation/{TRANSLATION_MODEL_LAYOUT_NAME}"),
+        "_up_/models/translation".to_string(),
+    ] {
+        if let Ok(resource_dir) = app.path().resolve(&resource_path, BaseDirectory::Resource) {
             if resource_dir.exists() {
                 return Ok(resource_dir);
             }
@@ -476,99 +451,28 @@ fn resolve_translator_project_dir(app: &AppHandle) -> Result<PathBuf, String> {
     }
 
     let current_dir = env::current_dir().map_err(|error| format!("读取当前目录失败: {error}"))?;
-    let candidates = [
-        current_dir.join("scripts/offline_translator"),
+    let mut candidates = vec![
         current_dir
-            .parent()
-            .map(|dir| dir.join("scripts/offline_translator"))
-            .unwrap_or_else(|| current_dir.join("scripts/offline_translator")),
+            .join("models/translation")
+            .join(TRANSLATION_MODEL_LAYOUT_NAME),
+        current_dir.join("models/translation"),
     ];
+
+    if let Some(parent) = current_dir.parent() {
+        candidates.push(
+            parent
+                .join("models/translation")
+                .join(TRANSLATION_MODEL_LAYOUT_NAME),
+        );
+        candidates.push(parent.join("models/translation"));
+    }
 
     candidates
         .into_iter()
         .find(|path| path.exists())
-        .ok_or_else(|| "未找到离线翻译脚本目录".to_string())
-}
-
-fn resolve_translator_python_bin(translator_project: &Path) -> Option<PathBuf> {
-    let bin_dir = translator_project.join(".python-home/bin");
-    let preferred = ["python3.13", "python3", "python"];
-    for candidate in preferred.map(|name| bin_dir.join(name)) {
-        if candidate.exists() {
-            return Some(candidate);
-        }
-    }
-
-    let entries = fs::read_dir(&bin_dir).ok()?;
-    entries
-        .filter_map(|entry| entry.ok().map(|item| item.path()))
-        .find(|path| {
-            path.is_file()
-                && path
-                    .file_name()
-                    .and_then(|name| name.to_str())
-                    .map(|name| name.starts_with("python"))
-                    .unwrap_or(false)
+        .ok_or_else(|| {
+            "未找到原生离线翻译模型目录，请准备 models/translation/m2m100_418m".to_string()
         })
-}
-
-fn resolve_translator_site_packages_dir(translator_project: &Path) -> Option<PathBuf> {
-    let unix_lib_dir = translator_project.join(".venv/lib");
-    if let Ok(entries) = fs::read_dir(&unix_lib_dir) {
-        for entry in entries.filter_map(Result::ok) {
-            let path = entry.path().join("site-packages");
-            if path.exists() {
-                return Some(path);
-            }
-        }
-    }
-
-    let windows_site_packages = translator_project.join(".venv/Lib/site-packages");
-    windows_site_packages.exists().then_some(windows_site_packages)
-}
-
-fn resolve_argos_packages_dir(app: &AppHandle) -> Result<PathBuf, String> {
-    let packages_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|error| format!("读取应用数据目录失败: {error}"))?
-        .join("argos/packages");
-    fs::create_dir_all(&packages_dir)
-        .map_err(|error| format!("创建离线翻译模型目录失败: {error}"))?;
-    Ok(packages_dir)
-}
-
-fn resolve_argos_model_dirs(app: &AppHandle) -> Vec<PathBuf> {
-    let mut model_dirs = Vec::new();
-
-    for resource_path in ["models/argos", "_up_/models/argos"] {
-        if let Ok(resource_dir) = app.path().resolve(resource_path, BaseDirectory::Resource) {
-            if resource_dir.exists() {
-                model_dirs.push(resource_dir);
-            }
-        }
-    }
-
-    if let Ok(current_dir) = env::current_dir() {
-        let direct = current_dir.join("models/argos");
-        if direct.exists() {
-            model_dirs.push(direct);
-        }
-
-        let fallback = current_dir.join("models");
-        if fallback.exists() {
-            model_dirs.push(fallback);
-        }
-
-        if let Some(parent) = current_dir.parent() {
-            let parent_dir = parent.join("models/argos");
-            if parent_dir.exists() {
-                model_dirs.push(parent_dir);
-            }
-        }
-    }
-
-    model_dirs
 }
 
 fn contains_chinese(text: &str) -> bool {
