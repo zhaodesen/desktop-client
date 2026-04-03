@@ -1,6 +1,7 @@
 use reqwest::{
     blocking::Client,
     header::{ACCEPT_RANGES, CONTENT_LENGTH, RANGE},
+    StatusCode,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -29,6 +30,7 @@ const DEFAULT_MODEL_REPO: &str = "ggerganov/whisper.cpp";
 const DOWNLOAD_BUFFER_SIZE: usize = 1024 * 1024;
 const PARALLEL_DOWNLOAD_CONNECTIONS: usize = 8;
 const PARALLEL_DOWNLOAD_MIN_BYTES: u64 = 10 * 1024 * 1024;
+const INSTALLED_SIZE_RATIO_THRESHOLD: u64 = 85;
 
 /// Returns the user-configured endpoint (if any) or `None` for default behaviour.
 fn resolve_custom_endpoint() -> Option<String> {
@@ -222,6 +224,12 @@ pub struct ModelDownloadFailedPayload {
     pub message: String,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResumableModelDownload {
+    pub model_id: String,
+}
+
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
@@ -238,6 +246,14 @@ fn resolve_model_path(app: &AppHandle, file_name: &str) -> Result<PathBuf, Strin
         .map_err(|error| format!("读取应用数据目录失败: {error}"))?;
 
     Ok(app_data_dir.join("models").join(file_name))
+}
+
+fn resolve_model_temp_path(app: &AppHandle, file_name: &str) -> Result<PathBuf, String> {
+    Ok(resolve_model_path(app, file_name)?.with_extension("bin.download"))
+}
+
+fn resolve_model_part_dir(app: &AppHandle, file_name: &str) -> Result<PathBuf, String> {
+    Ok(resolve_model_temp_path(app, file_name)?.with_extension("download.parts"))
 }
 
 fn resolve_model_candidates(
@@ -333,7 +349,7 @@ fn download_to_temp_file(
         )?;
         download_parallel(client, app, job, info, temp_path, metadata)
     } else {
-        download_single_stream(client, app, job, info, temp_path)
+        download_single_stream(client, app, job, info, temp_path, metadata)
     }
 }
 
@@ -343,31 +359,90 @@ fn download_single_stream(
     job: &ModelDownloadState,
     info: &ModelInfo,
     temp_path: &PathBuf,
+    metadata: DownloadMetadata,
 ) -> Result<(), String> {
-    let mut response = client
-        .get(&info.download_url)
-        .send()
-        .and_then(|response| response.error_for_status())
-        .map_err(|error| format!("下载模型失败: {error}"))?;
+    let total_bytes = metadata.total_bytes;
+    let mut downloaded_bytes = 0u64;
+    let mut append_mode = false;
 
-    let total_bytes = response.content_length();
+    if metadata.supports_ranges && temp_path.exists() {
+        let existing_bytes = fs::metadata(temp_path)
+            .map_err(|error| format!("读取临时模型文件失败: {error}"))?
+            .len();
+        if total_bytes.map(|expected| existing_bytes < expected).unwrap_or(false) && existing_bytes > 0 {
+            downloaded_bytes = existing_bytes;
+            append_mode = true;
+        } else if total_bytes.map(|expected| existing_bytes >= expected).unwrap_or(false) {
+            cleanup_download_path(temp_path);
+        }
+    }
+
+    let mut request = client.get(&info.download_url);
+    if append_mode {
+        request = request.header(RANGE, format!("bytes={downloaded_bytes}-"));
+    }
+    let response = request
+        .send()
+        .map_err(|error| format!("下载模型失败: {error}"))?;
+    let status = response.status();
+    let mut response = if append_mode {
+        if status == StatusCode::PARTIAL_CONTENT {
+            response
+                .error_for_status()
+                .map_err(|error| format!("下载模型失败: {error}"))?
+        } else {
+            downloaded_bytes = 0;
+            append_mode = false;
+            cleanup_download_path(temp_path);
+            client
+                .get(&info.download_url)
+                .send()
+                .and_then(|response| response.error_for_status())
+                .map_err(|error| format!("下载模型失败: {error}"))?
+        }
+    } else {
+        response
+            .error_for_status()
+            .map_err(|error| format!("下载模型失败: {error}"))?
+    };
+
     let mut file = BufWriter::with_capacity(
         DOWNLOAD_BUFFER_SIZE,
-        File::create(temp_path).map_err(|error| format!("创建模型文件失败: {error}"))?,
+        fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .append(append_mode)
+            .truncate(!append_mode)
+            .open(temp_path)
+            .map_err(|error| format!("创建模型文件失败: {error}"))?,
     );
-    let mut downloaded_bytes = 0u64;
     let mut last_percent = 0f32;
     let mut buffer = [0u8; DOWNLOAD_BUFFER_SIZE];
 
+    if append_mode {
+        emit_download_progress(
+            app,
+            &job.job_id,
+            &info.label,
+            downloaded_bytes,
+            total_bytes,
+            &mut last_percent,
+        )?;
+    }
+
     loop {
         if job.cancel_requested.load(Ordering::SeqCst) {
-            cleanup_download_path(temp_path);
+            if !should_preserve_progress(job) {
+                cleanup_download_path(temp_path);
+            }
             return Err("模型下载已取消".to_string());
         }
 
         while job.pause_requested.load(Ordering::SeqCst) {
             if job.cancel_requested.load(Ordering::SeqCst) {
-                cleanup_download_path(temp_path);
+                if !should_preserve_progress(job) {
+                    cleanup_download_path(temp_path);
+                }
                 return Err("模型下载已取消".to_string());
             }
             thread::sleep(Duration::from_millis(200));
@@ -392,6 +467,19 @@ fn download_single_stream(
             total_bytes,
             &mut last_percent,
         )?;
+    }
+
+    file.flush()
+        .map_err(|error| format!("写入模型文件失败: {error}"))?;
+
+    if let Some(expected_bytes) = total_bytes.filter(|size| *size > 0) {
+        if downloaded_bytes != expected_bytes {
+            cleanup_download_path(temp_path);
+            return Err(format!(
+                "模型下载不完整，期望 {} 字节，实际 {} 字节",
+                expected_bytes, downloaded_bytes
+            ));
+        }
     }
 
     Ok(())
@@ -436,6 +524,7 @@ fn download_parallel(
         let part_path = part_dir.join(format!("part-{index:02}.bin"));
         let cancel_requested = job.cancel_requested.clone();
         let pause_requested = job.pause_requested.clone();
+        let preserve_temp_on_cancel = job.preserve_temp_on_cancel.clone();
         let abort_flag = abort_requested.clone();
         let downloaded = downloaded_bytes.clone();
 
@@ -448,6 +537,7 @@ fn download_parallel(
                 &part_path,
                 cancel_requested,
                 pause_requested,
+                preserve_temp_on_cancel,
                 abort_flag,
                 downloaded,
             )
@@ -526,7 +616,9 @@ fn download_parallel(
     }
 
     if job.cancel_requested.load(Ordering::SeqCst) {
-        cleanup_download_path(&part_dir);
+        if !should_preserve_progress(job) {
+            cleanup_download_path(&part_dir);
+        }
         return Err("模型下载已取消".to_string());
     }
 
@@ -547,6 +639,19 @@ fn download_parallel(
                 File::open(&part_path).map_err(|error| format!("读取分片文件失败: {error}"))?,
             );
             copy(&mut input, &mut output).map_err(|error| format!("合并分片文件失败: {error}"))?;
+        }
+        output
+            .flush()
+            .map_err(|error| format!("写入模型文件失败: {error}"))?;
+
+        let merged_size = fs::metadata(temp_path)
+            .map_err(|error| format!("读取模型文件信息失败: {error}"))?
+            .len();
+        if merged_size != total_bytes {
+            return Err(format!(
+                "模型下载不完整，期望 {} 字节，实际 {} 字节",
+                total_bytes, merged_size
+            ));
         }
         Ok(())
     })();
@@ -572,30 +677,64 @@ fn download_range_to_part(
     part_path: &PathBuf,
     cancel_requested: Arc<AtomicBool>,
     pause_requested: Arc<AtomicBool>,
+    preserve_temp_on_cancel: Arc<AtomicBool>,
     abort_requested: Arc<AtomicBool>,
     downloaded_bytes: Arc<AtomicU64>,
 ) -> Result<(), String> {
-    let mut response = client
+    let expected_bytes = end.saturating_sub(start).saturating_add(1);
+    let mut existing_bytes = fs::metadata(part_path).map(|meta| meta.len()).unwrap_or(0);
+    if existing_bytes > expected_bytes {
+        cleanup_download_path(part_path);
+        existing_bytes = 0;
+    }
+    if existing_bytes == expected_bytes {
+        downloaded_bytes.fetch_add(existing_bytes, Ordering::SeqCst);
+        return Ok(());
+    }
+
+    let resume_from = start.saturating_add(existing_bytes.min(expected_bytes));
+    let response = client
         .get(url)
-        .header(RANGE, format!("bytes={start}-{end}"))
+        .header(RANGE, format!("bytes={resume_from}-{end}"))
         .send()
-        .and_then(|response| response.error_for_status())
+        .map_err(|error| format!("下载模型分片失败: {error}"))?;
+    let status = response.status();
+    if status != StatusCode::PARTIAL_CONTENT {
+        return Err(format!("下载模型分片失败: 服务端未返回 206 分片响应（实际 {status}）"));
+    }
+    let mut response = response
+        .error_for_status()
         .map_err(|error| format!("下载模型分片失败: {error}"))?;
     let mut file = BufWriter::with_capacity(
         DOWNLOAD_BUFFER_SIZE,
-        File::create(part_path).map_err(|error| format!("创建分片文件失败: {error}"))?,
+        fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .append(existing_bytes > 0)
+            .truncate(existing_bytes == 0)
+            .open(part_path)
+            .map_err(|error| format!("创建分片文件失败: {error}"))?,
     );
     let mut buffer = [0u8; DOWNLOAD_BUFFER_SIZE];
+    let mut downloaded_part_bytes = existing_bytes;
+
+    if existing_bytes > 0 {
+        downloaded_bytes.fetch_add(existing_bytes, Ordering::SeqCst);
+    }
 
     loop {
         if cancel_requested.load(Ordering::SeqCst) || abort_requested.load(Ordering::SeqCst) {
-            cleanup_download_path(part_path);
+            if !(preserve_temp_on_cancel.load(Ordering::SeqCst) && cancel_requested.load(Ordering::SeqCst)) {
+                cleanup_download_path(part_path);
+            }
             return Err("cancelled".to_string());
         }
 
         while pause_requested.load(Ordering::SeqCst) {
             if cancel_requested.load(Ordering::SeqCst) || abort_requested.load(Ordering::SeqCst) {
-                cleanup_download_path(part_path);
+                if !(preserve_temp_on_cancel.load(Ordering::SeqCst) && cancel_requested.load(Ordering::SeqCst)) {
+                    cleanup_download_path(part_path);
+                }
                 return Err("cancelled".to_string());
             }
             thread::sleep(Duration::from_millis(200));
@@ -610,7 +749,19 @@ fn download_range_to_part(
 
         file.write_all(&buffer[..read])
             .map_err(|error| format!("写入分片文件失败: {error}"))?;
+        downloaded_part_bytes += read as u64;
         downloaded_bytes.fetch_add(read as u64, Ordering::SeqCst);
+    }
+
+    file.flush()
+        .map_err(|error| format!("写入分片文件失败: {error}"))?;
+
+    if downloaded_part_bytes != expected_bytes {
+        cleanup_download_path(part_path);
+        return Err(format!(
+            "模型分片下载不完整，期望 {} 字节，实际 {} 字节",
+            expected_bytes, downloaded_part_bytes
+        ));
     }
 
     Ok(())
@@ -663,12 +814,24 @@ pub fn get_model_status(app: &AppHandle, model_id: &str) -> Result<ModelStatus, 
         let metadata = fs::metadata(&candidate.path)
             .map_err(|error| format!("读取模型文件信息失败: {error}"))?;
 
+        let size_bytes = metadata.len();
+        if is_model_size_valid(&info, size_bytes) {
+            return Ok(ModelStatus {
+                model_id: info.id,
+                installed: true,
+                path: Some(candidate.path.display().to_string()),
+                source: candidate.source,
+                size_bytes: Some(size_bytes),
+                download_url: info.download_url,
+            });
+        }
+
         return Ok(ModelStatus {
             model_id: info.id,
-            installed: true,
-            path: Some(candidate.path.display().to_string()),
-            source: candidate.source,
-            size_bytes: Some(metadata.len()),
+            installed: false,
+            path: None,
+            source: "invalid".into(),
+            size_bytes: Some(size_bytes),
             download_url: info.download_url,
         });
     }
@@ -681,6 +844,50 @@ pub fn get_model_status(app: &AppHandle, model_id: &str) -> Result<ModelStatus, 
         size_bytes: None,
         download_url: info.download_url,
     })
+}
+
+fn is_model_size_valid(info: &ModelInfo, size_bytes: u64) -> bool {
+    let expected_floor =
+        (info.size_mb as u64 * 1024 * 1024 * INSTALLED_SIZE_RATIO_THRESHOLD) / 100;
+    size_bytes >= expected_floor
+}
+
+fn should_preserve_progress(job: &ModelDownloadState) -> bool {
+    job.preserve_temp_on_cancel.load(Ordering::SeqCst)
+}
+
+pub fn get_resumable_model_download(app: &AppHandle) -> Result<Option<ResumableModelDownload>, String> {
+    let mut latest: Option<(String, SystemTime)> = None;
+
+    for info in get_available_models() {
+        if get_model_status(app, &info.id)?.installed {
+            continue;
+        }
+
+        let temp_path = resolve_model_temp_path(app, &info.file_name)?;
+        let part_dir = resolve_model_part_dir(app, &info.file_name)?;
+        let candidate_path = if temp_path.exists() {
+            Some(temp_path)
+        } else if part_dir.exists() {
+            Some(part_dir)
+        } else {
+            None
+        };
+
+        let Some(path) = candidate_path else {
+            continue;
+        };
+
+        let modified = fs::metadata(&path)
+            .and_then(|meta| meta.modified())
+            .unwrap_or(SystemTime::UNIX_EPOCH);
+
+        if latest.as_ref().map(|(_, current)| modified > *current).unwrap_or(true) {
+            latest = Some((info.id, modified));
+        }
+    }
+
+    Ok(latest.map(|(model_id, _)| ResumableModelDownload { model_id }))
 }
 
 /// Backward-compatible wrapper - returns status for the selected model.

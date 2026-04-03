@@ -1,7 +1,11 @@
-use reqwest::blocking::Client;
+use reqwest::{
+    blocking::Client,
+    header::{ACCEPT_RANGES, CONTENT_LENGTH, RANGE},
+    StatusCode,
+};
 use serde::Serialize;
 use std::{
-    fs::{self, File},
+    fs::{self},
     io::{BufWriter, Read, Write},
     path::{Path, PathBuf},
     sync::{atomic::Ordering, Arc, Mutex},
@@ -14,7 +18,7 @@ use crate::{
     model::{
         CancelModelDownloadOutput, DownloadModelOutput, ModelDownloadFailedPayload,
         ModelDownloadProgressPayload, ModelDownloadStartedPayload, PauseModelDownloadOutput,
-        ResumeModelDownloadOutput,
+        ResumableModelDownload, ResumeModelDownloadOutput,
     },
     state::ModelDownloadState,
     storage::CleanupResult,
@@ -107,6 +111,12 @@ const TRANSLATION_MODEL_FILES: [TranslationModelFile; 5] = [
 struct ModelCandidate {
     path: PathBuf,
     source: String,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct DownloadMetadata {
+    total_bytes: Option<u64>,
+    supports_ranges: bool,
 }
 
 pub fn get_translation_model_info() -> TranslationModelInfo {
@@ -256,6 +266,23 @@ pub fn delete_translation_model(app: &AppHandle) -> Result<CleanupResult, String
     })
 }
 
+pub fn get_resumable_translation_model_download(
+    app: &AppHandle,
+) -> Result<Option<ResumableModelDownload>, String> {
+    if get_translation_model_status(app)?.installed {
+        return Ok(None);
+    }
+
+    let temp_root = resolve_temp_model_root(app)?;
+    if !temp_root.exists() || !has_resumable_files(&temp_root)? {
+        return Ok(None);
+    }
+
+    Ok(Some(ResumableModelDownload {
+        model_id: TRANSLATION_MODEL_ID.to_string(),
+    }))
+}
+
 fn run_download(
     app: AppHandle,
     active_job: Arc<Mutex<Option<ModelDownloadState>>>,
@@ -292,13 +319,14 @@ fn run_download(
         )?;
 
         let target_root = resolve_target_model_root(&app)?;
-        let temp_root = target_root.with_extension("download");
-        cleanup_path(&temp_root);
+        let temp_root = resolve_temp_model_root(&app)?;
         if let Some(parent) = temp_root.parent() {
             fs::create_dir_all(parent).map_err(|error| format!("创建翻译模型目录失败: {error}"))?;
         }
-        fs::create_dir_all(&temp_root)
-            .map_err(|error| format!("创建翻译模型临时目录失败: {error}"))?;
+        if !temp_root.exists() {
+            fs::create_dir_all(&temp_root)
+                .map_err(|error| format!("创建翻译模型临时目录失败: {error}"))?;
+        }
 
         if let Ok(mut temp_guard) = job.temp_path.lock() {
             *temp_guard = Some(temp_root.clone());
@@ -309,10 +337,6 @@ fn run_download(
         let mut last_error: Option<String> = None;
 
         for (index, endpoint) in endpoints.iter().enumerate() {
-            cleanup_path(&temp_root);
-            fs::create_dir_all(&temp_root)
-                .map_err(|error| format!("重建翻译模型临时目录失败: {error}"))?;
-
             if index > 0 {
                 emit_progress(
                     &app,
@@ -331,7 +355,6 @@ fn run_download(
                     break;
                 }
                 Err(error) => {
-                    cleanup_path(&temp_root);
                     if error.contains("已取消") {
                         return Err(error);
                     }
@@ -393,15 +416,23 @@ fn download_all_files_from_endpoint(
     job: &ModelDownloadState,
     temp_root: &Path,
 ) -> Result<(), String> {
-    let total_bytes = TRANSLATION_MODEL_FILES
-        .iter()
-        .map(|file| file.approx_bytes)
-        .sum::<u64>();
-    let mut downloaded_bytes = 0u64;
-    let mut last_percent = 0f32;
+    let mut file_plan = Vec::with_capacity(TRANSLATION_MODEL_FILES.len());
+    let mut total_bytes = 0u64;
 
     for file in TRANSLATION_MODEL_FILES {
         let url = build_translation_download_url(endpoint, file.relative_path);
+        let metadata = fetch_download_metadata(client, &url).unwrap_or(DownloadMetadata {
+            total_bytes: Some(file.approx_bytes),
+            supports_ranges: true,
+        });
+        total_bytes = total_bytes.saturating_add(metadata.total_bytes.unwrap_or(file.approx_bytes));
+        file_plan.push((file, url, metadata));
+    }
+
+    let mut downloaded_bytes = existing_downloaded_bytes(temp_root, &file_plan)?;
+    let mut last_percent = 0f32;
+
+    for (file, url, metadata) in file_plan {
         let target_path = temp_root.join(file.relative_path);
         if let Some(parent) = target_path.parent() {
             fs::create_dir_all(parent)
@@ -421,11 +452,14 @@ fn download_all_files_from_endpoint(
             job,
             &url,
             &target_path,
+            metadata,
             downloaded_bytes,
             total_bytes,
             &mut last_percent,
         )?;
-        downloaded_bytes = downloaded_bytes.saturating_add(written);
+        downloaded_bytes = downloaded_bytes
+            .saturating_sub(existing_valid_file_bytes(&target_path, metadata.total_bytes))
+            .saturating_add(written);
     }
 
     Ok(())
@@ -437,31 +471,87 @@ fn download_file(
     job: &ModelDownloadState,
     url: &str,
     target_path: &Path,
+    metadata: DownloadMetadata,
     completed_before: u64,
     total_bytes: u64,
     last_percent: &mut f32,
 ) -> Result<u64, String> {
-    let mut response = client
-        .get(url)
+    let mut existing_bytes = existing_valid_file_bytes(target_path, metadata.total_bytes);
+    if metadata.total_bytes.map(|expected| existing_bytes == expected).unwrap_or(false) {
+        return Ok(existing_bytes);
+    }
+
+    let mut append_mode = metadata.supports_ranges && existing_bytes > 0;
+    let mut request = client.get(url);
+    if append_mode {
+        request = request.header(RANGE, format!("bytes={existing_bytes}-"));
+    }
+    let response = request
         .send()
-        .and_then(|response| response.error_for_status())
         .map_err(|error| format!("下载翻译模型文件失败: {error}"))?;
+    let status = response.status();
+    let mut response = if append_mode {
+        if status == StatusCode::PARTIAL_CONTENT {
+            response
+                .error_for_status()
+                .map_err(|error| format!("下载翻译模型文件失败: {error}"))?
+        } else {
+            existing_bytes = 0;
+            append_mode = false;
+            cleanup_path(&target_path.to_path_buf());
+            client
+                .get(url)
+                .send()
+                .and_then(|response| response.error_for_status())
+                .map_err(|error| format!("下载翻译模型文件失败: {error}"))?
+        }
+    } else {
+        response
+            .error_for_status()
+            .map_err(|error| format!("下载翻译模型文件失败: {error}"))?
+    };
     let mut file = BufWriter::with_capacity(
         DOWNLOAD_BUFFER_SIZE,
-        File::create(target_path).map_err(|error| format!("创建翻译模型文件失败: {error}"))?,
+        fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .append(append_mode)
+            .truncate(!append_mode)
+            .open(target_path)
+            .map_err(|error| format!("创建翻译模型文件失败: {error}"))?,
     );
-    let mut downloaded = 0u64;
+    let mut downloaded = existing_bytes;
     let mut buffer = [0u8; DOWNLOAD_BUFFER_SIZE];
+
+    if existing_bytes > 0 {
+        let percent = progress_percent(completed_before, total_bytes);
+        if percent >= *last_percent + 2.0 {
+          emit_progress(
+              app,
+              &job.job_id,
+              &format!(
+                  "正在继续下载翻译模型 {}... {:.0}%",
+                  TRANSLATION_MODEL_LABEL, percent
+              ),
+              Some(percent),
+          )?;
+          *last_percent = percent;
+        }
+    }
 
     loop {
         if job.cancel_requested.load(Ordering::SeqCst) {
-            cleanup_path(&target_path.to_path_buf());
+            if !should_preserve_progress(job) {
+                cleanup_path(&target_path.to_path_buf());
+            }
             return Err("翻译模型下载已取消".to_string());
         }
 
         while job.pause_requested.load(Ordering::SeqCst) {
             if job.cancel_requested.load(Ordering::SeqCst) {
-                cleanup_path(&target_path.to_path_buf());
+                if !should_preserve_progress(job) {
+                    cleanup_path(&target_path.to_path_buf());
+                }
                 return Err("翻译模型下载已取消".to_string());
             }
             thread::sleep(Duration::from_millis(200));
@@ -476,9 +566,11 @@ fn download_file(
 
         file.write_all(&buffer[..read])
             .map_err(|error| format!("写入翻译模型文件失败: {error}"))?;
-        downloaded += read as u64;
+        downloaded = downloaded.saturating_add(read as u64);
 
-        let current_total = completed_before.saturating_add(downloaded);
+        let current_total = completed_before
+            .saturating_sub(existing_bytes)
+            .saturating_add(downloaded);
         let percent = progress_percent(current_total, total_bytes);
         if percent >= *last_percent + 2.0 || percent >= 100.0 {
             emit_progress(
@@ -491,6 +583,21 @@ fn download_file(
                 Some(percent),
             )?;
             *last_percent = percent;
+        }
+    }
+
+    file.flush()
+        .map_err(|error| format!("写入翻译模型文件失败: {error}"))?;
+
+    if let Some(expected_bytes) = metadata.total_bytes.filter(|size| *size > 0) {
+        if downloaded != expected_bytes {
+            if !should_preserve_progress(job) {
+                cleanup_path(&target_path.to_path_buf());
+            }
+            return Err(format!(
+                "翻译模型文件下载不完整，期望 {} 字节，实际 {} 字节",
+                expected_bytes, downloaded
+            ));
         }
     }
 
@@ -528,6 +635,32 @@ fn build_http_client() -> Result<Client, String> {
         .connect_timeout(Duration::from_secs(30))
         .build()
         .map_err(|error| format!("创建翻译模型下载客户端失败: {error}"))
+}
+
+fn fetch_download_metadata(client: &Client, url: &str) -> Result<DownloadMetadata, String> {
+    let response = client
+        .head(url)
+        .send()
+        .and_then(|response| response.error_for_status())
+        .map_err(|error| format!("请求翻译模型元数据失败: {error}"))?;
+
+    let total_bytes = response
+        .headers()
+        .get(CONTENT_LENGTH)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|value| *value > 0);
+    let supports_ranges = response
+        .headers()
+        .get(ACCEPT_RANGES)
+        .and_then(|value| value.to_str().ok())
+        .map(|value| value.eq_ignore_ascii_case("bytes"))
+        .unwrap_or(false);
+
+    Ok(DownloadMetadata {
+        total_bytes,
+        supports_ranges,
+    })
 }
 
 fn resolve_custom_endpoint() -> Option<String> {
@@ -576,6 +709,10 @@ fn resolve_target_model_root(app: &AppHandle) -> Result<PathBuf, String> {
         .join("models")
         .join("translation")
         .join(TRANSLATION_MODEL_ID))
+}
+
+fn resolve_temp_model_root(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(resolve_target_model_root(app)?.with_extension("download"))
 }
 
 fn resolve_model_candidates(app: &AppHandle) -> Result<Vec<ModelCandidate>, String> {
@@ -733,6 +870,56 @@ fn cleanup_path(path: &PathBuf) {
     } else {
         let _ = fs::remove_file(path);
     }
+}
+
+fn should_preserve_progress(job: &ModelDownloadState) -> bool {
+    job.preserve_temp_on_cancel.load(Ordering::SeqCst)
+}
+
+fn existing_valid_file_bytes(path: &Path, expected_bytes: Option<u64>) -> u64 {
+    let size = fs::metadata(path).map(|meta| meta.len()).unwrap_or(0);
+    match expected_bytes {
+        Some(expected) if size > expected => {
+            cleanup_path(&path.to_path_buf());
+            0
+        }
+        Some(expected) => size.min(expected),
+        None => size,
+    }
+}
+
+fn existing_downloaded_bytes(
+    temp_root: &Path,
+    plan: &[(TranslationModelFile, String, DownloadMetadata)],
+) -> Result<u64, String> {
+    let mut total = 0u64;
+    for (file, _, metadata) in plan {
+        total = total.saturating_add(existing_valid_file_bytes(
+            &temp_root.join(file.relative_path),
+            metadata.total_bytes,
+        ));
+    }
+    Ok(total)
+}
+
+fn has_resumable_files(path: &Path) -> Result<bool, String> {
+    if !path.exists() {
+        return Ok(false);
+    }
+
+    for entry in fs::read_dir(path).map_err(|error| format!("读取翻译模型临时目录失败: {error}"))? {
+        let entry = entry.map_err(|error| format!("读取翻译模型临时目录项失败: {error}"))?;
+        let child = entry.path();
+        if child.is_dir() {
+            if has_resumable_files(&child)? {
+                return Ok(true);
+            }
+        } else if fs::metadata(&child).map(|meta| meta.len() > 0).unwrap_or(false) {
+            return Ok(true);
+        }
+    }
+
+    Ok(false)
 }
 
 fn cleanup_empty_model_dirs(app: &AppHandle, start: Option<&Path>) {

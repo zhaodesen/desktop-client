@@ -1,9 +1,16 @@
+export type SubtitleAtom = {
+  text: string;
+  startMs: number;
+  endMs: number;
+};
+
 export type SubtitleCue = {
   id: number;
   startMs: number;
   endMs: number;
   text: string;
   secondaryText?: string;
+  atoms?: SubtitleAtom[];
 };
 
 export type SubtitleDocument = {
@@ -118,6 +125,14 @@ export type PlaybackSnapshot = {
   volume: number;
 };
 
+export type PlaybackClockAnchor = {
+  mediaTimeMs: number;
+  wallTimeMs: number;
+  durationMs: number;
+  rate: number;
+  playing: boolean;
+};
+
 export type MediaDebugProbe = {
   requestedPath: string;
   exists: boolean;
@@ -137,6 +152,8 @@ export type OverlayRenderPayload = {
   current?: SubtitleCue;
   next?: SubtitleCue;
   playback: PlaybackSnapshot;
+  playbackAnchor: PlaybackClockAnchor;
+  subtitleDisplayMode: SubtitleDisplayMode;
 };
 
 export type StartAsrJobInput = {
@@ -320,6 +337,10 @@ export type ModelDownloadProgressPayload = {
 export type ModelDownloadCompletedPayload = {
   jobId: string;
   status: ModelStatus;
+};
+
+export type ResumableModelDownload = {
+  modelId: string;
 };
 
 export type ModelDownloadFailedPayload = {

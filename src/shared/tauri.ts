@@ -34,6 +34,7 @@ import type {
   DownloadModelOutput,
   PauseModelDownloadOutput,
   ResumeModelDownloadOutput,
+  ResumableModelDownload,
   ImportMediaProgressPayload,
   LibraryState,
   MediaDebugProbe,
@@ -120,6 +121,9 @@ export const backend = {
   getModelStatus(modelId: string) {
     return callCommand<ModelStatus>("get_model_status", { modelId });
   },
+  getResumableModelDownload() {
+    return callCommand<ResumableModelDownload | null>("get_resumable_model_download");
+  },
   downloadModel(modelId: string) {
     return callCommand<DownloadModelOutput>("download_model", { modelId });
   },
@@ -140,6 +144,9 @@ export const backend = {
   },
   getTranslationModelStatus() {
     return callCommand<TranslationModelStatus>("get_translation_model_status");
+  },
+  getResumableTranslationModelDownload() {
+    return callCommand<ResumableModelDownload | null>("get_resumable_translation_model_download");
   },
   downloadTranslationModel() {
     return callCommand<DownloadModelOutput>("download_translation_model");

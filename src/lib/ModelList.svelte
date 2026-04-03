@@ -9,8 +9,6 @@
     downloadingModelId: string | undefined;
     modelDownloadPercent: number;
     isDownloadPaused: boolean;
-    statusLabel: string;
-    pathLabel: string;
     onDownload: (id: string) => void;
     onCancel: () => void;
     onPause: () => void;
@@ -22,15 +20,9 @@
   const {
     availableModels, modelsStatusMap, selectedModel, isDownloading,
     downloadingModelId, modelDownloadPercent, isDownloadPaused,
-    statusLabel, pathLabel,
     onDownload, onCancel, onPause, onResume, onSelect, onDelete,
   }: Props = $props();
 </script>
-
-<div class="model-info">
-  <p class="text-dim">{statusLabel}</p>
-  <p class="text-dim text-xs">{pathLabel}</p>
-</div>
 
 <div class="model-list">
   {#each availableModels as model (model.id)}

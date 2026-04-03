@@ -2,7 +2,15 @@
   import { fly } from "svelte/transition";
   import { flip } from "svelte/animate";
   import { Virtualizer } from "virtua/svelte";
-  import type { PlaybackSnapshot, PlaybackHistoryItem, PlaylistMode, SubtitleCue } from "../shared/types";
+  import { buildDisplayCue, cueNeedsInterAtomSpacing, findCueIndexAtTime, predictPlaybackTime } from "../main/lyric-timing";
+  import type {
+    PlaybackClockAnchor,
+    PlaybackHistoryItem,
+    PlaybackSnapshot,
+    PlaylistMode,
+    SubtitleCue,
+    SubtitleDisplayMode,
+  } from "../shared/types";
   import { formatDuration } from "../shared/utils";
 
   type TabId = "lyrics" | "playlist";
@@ -16,8 +24,10 @@
     currentText: string;
     currentSecondaryText: string;
     subtitleCues: SubtitleCue[];
+    playbackAnchor: PlaybackClockAnchor;
     overlayVisible: boolean;
     playbackRate: number;
+    subtitleDisplayMode: SubtitleDisplayMode;
     playlistMode: PlaylistMode;
     playlist: PlaybackHistoryItem[];
     pendingPlaylistMediaId: string | undefined;
@@ -27,6 +37,7 @@
     onToggleCurrentItem: () => void;
     onSeek: (ms: number) => void;
     onRateChange: (rate: number) => void;
+    onSubtitleDisplayModeChange: (mode: SubtitleDisplayMode) => void;
     onPlaylistModeChange: (mode: PlaylistMode) => void;
     onToggleMute: () => void;
     onToggleOverlayVisible: () => void;
@@ -41,17 +52,18 @@
   const {
     snap, hasMedia, audioFileLabel, subtitleFileLabel, cueTiming,
     currentText: _, currentSecondaryText: __,
-    subtitleCues, overlayVisible, playbackRate, playlistMode,
+    subtitleCues, playbackAnchor, overlayVisible, playbackRate, subtitleDisplayMode, playlistMode,
     playlist, pendingPlaylistMediaId, currentMediaId, volume,
-    onTogglePlayback, onToggleCurrentItem, onSeek, onRateChange, onPlaylistModeChange, onToggleMute, onToggleOverlayVisible,
+    onTogglePlayback, onToggleCurrentItem, onSeek, onRateChange, onSubtitleDisplayModeChange, onPlaylistModeChange, onToggleMute, onToggleOverlayVisible,
     onPlayItem, onRemoveItem, onVolumeChange, onVolumeCommit,
     onPrevTrack, onNextTrack,
   }: Props = $props();
 
   let activeTab = $state<TabId>("lyrics");
-  let showBilingual = $state(false);
   let lastScrolledCueId = -1;
   let virtualList = $state<any>(undefined);
+  let displayTimeMs = $state(0);
+  let playbackRaf = 0;
 
   const dur = $derived(Math.max(snap.durationMs, 0));
   const progress = $derived(Math.min(snap.currentTimeMs, dur || snap.currentTimeMs));
@@ -63,32 +75,40 @@
     `${Math.max(0, Math.min(100, volume * 100))}%`,
   );
 
-  const activeCueIndex = $derived.by(() => {
-    const t = snap.currentTimeMs;
-    const cues = subtitleCues;
-    let lo = 0;
-    let hi = cues.length - 1;
-    while (lo <= hi) {
-      const mid = (lo + hi) >>> 1;
-      if (t >= cues[mid].endMs) lo = mid + 1;
-      else if (t < cues[mid].startMs) hi = mid - 1;
-      else return mid;
-    }
-    return -1;
-  });
+  const displayedCues = $derived.by(() => subtitleCues.map((cue) => buildDisplayCue(cue, subtitleDisplayMode) ?? {
+    ...cue,
+    atoms: cue.atoms ?? [],
+  }));
+  const activeCueIndex = $derived(findCueIndexAtTime(subtitleCues, displayTimeMs));
 
-  const activeCueProgress = $derived.by(() => {
-    if (activeCueIndex < 0) return 0;
-    const cue = subtitleCues[activeCueIndex];
-    if (!cue) return 0;
-    const duration = Math.max(1, cue.endMs - cue.startMs);
-    const elapsed = Math.max(0, Math.min(duration, snap.currentTimeMs - cue.startMs));
-    return elapsed / duration;
+  $effect(() => {
+    if (playbackRaf) {
+      cancelAnimationFrame(playbackRaf);
+      playbackRaf = 0;
+    }
+
+    const tick = () => {
+      displayTimeMs = predictPlaybackTime(playbackAnchor);
+      if (!playbackAnchor.playing) return;
+      playbackRaf = requestAnimationFrame(tick);
+    };
+
+    displayTimeMs = predictPlaybackTime(playbackAnchor);
+    if (playbackAnchor.playing) {
+      playbackRaf = requestAnimationFrame(tick);
+    }
+
+    return () => {
+      if (playbackRaf) {
+        cancelAnimationFrame(playbackRaf);
+        playbackRaf = 0;
+      }
+    };
   });
 
   $effect(() => {
     if (activeCueIndex < 0 || !virtualList || activeTab !== "lyrics") return;
-    const cue = subtitleCues[activeCueIndex];
+    const cue = displayedCues[activeCueIndex];
     if (!cue || cue.id === lastScrolledCueId) return;
     lastScrolledCueId = cue.id;
     virtualList.scrollToIndex(activeCueIndex, { align: "center", smooth: true });
@@ -136,14 +156,18 @@
 
     {#if activeTab === "lyrics"}
       <!-- LYRIC VIEW -->
-      <div class="lyrics-wrapper" class:bilingual={showBilingual}>
+      <div class="lyrics-wrapper" class:bilingual={subtitleDisplayMode === "bilingual"}>
         {#if subtitleCues.some(c => c.secondaryText)}
           <button
             class="lyrics-toggle-btn"
-            class:bilingual-active={showBilingual}
+            class:bilingual-active={subtitleDisplayMode === "bilingual"}
             type="button"
-            title={showBilingual ? "切换为原文字幕" : "切换为双语字幕"}
-            onclick={() => { showBilingual = !showBilingual; }}
+            title={subtitleDisplayMode === "bilingual" ? "切换为原文字幕" : "切换为双语字幕"}
+            onclick={() => {
+              onSubtitleDisplayModeChange(
+                subtitleDisplayMode === "bilingual" ? "original" : "bilingual",
+              );
+            }}
           >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 8l6 6"/><path d="M4 14l6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="M22 22l-5-10-5 10"/><path d="M14 18h6"/></svg>
           </button>
@@ -156,7 +180,7 @@
           </div>
         {:else}
           <div class="lyric-scroll">
-            <Virtualizer data={subtitleCues} overscan={8} bind:this={virtualList}>
+            <Virtualizer data={displayedCues} overscan={8} bind:this={virtualList}>
               {#snippet children(cue, i)}
                 <button
                   class="lyric-line"
@@ -165,14 +189,24 @@
                   type="button"
                   onclick={() => onSeek(cue.startMs)}
                 >
-                  <span
-                    class="lyric-text"
-                    class:lyric-text-active={i === activeCueIndex}
-                    style={`--lyric-progress: ${i === activeCueIndex ? activeCueProgress : 0};`}
-                  >
-                    {cue.text}
-                  </span>
-                  {#if showBilingual && cue.secondaryText}
+                  {#if i === activeCueIndex && cue.atoms.length > 0}
+                    <span class="lyric-text lyric-text-active">
+                      {#each cue.atoms as atom, atomIndex (`${cue.id}-${atom.startMs}-${atom.endMs}-${atomIndex}`)}
+                        <span
+                          class="lyric-atom"
+                          class:lyric-atom-filled={displayTimeMs >= atom.endMs}
+                          class:lyric-atom-active={displayTimeMs >= atom.startMs && displayTimeMs < atom.endMs}
+                        >
+                          {atom.text}{cueNeedsInterAtomSpacing(cue.text) && atomIndex < cue.atoms.length - 1 ? " " : ""}
+                        </span>
+                      {/each}
+                    </span>
+                  {:else}
+                    <span class="lyric-text" class:lyric-text-active={i === activeCueIndex}>
+                      {cue.text}
+                    </span>
+                  {/if}
+                  {#if subtitleDisplayMode === "bilingual" && cue.secondaryText}
                     <span class="lyric-translation">{cue.secondaryText}</span>
                   {/if}
                 </button>
@@ -596,47 +630,55 @@
   .lyric-line:hover { background: rgba(255, 255, 255, 0.03); }
 
   .lyric-text {
+    display: block;
     font-size: var(--font-sm);
     font-weight: 500;
     line-height: 1.6;
     text-align: center;
     color: var(--text-ghost, rgba(232, 230, 224, 0.22));
+    width: 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
     transition: font-size 300ms, font-weight 220ms, color 180ms ease;
   }
 
   .lyric-text-active {
-    color: transparent;
-    --lyric-idle: color-mix(in srgb, var(--text-primary) 28%, transparent);
-    --lyric-fill: color-mix(in srgb, var(--accent) 18%, white);
-    --lyric-glow: white;
-    --lyric-shine: rgba(255, 255, 255, 1);
-    --lyric-edge-start: max(0%, calc(var(--lyric-progress, 0) * 100% - 9%));
-    --lyric-edge-mid: max(0%, calc(var(--lyric-progress, 0) * 100% - 2.2%));
-    --lyric-edge-end: min(100%, calc(var(--lyric-progress, 0) * 100% + 5.2%));
-    background-image: linear-gradient(
-      90deg,
-      var(--lyric-fill) 0,
-      var(--lyric-fill) var(--lyric-edge-start),
-      var(--lyric-glow) var(--lyric-edge-mid),
-      var(--lyric-shine) calc((var(--lyric-edge-mid) + var(--lyric-edge-end)) / 2),
-      var(--lyric-idle) var(--lyric-edge-end),
-      var(--lyric-idle) 100%
-    );
-    background-clip: text;
-    -webkit-background-clip: text;
+    color: var(--text-primary);
     text-shadow:
       0 0 10px rgba(var(--accent-rgb), 0.08),
       0 0 24px rgba(var(--accent-rgb), 0.04);
-    transition: background-image 60ms linear, font-size 300ms, font-weight 220ms, text-shadow 180ms ease;
+    transition: font-size 300ms, font-weight 220ms, color 180ms ease, text-shadow 180ms ease;
+  }
+
+  .lyric-atom {
+    color: color-mix(in srgb, var(--text-primary) 28%, transparent);
+    transition: color 70ms linear, text-shadow 120ms ease;
+  }
+
+  .lyric-atom-filled {
+    color: color-mix(in srgb, var(--accent) 24%, white);
+    text-shadow:
+      0 0 8px rgba(255, 255, 255, 0.08),
+      0 0 16px rgba(var(--accent-rgb), 0.08);
+  }
+
+  .lyric-atom-active {
+    color: white;
+    text-shadow:
+      0 0 12px rgba(255, 255, 255, 0.2),
+      0 0 24px rgba(var(--accent-rgb), 0.12);
   }
 
   .lyric-translation {
+    display: block;
     font-size: var(--font-2xs);
     line-height: 1.5;
     text-align: center;
     color: transparent;
     max-height: 0;
     overflow: hidden;
+    white-space: normal;
+    overflow-wrap: anywhere;
     transition: color 400ms, max-height 300ms, margin-top 300ms;
     margin-top: 0;
   }
@@ -645,7 +687,7 @@
   .bilingual .lyric-translation {
     color: var(--text-dim);
     opacity: 0.55;
-    max-height: 30px;
+    max-height: 3.2em;
     margin-top: 3px;
   }
   .bilingual .lyric-active .lyric-translation {
@@ -660,7 +702,7 @@
   .lyric-active .lyric-text {
     font-size: var(--font-base);
     font-weight: 600;
-    color: transparent;
+    color: var(--text-primary);
     text-shadow:
       0 0 14px rgba(var(--accent-rgb), 0.22),
       0 0 28px rgba(var(--accent-rgb), 0.14),

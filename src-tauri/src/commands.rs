@@ -6,7 +6,8 @@ use crate::{
     },
     model::{
         self, AllModelsStatus, CancelModelDownloadOutput, DefaultModelStatus, DownloadModelOutput,
-        ModelInfo, ModelStatus, PauseModelDownloadOutput, ResumeModelDownloadOutput,
+        ModelInfo, ModelStatus, PauseModelDownloadOutput, ResumableModelDownload,
+        ResumeModelDownloadOutput,
     },
     shutdown::{self, ShutdownCleanupOutput, ShutdownTaskSummary},
     state::{AppSettings, AppState, OverlayWindowState, PlaybackState},
@@ -254,6 +255,16 @@ pub fn get_model_status(app: AppHandle, model_id: String) -> CommandResponse<Mod
 }
 
 #[tauri::command]
+pub fn get_resumable_model_download(
+    app: AppHandle,
+) -> CommandResponse<Option<ResumableModelDownload>> {
+    match model::get_resumable_model_download(&app) {
+        Ok(status) => CommandResponse::ok(status),
+        Err(error) => CommandResponse::err("resumable_model_download_failed", error),
+    }
+}
+
+#[tauri::command]
 pub fn download_model(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -313,6 +324,16 @@ pub fn get_translation_model_status(app: AppHandle) -> CommandResponse<Translati
     match translation_model::get_translation_model_status(&app) {
         Ok(status) => CommandResponse::ok(status),
         Err(error) => CommandResponse::err("translation_model_status_failed", error),
+    }
+}
+
+#[tauri::command]
+pub fn get_resumable_translation_model_download(
+    app: AppHandle,
+) -> CommandResponse<Option<ResumableModelDownload>> {
+    match translation_model::get_resumable_translation_model_download(&app) {
+        Ok(status) => CommandResponse::ok(status),
+        Err(error) => CommandResponse::err("resumable_translation_model_download_failed", error),
     }
 }
 

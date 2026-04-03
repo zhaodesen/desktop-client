@@ -118,15 +118,42 @@ body { padding: 12px; background: transparent !important; overflow: hidden; }
 
 /* ─── 主字幕文字（原文） ─── */
 .overlay-current {
+  display: block;
   font-size: var(--overlay-font-size);
   line-height: 1.25;
   font-weight: 800;
-  color: var(--overlay-color);
-  -webkit-text-stroke: 3px var(--overlay-stroke-color);
-  paint-order: stroke fill;
   letter-spacing: -0.01em;
   text-align: center;
   width: 100%;
+  margin: 0 auto;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.overlay-current-char {
+  display: inline;
+  font: inherit;
+  line-height: inherit;
+  letter-spacing: inherit;
+  paint-order: stroke fill;
+  color: color-mix(in srgb, var(--overlay-color) 30%, transparent);
+  -webkit-text-stroke: 3px var(--overlay-stroke-color);
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
+  transition: color 70ms linear, text-shadow 120ms ease;
+}
+
+.overlay-current-char-filled {
+  color: color-mix(in srgb, var(--overlay-color) 20%, white);
+  text-shadow:
+    0 0 8px rgba(255, 255, 255, 0.08),
+    0 0 14px rgba(255, 255, 255, 0.04);
+}
+
+.overlay-current-char-active {
+  color: white;
+  text-shadow:
+    0 0 10px rgba(255, 255, 255, 0.2),
+    0 0 20px rgba(255, 255, 255, 0.1);
 }
 
 /* ─── 中文译文（原文下方） ─── */
@@ -139,7 +166,11 @@ body { padding: 12px; background: transparent !important; overflow: hidden; }
   paint-order: stroke fill;
   text-align: center;
   width: 100%;
+  margin: 0 auto;
   min-height: 0;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.36);
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 /* 无内容时不占空间 */

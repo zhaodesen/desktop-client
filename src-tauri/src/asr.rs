@@ -13,6 +13,7 @@ use tauri::{AppHandle, Emitter, Manager};
 use crate::model;
 use crate::sidecar::{self, CommandTarget};
 use crate::state::AsrJobState;
+use crate::subtitle;
 
 const WHISPER_LANGUAGE_MODE: &str = "auto";
 
@@ -172,7 +173,10 @@ fn run_pipeline(
         let subtitle_dir = ensure_dir(&app, "subtitles")?;
         let subtitle_prefix =
             subtitle_dir.join(format!("{}-{}", file_stem(&audio_path), job.job_id));
-        let subtitle_path = subtitle_prefix.with_extension("srt");
+        let whisper_prefix = subtitle_prefix.with_extension("whisper");
+        let raw_subtitle_path = whisper_prefix.with_extension("srt");
+        let whisper_json_path = whisper_prefix.with_extension("json");
+        let subtitle_path = subtitle_prefix.with_extension("json");
         let wav_path = if is_whisper_ready_wav(&audio_path)? {
             emit_progress(
                 &app,
@@ -213,15 +217,20 @@ fn run_pipeline(
             &whisper,
             &model_path,
             &wav_path,
-            &subtitle_prefix,
+            &whisper_prefix,
         )?;
 
-        if !subtitle_path.exists() {
+        if !raw_subtitle_path.exists() {
             return Err("whisper-cli 执行完成，但没有生成 .srt 文件".to_string());
         }
 
         ensure_not_cancelled(&job)?;
         emit_progress(&app, &job.job_id, "writing", "识别完成，正在写入字幕文件")?;
+        let cues = subtitle::build_cues_from_asr_outputs(
+            &raw_subtitle_path,
+            Some(&whisper_json_path),
+        )?;
+        let _ = subtitle::write_generated_subtitle_document(&subtitle_path, cues)?;
         app.emit_to(
             "main",
             "asr://completed",
@@ -415,21 +424,28 @@ fn run_whisper(
     // 使用 nice -n 19 降低 CPU 调度优先级到最低，确保 UI 流畅
     // 使用 spawn() + stderr 解析替代 output()，实现实时进度回报
     let target_path = target.display();
+    let mut args = vec![
+        "-m".to_string(),
+        model_path.display().to_string(),
+        "-f".to_string(),
+        wav_path.display().to_string(),
+        "-l".to_string(),
+        WHISPER_LANGUAGE_MODE.to_string(),
+        "-t".to_string(),
+        whisper_threads.to_string(),
+        "-osrt".to_string(),
+        "-ojf".to_string(),
+        "-of".to_string(),
+        subtitle_prefix.display().to_string(),
+    ];
+    if let Some(dtw_preset) = whisper_dtw_preset(model_path) {
+        args.push("-dtw".to_string());
+        args.push(dtw_preset.to_string());
+    }
+
     let mut child = sidecar::spawn_command_with_priority(target, |command| {
         command
-            .args([
-                "-m",
-                &model_path.display().to_string(),
-                "-f",
-                &wav_path.display().to_string(),
-                "-l",
-                WHISPER_LANGUAGE_MODE,
-                "-t",
-                &whisper_threads.to_string(),
-                "-osrt",
-                "-of",
-                &subtitle_prefix.display().to_string(),
-            ])
+            .args(args.clone())
             .stdout(Stdio::null())
             .stderr(Stdio::piped());
     })
@@ -510,6 +526,18 @@ fn run_whisper(
             last_error_lines.join("\n")
         };
         Err(format!("whisper-cli 识别失败: {}", detail.trim()))
+    }
+}
+
+fn whisper_dtw_preset(model_path: &Path) -> Option<&'static str> {
+    let file_name = model_path.file_name()?.to_str()?.to_ascii_lowercase();
+    match file_name.as_str() {
+        "ggml-tiny.bin" => Some("tiny"),
+        "ggml-base.bin" => Some("base"),
+        "ggml-small.bin" => Some("small"),
+        "ggml-medium.bin" => Some("medium"),
+        "ggml-large-v3-turbo.bin" => Some("large.v3.turbo"),
+        _ => None,
     }
 }
 

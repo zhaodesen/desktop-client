@@ -25,6 +25,7 @@
     ModelInfo,
     ModelStatus,
     OverlaySettings,
+    PlaybackClockAnchor,
     PlaybackState,
     PlaybackSnapshot,
     PlaylistMode,
@@ -36,6 +37,7 @@
     TranslationModelStatus,
   } from "./shared/types";
   import { PlayerController } from "./main/player-controller";
+  import { buildDisplayCue, createPlaybackClockAnchor } from "./main/lyric-timing";
   import { parseSubtitleText } from "./main/subtitle-parser";
   import { SubtitleEngine } from "./main/subtitle-engine";
   import { formatDuration } from "./shared/utils";
@@ -147,10 +149,12 @@
   let modelDownloadPercent = $state(0);
   let isDownloadPaused = $state(false);
   let modelDownloadSuccessLabel = $state<string | undefined>(undefined);
+  let hasTriedAutoResumeModelDownload = false;
   let modelDownloadSuccessTimer: ReturnType<typeof setTimeout> | undefined;
   let activeTranslationModelDownloadJobId = $state<string | undefined>(undefined);
   let translationModelDownloadPercent = $state(0);
   let isTranslationModelDownloadPaused = $state(false);
+  let hasTriedAutoResumeTranslationModelDownload = false;
   let pendingSubtitleMediaId = $state<string | undefined>(undefined);
   let overlayLocked = $state(false);
 
@@ -187,6 +191,13 @@
 
   // Player state (published by PlayerController)
   let snap = $state<PlaybackSnapshot>({ playing: false, currentTimeMs: 0, durationMs: 0, rate: 1, volume: 1 });
+  let playbackAnchor = $state<PlaybackClockAnchor>({
+    mediaTimeMs: 0,
+    wallTimeMs: Date.now(),
+    durationMs: 0,
+    rate: 1,
+    playing: false,
+  });
   let hasMedia = $state(false);
   let audioFileLabel = $state("未选择素材");
   let subtitleFileLabel = $state("未生成字幕");
@@ -215,9 +226,6 @@
   let modelPathLabel = $state("模型路径加载中");
   let translationModelStatusLabel = $state("正在检查翻译模型状态…");
   let translationModelPathLabel = $state("翻译模型路径加载中");
-
-  // syncOverlay 节流：记录上次 IPC 时间，避免高频调用
-  let lastOverlaySyncAt = 0;
 
   // ASR 进度更新 requestAnimationFrame 节流：
   // 即使 Rust 侧已节流到 1 秒 1 次，Svelte 的同步 DOM diff 仍可能导致掉帧。
@@ -770,10 +778,37 @@
       translationModelStatus = fetchedTranslationStatus;
       refreshModelLabels();
       refreshTranslationModelLabels();
+      void maybeResumeModelDownload();
+      void maybeResumeTranslationModelDownload();
     } catch (err) {
       console.error(err);
       modelStatusLabel = "模型状态读取失败";
       translationModelStatusLabel = "翻译模型状态读取失败";
+    }
+  }
+
+  async function maybeResumeModelDownload() {
+    if (hasTriedAutoResumeModelDownload || activeModelDownloadJobId) return;
+    hasTriedAutoResumeModelDownload = true;
+
+    try {
+      const resumable = await backend.getResumableModelDownload();
+      if (!resumable) return;
+
+      const label = availableModels.find((m) => m.id === resumable.modelId)?.label ?? resumable.modelId;
+      if (showFirstRunOnboarding) {
+        onboardingSelectedModelId = resumable.modelId;
+        onboardingStep = "downloading";
+        onboardingError = undefined;
+        onboardingDownloadPercent = 0;
+        onboardingDownloadMessage = "检测到未完成下载，正在继续…";
+        await handleSelectModel(resumable.modelId, { silent: true });
+      }
+
+      await handleDownloadModel(resumable.modelId, { silent: true, resuming: true });
+      setStatus(`检测到未完成下载，正在继续模型 ${label}`, "neutral");
+    } catch (err) {
+      console.error(err);
     }
   }
 
@@ -817,17 +852,7 @@
   function getDisplayedCue(cue?: SubtitleCue): SubtitleCue | undefined {
     if (!cue) return undefined;
     if (!settingsReady) return cue;
-    if (settings.subtitleDisplayMode === "original") {
-      return { ...cue, secondaryText: undefined };
-    }
-    if (settings.subtitleDisplayMode === "translation") {
-      return {
-        ...cue,
-        text: cue.secondaryText?.trim() ?? "",
-        secondaryText: undefined,
-      };
-    }
-    return cue;
+    return buildDisplayCue(cue, settings.subtitleDisplayMode);
   }
 
   function renderSubtitle(s: PlaybackSnapshot) {
@@ -842,21 +867,18 @@
 
   async function syncOverlay(s: PlaybackSnapshot) {
     if (!settingsReady) return;
-    // 守卫1：悬浮窗隐藏时跳过，避免无效 IPC
     if (!settings.overlayVisible) return;
-    // 守卫2：100ms 节流，播放时最多 10fps IPC，避免 ticker+timeupdate 双重触发叠加
-    const now = Date.now();
-    if (now - lastOverlaySyncAt < 100) return;
-    lastOverlaySyncAt = now;
 
     const media = getCurrentMedia();
     const ctx = subtitleEngine.getContext(s.currentTimeMs);
     await overlayBridge.render({
       fileLabel: media?.title,
       previous: undefined,
-      current: getDisplayedCue(ctx.current),
+      current: ctx.current,
       next: undefined,
       playback: s,
+      playbackAnchor,
+      subtitleDisplayMode: settings.subtitleDisplayMode,
     });
   }
 
@@ -1189,7 +1211,10 @@
     if (!activeSubtitleDocument) return;
     const cue = activeSubtitleDocument.cues[index];
     if (!cue) return;
-    if (field === "text") cue.text = value;
+    if (field === "text") {
+      cue.text = value;
+      cue.atoms = [];
+    }
     else cue.secondaryText = value;
   }
 
@@ -1380,7 +1405,7 @@
 
   /* ── Model handlers ────────────────────────────────────── */
 
-  async function handleDownloadModel(modelId: string, options?: { silent?: boolean }) {
+  async function handleDownloadModel(modelId: string, options?: { silent?: boolean, resuming?: boolean }) {
     try {
       const { jobId } = await backend.downloadModel(modelId);
       activeModelDownloadJobId = jobId;
@@ -1388,7 +1413,7 @@
       modelDownloadPercent = 0;
       const label = availableModels.find((m) => m.id === modelId)?.label ?? modelId;
       if (!options?.silent) {
-        setStatus(`模型 ${label} 开始下载`, "neutral");
+        setStatus(options?.resuming ? `继续下载模型 ${label}` : `模型 ${label} 开始下载`, "neutral");
       }
     } catch (err) {
       console.error(err);
@@ -1455,13 +1480,13 @@
     }
   }
 
-  async function handleDownloadTranslationModel(options?: { silent?: boolean }) {
+  async function handleDownloadTranslationModel(options?: { silent?: boolean, resuming?: boolean }) {
     try {
       const { jobId } = await backend.downloadTranslationModel();
       activeTranslationModelDownloadJobId = jobId;
       translationModelDownloadPercent = 0;
       if (!options?.silent) {
-        setStatus("翻译模型开始下载", "neutral");
+        setStatus(options?.resuming ? "继续下载翻译模型" : "翻译模型开始下载", "neutral");
       }
     } catch (err) {
       console.error(err);
@@ -1469,6 +1494,21 @@
         setStatus("启动翻译模型下载失败", "warning");
       }
       throw err;
+    }
+  }
+
+  async function maybeResumeTranslationModelDownload() {
+    if (hasTriedAutoResumeTranslationModelDownload || activeTranslationModelDownloadJobId) return;
+    hasTriedAutoResumeTranslationModelDownload = true;
+
+    try {
+      const resumable = await backend.getResumableTranslationModelDownload();
+      if (!resumable) return;
+
+      await handleDownloadTranslationModel({ silent: true, resuming: true });
+      setStatus("检测到未完成下载，正在继续翻译模型", "neutral");
+    } catch (err) {
+      console.error(err);
     }
   }
 
@@ -1747,6 +1787,7 @@
     // Player subscription
     player.subscribe((s) => {
       snap = s;
+      playbackAnchor = createPlaybackClockAnchor(s);
       hasMedia = player.hasMedia();
       renderSubtitle(s);
       void syncOverlay(s);
@@ -2068,6 +2109,7 @@
 
     const unModelFailed = await modelEvents.onFailed(({ jobId, code, message }) => {
       if (activeModelDownloadJobId && activeModelDownloadJobId !== jobId) return;
+      const failedModelId = downloadingModelId;
       activeModelDownloadJobId = undefined;
       downloadingModelId = undefined;
       modelDownloadPercent = 0;
@@ -2075,6 +2117,14 @@
       if (showFirstRunOnboarding && onboardingStep === "downloading") {
         onboardingError = `[${code}] ${message}`;
         onboardingDownloadMessage = "模型下载失败，请重试。";
+      }
+      if (failedModelId) {
+        void backend.getModelStatus(failedModelId).then((status) => {
+          modelsStatusMap = new Map(modelsStatusMap).set(failedModelId, status);
+          refreshModelLabels();
+        }).catch((err) => {
+          console.error(err);
+        });
       }
       setStatus(`[${code}] ${message}`, "warning");
     });
@@ -2308,8 +2358,10 @@
           {currentText}
           {currentSecondaryText}
           {subtitleCues}
+          {playbackAnchor}
           overlayVisible={settings.overlayVisible}
           playbackRate={settings.playbackRate}
+          subtitleDisplayMode={settings.subtitleDisplayMode}
           playlistMode={settings.playlistMode}
           playlist={libraryState.playbackHistory}
           {pendingPlaylistMediaId}
@@ -2324,6 +2376,7 @@
             await persistSettings();
             setStatus(`播放倍率已更新为 ${rate.toFixed(2)}x`, "success");
           }}
+          onSubtitleDisplayModeChange={(mode) => { void setSubtitleDisplayMode(mode); }}
           onPlaylistModeChange={async (mode: PlaylistMode) => {
             settings = { ...settings, playlistMode: mode };
             await persistSettings();
@@ -2351,13 +2404,9 @@
           {downloadingModelId}
           {modelDownloadPercent}
           {isDownloadPaused}
-          modelStatusLabel={modelStatusLabel}
-          modelPathLabel={modelPathLabel}
           isTranslationDownloading={Boolean(activeTranslationModelDownloadJobId)}
           translationDownloadPercent={translationModelDownloadPercent}
           isTranslationDownloadPaused={isTranslationModelDownloadPaused}
-          translationStatusLabel={translationModelStatusLabel}
-          translationPathLabel={translationModelPathLabel}
           {overlayLocked}
           onOverlayVisibleChange={handleOverlayVisibleChange}
           onOverlayLockToggle={handleOverlayLockToggle}

@@ -20,13 +20,9 @@
     downloadingModelId: string | undefined;
     modelDownloadPercent: number;
     isDownloadPaused: boolean;
-    modelStatusLabel: string;
-    modelPathLabel: string;
     isTranslationDownloading: boolean;
     translationDownloadPercent: number;
     isTranslationDownloadPaused: boolean;
-    translationStatusLabel: string;
-    translationPathLabel: string;
     overlayLocked: boolean;
     onOverlayVisibleChange: (v: boolean) => void;
     onOverlayLockToggle: () => void;
@@ -55,9 +51,8 @@
   const {
     settings, availableModels, modelsStatusMap, translationModelInfo, translationModelStatus, isDownloading,
     downloadingModelId, modelDownloadPercent, isDownloadPaused,
-    modelStatusLabel, modelPathLabel,
     isTranslationDownloading, translationDownloadPercent, isTranslationDownloadPaused,
-    translationStatusLabel, translationPathLabel, overlayLocked,
+    overlayLocked,
     onOverlayVisibleChange, onOverlayLockToggle, onOverlayStyleChange, onOverlayStyleCommit,
     onDownloadModel, onCancelDownload, onPauseDownload, onResumeDownload,
     onSelectModel, onDeleteModel,
@@ -208,19 +203,6 @@
             </button>
           </div>
           <label class="form-row">
-            <span>位置</span>
-            <select
-              value={settings.overlay.position}
-              onchange={(e) => {
-                onOverlayStyleChange({ ...settings.overlay, position: (e.target as HTMLSelectElement).value as OverlaySettings["position"] });
-                onOverlayStyleCommit();
-              }}
-            >
-              <option value="bottom">底部</option>
-              <option value="top">顶部</option>
-            </select>
-          </label>
-          <label class="form-row">
             <span>字体大小</span>
             <div class="range-group">
               <input
@@ -343,8 +325,6 @@
             {downloadingModelId}
             {modelDownloadPercent}
             {isDownloadPaused}
-            statusLabel={modelStatusLabel}
-            pathLabel={modelPathLabel}
             onDownload={onDownloadModel}
             onCancel={onCancelDownload}
             onPause={onPauseDownload}
@@ -356,11 +336,6 @@
 
         <div class="sform-section">
           <div class="sform-section-title">翻译模型</div>
-          <div class="model-info">
-            <p class="text-dim">{translationStatusLabel}</p>
-            <p class="text-dim text-xs">{translationPathLabel}</p>
-          </div>
-
           {#if translationModelInfo}
             <div
               class="model-item"

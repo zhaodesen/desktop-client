@@ -141,6 +141,7 @@ pub fn prepare_for_exit(app: &AppHandle, state: &AppState) -> ShutdownCleanupOut
 
     if let Ok(guard) = state.active_model_download.lock() {
         if let Some(task) = guard.as_ref() {
+            task.preserve_temp_on_cancel.store(true, Ordering::SeqCst);
             task.cancel_requested.store(true, Ordering::SeqCst);
             cancelled_tasks.push("模型下载".to_string());
         }
@@ -148,6 +149,7 @@ pub fn prepare_for_exit(app: &AppHandle, state: &AppState) -> ShutdownCleanupOut
 
     if let Ok(guard) = state.active_translation_model_download.lock() {
         if let Some(task) = guard.as_ref() {
+            task.preserve_temp_on_cancel.store(true, Ordering::SeqCst);
             task.cancel_requested.store(true, Ordering::SeqCst);
             cancelled_tasks.push("翻译模型下载".to_string());
         }

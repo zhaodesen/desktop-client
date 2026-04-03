@@ -11,16 +11,25 @@
     OVERLAY_RENDER_EVENT,
     OVERLAY_STYLE_EVENT,
   } from "./shared/events";
-  import type { OverlayRenderPayload, OverlaySettings } from "./shared/types";
+  import { buildDisplayCue, cueNeedsInterAtomSpacing, predictPlaybackTime } from "./main/lyric-timing";
+  import type { OverlayRenderPayload, OverlaySettings, PlaybackClockAnchor, SubtitleCue, SubtitleDisplayMode } from "./shared/types";
   import { formatDuration } from "./shared/utils";
   import "./overlay.css";
 
   let locked = $state(false);
   let position = $state("bottom");
 
-  let metaText = $state("等待播放");
-  let currentText = $state("等待字幕内容");
-  let secondaryText = $state("");
+  let fileLabel = $state("未选择素材");
+  let currentCue = $state<SubtitleCue | undefined>(undefined);
+  let subtitleDisplayMode = $state<SubtitleDisplayMode>("bilingual");
+  let playbackAnchor = $state<PlaybackClockAnchor>({
+    mediaTimeMs: 0,
+    wallTimeMs: Date.now(),
+    durationMs: 0,
+    rate: 1,
+    playing: false,
+  });
+  let displayTimeMs = $state(0);
 
   let fontSize = $state(34);
   let opacity = $state(1.0);
@@ -36,6 +45,44 @@
   let resizeObserver: ResizeObserver | undefined;
   let resizeRaf = 0;
   let lastAppliedHeight = 0;
+  let playbackRaf = 0;
+
+  const displayedCue = $derived(buildDisplayCue(currentCue, subtitleDisplayMode));
+  const currentText = $derived(displayedCue?.text ?? "当前时间点暂无字幕");
+  const secondaryText = $derived(displayedCue?.secondaryText ?? "");
+  const currentAtoms = $derived(displayedCue?.atoms ?? []);
+  const needsInterAtomSpacing = $derived(cueNeedsInterAtomSpacing(currentText));
+  const metaText = $derived([
+    fileLabel || "未选择素材",
+    playbackAnchor.playing ? "播放中" : "已暂停",
+    formatDuration(displayTimeMs),
+  ].join(" · "));
+
+  function refreshPlaybackTime(now = Date.now()) {
+    displayTimeMs = predictPlaybackTime(playbackAnchor, now);
+  }
+
+  function schedulePlaybackFrame() {
+    if (playbackRaf) {
+      cancelAnimationFrame(playbackRaf);
+    }
+
+    const tick = () => {
+      refreshPlaybackTime();
+      if (!playbackAnchor.playing) {
+        playbackRaf = 0;
+        return;
+      }
+      playbackRaf = requestAnimationFrame(tick);
+    };
+
+    refreshPlaybackTime();
+    if (playbackAnchor.playing) {
+      playbackRaf = requestAnimationFrame(tick);
+    } else {
+      playbackRaf = 0;
+    }
+  }
 
   async function syncWindowHeight() {
     if (!shellElement) return;
@@ -83,19 +130,24 @@
   }
 
   function render(payload: OverlayRenderPayload) {
-    currentText = payload.current?.text ?? "当前时间点暂无字幕";
-    secondaryText = payload.current?.secondaryText ?? "";
-    metaText = [
-      payload.fileLabel ?? "未选择素材",
-      payload.playback.playing ? "播放中" : "已暂停",
-      formatDuration(payload.playback.currentTimeMs),
-    ].join(" · ");
+    currentCue = payload.current;
+    subtitleDisplayMode = payload.subtitleDisplayMode;
+    playbackAnchor = payload.playbackAnchor;
+    fileLabel = payload.fileLabel ?? "未选择素材";
+    schedulePlaybackFrame();
   }
 
   function clear() {
-    currentText = "等待字幕内容";
-    secondaryText = "";
-    metaText = "等待播放";
+    currentCue = undefined;
+    fileLabel = "未选择素材";
+    playbackAnchor = {
+      mediaTimeMs: 0,
+      wallTimeMs: Date.now(),
+      durationMs: 0,
+      rate: 1,
+      playing: false,
+    };
+    refreshPlaybackTime();
   }
 
   async function applyLockState(newLocked: boolean) {
@@ -145,11 +197,15 @@
     }
 
     scheduleWindowHeightSync();
+    schedulePlaybackFrame();
 
     return () => {
       resizeObserver?.disconnect();
       if (resizeRaf) {
         cancelAnimationFrame(resizeRaf);
+      }
+      if (playbackRaf) {
+        cancelAnimationFrame(playbackRaf);
       }
       unlistenRender();
       unlistenStyle();
@@ -195,8 +251,27 @@
   </div>
 
   <div class="overlay-meta" style="opacity: {Math.max(0, opacity * 0.7)}">{metaText}</div>
-  <div class="overlay-current" style="opacity: {opacity}">{currentText}</div>
+  <div
+    class="overlay-current"
+    style="
+      opacity: {opacity};
+    "
+  >
+    {#if currentAtoms.length > 0}
+      {#each currentAtoms as atom, index (`${atom.startMs}-${atom.endMs}-${index}`)}
+        <span
+          class="overlay-current-char"
+          class:overlay-current-char-filled={displayTimeMs >= atom.endMs}
+          class:overlay-current-char-active={displayTimeMs >= atom.startMs && displayTimeMs < atom.endMs}
+        >
+          {atom.text}{needsInterAtomSpacing && index < currentAtoms.length - 1 ? " " : ""}
+        </span>
+      {/each}
+    {:else}
+      {currentText}
+    {/if}
+  </div>
   {#if secondaryText}
-    <div class="overlay-secondary" style="opacity: {Math.max(0, opacity * 0.85)}">{secondaryText}</div>
+    <div class="overlay-secondary" style="opacity: {Math.max(0, opacity * 0.56)}">{secondaryText}</div>
   {/if}
 </section>
