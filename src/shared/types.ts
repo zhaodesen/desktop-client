@@ -202,6 +202,25 @@ export type ModelStatus = {
   downloadUrl: string;
 };
 
+export type TranslationModelInfo = {
+  id: string;
+  label: string;
+  description: string;
+  downloadUrl: string;
+  sizeMb: number;
+  sourceLanguages: string[];
+  targetLanguage: string;
+};
+
+export type TranslationModelStatus = {
+  modelId: string;
+  installed: boolean;
+  path?: string;
+  source: string;
+  sizeBytes?: number;
+  downloadUrl: string;
+};
+
 export type YtDlpStatus = {
   currentVersion?: string;
   bundledVersion?: string;
@@ -307,4 +326,9 @@ export type ModelDownloadFailedPayload = {
   jobId: string;
   code: string;
   message: string;
+};
+
+export type TranslationModelDownloadCompletedPayload = {
+  jobId: string;
+  status: TranslationModelStatus;
 };

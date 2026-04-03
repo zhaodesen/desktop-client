@@ -11,6 +11,10 @@ import {
   MODEL_DOWNLOAD_FAILED_EVENT,
   MODEL_DOWNLOAD_PROGRESS_EVENT,
   MODEL_DOWNLOAD_STARTED_EVENT,
+  TRANSLATION_MODEL_DOWNLOAD_COMPLETED_EVENT,
+  TRANSLATION_MODEL_DOWNLOAD_FAILED_EVENT,
+  TRANSLATION_MODEL_DOWNLOAD_PROGRESS_EVENT,
+  TRANSLATION_MODEL_DOWNLOAD_STARTED_EVENT,
   OVERLAY_CLEAR_EVENT,
   OVERLAY_RENDER_EVENT,
   OVERLAY_STYLE_EVENT,
@@ -44,6 +48,9 @@ import type {
   PlaybackState,
   OverlayWindowState,
   PlaybackHistoryItem,
+  TranslationModelDownloadCompletedPayload,
+  TranslationModelInfo,
+  TranslationModelStatus,
   YtDlpStatus,
   ShutdownCleanupOutput,
   ShutdownTaskSummary,
@@ -127,6 +134,27 @@ export const backend = {
   },
   deleteModel(modelId: string) {
     return callCommand<CleanupResult>("delete_model", { modelId });
+  },
+  getTranslationModelInfo() {
+    return callCommand<TranslationModelInfo>("get_translation_model_info");
+  },
+  getTranslationModelStatus() {
+    return callCommand<TranslationModelStatus>("get_translation_model_status");
+  },
+  downloadTranslationModel() {
+    return callCommand<DownloadModelOutput>("download_translation_model");
+  },
+  cancelTranslationModelDownload() {
+    return callCommand<CancelModelDownloadOutput>("cancel_translation_model_download");
+  },
+  pauseTranslationModelDownload() {
+    return callCommand<PauseModelDownloadOutput>("pause_translation_model_download");
+  },
+  resumeTranslationModelDownload() {
+    return callCommand<ResumeModelDownloadOutput>("resume_translation_model_download");
+  },
+  deleteTranslationModel() {
+    return callCommand<CleanupResult>("delete_translation_model");
   },
   getYtDlpStatus() {
     return callCommand<YtDlpStatus>("get_yt_dlp_status");
@@ -267,6 +295,41 @@ export const modelEvents = {
   onFailed(handler: (payload: ModelDownloadFailedPayload) => void) {
     return listen<ModelDownloadFailedPayload>(
       MODEL_DOWNLOAD_FAILED_EVENT,
+      ({ payload }) => {
+        handler(payload);
+      },
+    );
+  },
+};
+
+export const translationModelEvents = {
+  onStarted(handler: (payload: ModelDownloadStartedPayload) => void) {
+    return listen<ModelDownloadStartedPayload>(
+      TRANSLATION_MODEL_DOWNLOAD_STARTED_EVENT,
+      ({ payload }) => {
+        handler(payload);
+      },
+    );
+  },
+  onProgress(handler: (payload: ModelDownloadProgressPayload) => void) {
+    return listen<ModelDownloadProgressPayload>(
+      TRANSLATION_MODEL_DOWNLOAD_PROGRESS_EVENT,
+      ({ payload }) => {
+        handler(payload);
+      },
+    );
+  },
+  onCompleted(handler: (payload: TranslationModelDownloadCompletedPayload) => void) {
+    return listen<TranslationModelDownloadCompletedPayload>(
+      TRANSLATION_MODEL_DOWNLOAD_COMPLETED_EVENT,
+      ({ payload }) => {
+        handler(payload);
+      },
+    );
+  },
+  onFailed(handler: (payload: ModelDownloadFailedPayload) => void) {
+    return listen<ModelDownloadFailedPayload>(
+      TRANSLATION_MODEL_DOWNLOAD_FAILED_EVENT,
       ({ payload }) => {
         handler(payload);
       },

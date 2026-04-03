@@ -535,11 +535,7 @@ fn run_yt_dlp_download(
         if let Some(percent) = parse_yt_dlp_percent(line) {
             last_percent = percent.max(last_percent);
             last_message = format!("正在下载在线视频音频… {:.0}%", percent);
-            if should_emit_yt_dlp_progress(
-                percent,
-                last_emitted_percent,
-                last_progress_emit_at,
-            ) {
+            if should_emit_yt_dlp_progress(percent, last_emitted_percent, last_progress_emit_at) {
                 emit_import_progress(app, "downloading", &last_message, Some(percent))?;
                 last_emitted_percent = percent;
                 last_progress_emit_at = Some(Instant::now());

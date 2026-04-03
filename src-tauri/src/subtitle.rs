@@ -437,6 +437,19 @@ fn resolve_translation_model_dir(app: &AppHandle) -> Result<PathBuf, String> {
         }
     }
 
+    if let Ok(app_data_dir) = app.path().app_data_dir() {
+        for candidate in [
+            app_data_dir
+                .join("models/translation")
+                .join(TRANSLATION_MODEL_LAYOUT_NAME),
+            app_data_dir.join("models/translation"),
+        ] {
+            if candidate.exists() {
+                return Ok(candidate);
+            }
+        }
+    }
+
     for resource_path in [
         format!("models/translation/{TRANSLATION_MODEL_LAYOUT_NAME}"),
         "models/translation".to_string(),

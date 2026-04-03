@@ -62,6 +62,15 @@ pub fn list_active_tasks(state: &AppState) -> Vec<String> {
         tasks.push("模型下载".to_string());
     }
 
+    if state
+        .active_translation_model_download
+        .lock()
+        .map(|guard| guard.is_some())
+        .unwrap_or(false)
+    {
+        tasks.push("翻译模型下载".to_string());
+    }
+
     tasks
 }
 
@@ -137,6 +146,13 @@ pub fn prepare_for_exit(app: &AppHandle, state: &AppState) -> ShutdownCleanupOut
         }
     }
 
+    if let Ok(guard) = state.active_translation_model_download.lock() {
+        if let Some(task) = guard.as_ref() {
+            task.cancel_requested.store(true, Ordering::SeqCst);
+            cancelled_tasks.push("翻译模型下载".to_string());
+        }
+    }
+
     wait_for_shutdown_cleanup(state);
 
     if let Some(window) = app.get_webview_window("overlay") {
@@ -171,13 +187,18 @@ fn wait_for_shutdown_cleanup(state: &AppState) {
             .lock()
             .map(|guard| guard.is_none())
             .unwrap_or(true);
+        let translation_model_done = state
+            .active_translation_model_download
+            .lock()
+            .map(|guard| guard.is_none())
+            .unwrap_or(true);
         let asr_done = state
             .active_asr_job
             .lock()
             .map(|guard| guard.is_none())
             .unwrap_or(true);
 
-        if translation_done && import_done && model_done && asr_done {
+        if translation_done && import_done && model_done && translation_model_done && asr_done {
             break;
         }
 

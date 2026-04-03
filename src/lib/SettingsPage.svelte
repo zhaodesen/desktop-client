@@ -1,17 +1,32 @@
 <script lang="ts">
-  import type { AppSettings, ModelInfo, ModelStatus, OverlaySettings, ShortcutSettings } from "../shared/types";
+  import type {
+    AppSettings,
+    ModelInfo,
+    ModelStatus,
+    OverlaySettings,
+    ShortcutSettings,
+    TranslationModelInfo,
+    TranslationModelStatus,
+  } from "../shared/types";
   import ModelList from "./ModelList.svelte";
 
   interface Props {
     settings: AppSettings;
     availableModels: ModelInfo[];
     modelsStatusMap: Map<string, ModelStatus>;
+    translationModelInfo?: TranslationModelInfo;
+    translationModelStatus?: TranslationModelStatus;
     isDownloading: boolean;
     downloadingModelId: string | undefined;
     modelDownloadPercent: number;
     isDownloadPaused: boolean;
     modelStatusLabel: string;
     modelPathLabel: string;
+    isTranslationDownloading: boolean;
+    translationDownloadPercent: number;
+    isTranslationDownloadPaused: boolean;
+    translationStatusLabel: string;
+    translationPathLabel: string;
     overlayLocked: boolean;
     onOverlayVisibleChange: (v: boolean) => void;
     onOverlayLockToggle: () => void;
@@ -23,6 +38,11 @@
     onResumeDownload: () => void;
     onSelectModel: (id: string) => void;
     onDeleteModel: (id: string) => void;
+    onDownloadTranslationModel: () => void;
+    onCancelTranslationDownload: () => void;
+    onPauseTranslationDownload: () => void;
+    onResumeTranslationDownload: () => void;
+    onDeleteTranslationModel: () => void;
     onShortcutChange: (shortcuts: ShortcutSettings) => void;
     onShortcutCommit: () => void;
     onOpenOnboarding: () => void;
@@ -33,12 +53,16 @@
   }
 
   const {
-    settings, availableModels, modelsStatusMap, isDownloading,
+    settings, availableModels, modelsStatusMap, translationModelInfo, translationModelStatus, isDownloading,
     downloadingModelId, modelDownloadPercent, isDownloadPaused,
-    modelStatusLabel, modelPathLabel, overlayLocked,
+    modelStatusLabel, modelPathLabel,
+    isTranslationDownloading, translationDownloadPercent, isTranslationDownloadPaused,
+    translationStatusLabel, translationPathLabel, overlayLocked,
     onOverlayVisibleChange, onOverlayLockToggle, onOverlayStyleChange, onOverlayStyleCommit,
     onDownloadModel, onCancelDownload, onPauseDownload, onResumeDownload,
     onSelectModel, onDeleteModel,
+    onDownloadTranslationModel, onCancelTranslationDownload, onPauseTranslationDownload,
+    onResumeTranslationDownload, onDeleteTranslationModel,
     onShortcutChange, onShortcutCommit,
     onOpenOnboarding,
     showOnboardingPreviewEntry,
@@ -308,23 +332,74 @@
 
     {:else if activeTab === "models"}
       <!-- 离线模型 -->
-      <ModelList
-        {availableModels}
-        {modelsStatusMap}
-        selectedModel={settings.selectedModel}
-        {isDownloading}
-        {downloadingModelId}
-        {modelDownloadPercent}
-        {isDownloadPaused}
-        statusLabel={modelStatusLabel}
-        pathLabel={modelPathLabel}
-        onDownload={onDownloadModel}
-        onCancel={onCancelDownload}
-        onPause={onPauseDownload}
-        onResume={onResumeDownload}
-        onSelect={onSelectModel}
-        onDelete={onDeleteModel}
-      />
+      <div class="sform">
+        <div class="sform-section">
+          <div class="sform-section-title">识别模型</div>
+          <ModelList
+            {availableModels}
+            {modelsStatusMap}
+            selectedModel={settings.selectedModel}
+            {isDownloading}
+            {downloadingModelId}
+            {modelDownloadPercent}
+            {isDownloadPaused}
+            statusLabel={modelStatusLabel}
+            pathLabel={modelPathLabel}
+            onDownload={onDownloadModel}
+            onCancel={onCancelDownload}
+            onPause={onPauseDownload}
+            onResume={onResumeDownload}
+            onSelect={onSelectModel}
+            onDelete={onDeleteModel}
+          />
+        </div>
+
+        <div class="sform-section">
+          <div class="sform-section-title">翻译模型</div>
+          <div class="model-info">
+            <p class="text-dim">{translationStatusLabel}</p>
+            <p class="text-dim text-xs">{translationPathLabel}</p>
+          </div>
+
+          {#if translationModelInfo}
+            <div
+              class="model-item"
+              class:model-item-downloading={isTranslationDownloading}
+              data-selected={translationModelStatus?.installed ?? false}
+            >
+              {#if isTranslationDownloading}
+                <div class="model-item-progress" style="width: {Math.max(0, Math.min(100, translationDownloadPercent))}%"></div>
+              {/if}
+              <div class="model-item-info">
+                <div class="model-item-title">
+                  {translationModelInfo.label}
+                  {#if translationModelStatus?.installed}
+                    <span class="badge badge-installed">已安装</span>
+                  {/if}
+                </div>
+                <div class="model-item-desc">
+                  {translationModelInfo.description} · {translationModelInfo.sourceLanguages.length} 种源语言 → {translationModelInfo.targetLanguage}
+                </div>
+              </div>
+              <div class="model-item-actions">
+                {#if isTranslationDownloading}
+                  {#if isTranslationDownloadPaused}
+                    <button class="btn btn-sm" type="button" onclick={onResumeTranslationDownload}>继续</button>
+                  {:else}
+                    <button class="btn btn-sm btn-outline" type="button" onclick={onPauseTranslationDownload}>暂停</button>
+                  {/if}
+                  <button class="btn btn-sm btn-danger" type="button" onclick={onCancelTranslationDownload}>取消</button>
+                {:else if !(translationModelStatus?.installed ?? false)}
+                  <button class="btn btn-sm btn-outline" type="button" disabled={isDownloading} onclick={onDownloadTranslationModel}>下载</button>
+                {/if}
+                {#if translationModelStatus?.installed}
+                  <button class="btn btn-sm btn-danger" type="button" onclick={onDeleteTranslationModel}>删除</button>
+                {/if}
+              </div>
+            </div>
+          {/if}
+        </div>
+      </div>
 
     {:else if activeTab === "data"}
       <!-- 数据管理 -->
@@ -344,7 +419,7 @@
             <div class="danger-item">
               <div class="danger-item-text">
                 <span class="danger-item-label">删除所有模型</span>
-                <span class="danger-item-desc">删除已下载的所有离线识别模型，需重新下载才能使用</span>
+                <span class="danger-item-desc">删除已下载的所有离线识别模型和翻译模型，需重新下载后才能使用</span>
               </div>
               <button class="btn btn-sm btn-outline btn-danger" type="button" onclick={onDeleteAllModels}>删除</button>
             </div>

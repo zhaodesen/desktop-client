@@ -7,7 +7,15 @@
   import { open } from "@tauri-apps/plugin-dialog";
   import aboutAvatarAsset from "./assets/about-avatar.jpg";
   import { OVERLAY_CLOSE_EVENT, OVERLAY_LOCK_EVENT } from "./shared/events";
-  import { appEvents, asrEvents, backend, importEvents, modelEvents, overlayBridge } from "./shared/tauri";
+  import {
+    appEvents,
+    asrEvents,
+    backend,
+    importEvents,
+    modelEvents,
+    overlayBridge,
+    translationModelEvents,
+  } from "./shared/tauri";
   import type {
     AppSettings,
     CleanupResult,
@@ -25,6 +33,8 @@
     SubtitleCue,
     SubtitleDocument,
     ThemeMode,
+    TranslationModelInfo,
+    TranslationModelStatus,
   } from "./shared/types";
   import { PlayerController } from "./main/player-controller";
   import { parseSubtitleText } from "./main/subtitle-parser";
@@ -140,6 +150,9 @@
   let isDownloadPaused = $state(false);
   let modelDownloadSuccessLabel = $state<string | undefined>(undefined);
   let modelDownloadSuccessTimer: ReturnType<typeof setTimeout> | undefined;
+  let activeTranslationModelDownloadJobId = $state<string | undefined>(undefined);
+  let translationModelDownloadPercent = $state(0);
+  let isTranslationModelDownloadPaused = $state(false);
   let pendingSubtitleMediaId = $state<string | undefined>(undefined);
   let overlayLocked = $state(false);
 
@@ -156,6 +169,8 @@
 
   let availableModels = $state<ModelInfo[]>([]);
   let modelsStatusMap = $state<Map<string, ModelStatus>>(new Map());
+  let translationModelInfo = $state<TranslationModelInfo | undefined>(undefined);
+  let translationModelStatus = $state<TranslationModelStatus | undefined>(undefined);
   let activeSubtitleDocument = $state<SubtitleDocument | undefined>(undefined);
   let subtitleEditorNotice = $state<string | undefined>(undefined);
   let subtitleEditorSaving = $state(false);
@@ -208,6 +223,8 @@
   // Model status labels
   let modelStatusLabel = $state("正在检查模型状态…");
   let modelPathLabel = $state("模型路径加载中");
+  let translationModelStatusLabel = $state("正在检查翻译模型状态…");
+  let translationModelPathLabel = $state("翻译模型路径加载中");
 
   // syncOverlay 节流：记录上次 IPC 时间，避免高频调用
   let lastOverlaySyncAt = 0;
@@ -827,18 +844,24 @@
     }
 
     try {
-      const [models, allStatus] = await Promise.all([
+      const [models, allStatus, fetchedTranslationInfo, fetchedTranslationStatus] = await Promise.all([
         backend.getAvailableModels(),
         backend.getAllModelsStatus(),
+        backend.getTranslationModelInfo(),
+        backend.getTranslationModelStatus(),
       ]);
       availableModels = models;
       const newMap = new Map<string, ModelStatus>();
       for (const s of allStatus.models) newMap.set(s.modelId, s);
       modelsStatusMap = newMap;
+      translationModelInfo = fetchedTranslationInfo;
+      translationModelStatus = fetchedTranslationStatus;
       refreshModelLabels();
+      refreshTranslationModelLabels();
     } catch (err) {
       console.error(err);
       modelStatusLabel = "模型状态读取失败";
+      translationModelStatusLabel = "翻译模型状态读取失败";
     }
   }
 
@@ -858,6 +881,19 @@
       modelStatusLabel = "正在检查模型状态…";
       modelPathLabel = "";
     }
+  }
+
+  function refreshTranslationModelLabels() {
+    if (!translationModelInfo || !translationModelStatus) {
+      translationModelStatusLabel = "正在检查翻译模型状态…";
+      translationModelPathLabel = "翻译模型路径加载中";
+      return;
+    }
+
+    translationModelStatusLabel = translationModelStatus.installed
+      ? `${translationModelInfo.label} · 已就绪`
+      : `${translationModelInfo.label} · 未安装`;
+    translationModelPathLabel = translationModelStatus.path ?? "翻译模型未下载";
   }
 
   /* ── Subtitle helpers ──────────────────────────────────── */
@@ -1495,6 +1531,78 @@
     }
   }
 
+  async function refreshTranslationModelStatus() {
+    try {
+      translationModelStatus = await backend.getTranslationModelStatus();
+      refreshTranslationModelLabels();
+    } catch (err) {
+      console.error(err);
+      translationModelStatus = undefined;
+      translationModelStatusLabel = "翻译模型状态读取失败";
+      translationModelPathLabel = "";
+    }
+  }
+
+  async function handleDownloadTranslationModel(options?: { silent?: boolean }) {
+    try {
+      const { jobId } = await backend.downloadTranslationModel();
+      activeTranslationModelDownloadJobId = jobId;
+      translationModelDownloadPercent = 0;
+      if (!options?.silent) {
+        setStatus("翻译模型开始下载", "neutral");
+      }
+    } catch (err) {
+      console.error(err);
+      if (!options?.silent) {
+        setStatus("启动翻译模型下载失败", "warning");
+      }
+      throw err;
+    }
+  }
+
+  async function handleCancelTranslationModelDownload() {
+    try {
+      await backend.cancelTranslationModelDownload();
+      isTranslationModelDownloadPaused = false;
+      setStatus("翻译模型下载已取消", "warning");
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  async function handlePauseTranslationModelDownload() {
+    try {
+      await backend.pauseTranslationModelDownload();
+      isTranslationModelDownloadPaused = true;
+      setStatus("翻译模型下载已暂停", "neutral");
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  async function handleResumeTranslationModelDownload() {
+    try {
+      await backend.resumeTranslationModelDownload();
+      isTranslationModelDownloadPaused = false;
+      setStatus("翻译模型下载已恢复", "neutral");
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  async function handleDeleteTranslationModel() {
+    if (!translationModelInfo) return;
+    if (!await confirmDialog.show("删除翻译模型", `确定删除 ${translationModelInfo.label} 吗？删除后中文字幕翻译将不可用。`)) return;
+    try {
+      const result = await backend.deleteTranslationModel();
+      await refreshTranslationModelStatus();
+      setStatus(`翻译模型已删除，${fmtCleanup(result)}`, "success");
+    } catch (err) {
+      console.error(err);
+      setStatus("删除翻译模型失败", "warning");
+    }
+  }
+
   async function beginOnboardingModelDownload(modelId: string) {
     onboardingSelectedModelId = modelId;
     onboardingError = undefined;
@@ -1572,7 +1680,7 @@
   }
 
   async function handleDeleteAllModels() {
-    if (!await confirmDialog.show("删除所有离线模型", "所有已下载的模型将被删除，需要重新下载才能离线识别。")) return;
+    if (!await confirmDialog.show("删除所有离线模型", "所有已下载的识别模型和翻译模型都将被删除，需要重新下载后才能继续离线识别或生成中文字幕。")) return;
     try {
       const r = await backend.deleteDefaultModel();
       const allStatus = await backend.getAllModelsStatus();
@@ -1580,6 +1688,7 @@
       for (const s of allStatus.models) newMap.set(s.modelId, s);
       modelsStatusMap = newMap;
       refreshModelLabels();
+      await refreshTranslationModelStatus();
       setStatus(`所有模型已删除，${fmtCleanup(r)}`, "success");
     } catch (err) { console.error(err); setStatus("删除模型失败", "warning"); }
   }
@@ -1604,6 +1713,7 @@
       for (const s of allStatus.models) newMap.set(s.modelId, s);
       modelsStatusMap = newMap;
       refreshModelLabels();
+      await refreshTranslationModelStatus();
       await backend.hideOverlay();
       await resetPlaybackUi();
       await refreshLibrary();
@@ -1890,6 +2000,12 @@
               };
             }
             try {
+              const latestTranslationModelStatus = await backend.getTranslationModelStatus();
+              translationModelStatus = latestTranslationModelStatus;
+              refreshTranslationModelLabels();
+              if (!latestTranslationModelStatus.installed) {
+                throw new Error("未安装翻译模型，请先到设置页下载 M2M100 418M");
+              }
               await waitForNextPaint();
               const translated = await backend.translateMediaSubtitle(mediaIdForSubtitle, detectedLanguage);
               finalSubtitlePath = translated.subtitlePath;
@@ -2058,6 +2174,42 @@
       setStatus(`[${code}] ${message}`, "warning");
     });
 
+    const unTranslationModelStarted = await translationModelEvents.onStarted(({ jobId }) => {
+      activeTranslationModelDownloadJobId = jobId;
+      translationModelDownloadPercent = 0;
+      isTranslationModelDownloadPaused = false;
+    });
+
+    const unTranslationModelProgress = await translationModelEvents.onProgress(({ jobId, message, percent }) => {
+      if (activeTranslationModelDownloadJobId && activeTranslationModelDownloadJobId !== jobId) return;
+      console.debug("[Translation Model Download]", message);
+      if (percent != null) {
+        translationModelDownloadPercent = Math.max(
+          translationModelDownloadPercent,
+          Math.round(percent),
+        );
+      }
+    });
+
+    const unTranslationModelCompleted = await translationModelEvents.onCompleted(({ jobId, status }) => {
+      if (activeTranslationModelDownloadJobId && activeTranslationModelDownloadJobId !== jobId) return;
+      activeTranslationModelDownloadJobId = undefined;
+      translationModelDownloadPercent = 0;
+      isTranslationModelDownloadPaused = false;
+      translationModelStatus = status;
+      refreshTranslationModelLabels();
+      setStatus("翻译模型下载完成", "success");
+    });
+
+    const unTranslationModelFailed = await translationModelEvents.onFailed(({ jobId, code, message }) => {
+      if (activeTranslationModelDownloadJobId && activeTranslationModelDownloadJobId !== jobId) return;
+      activeTranslationModelDownloadJobId = undefined;
+      translationModelDownloadPercent = 0;
+      isTranslationModelDownloadPaused = false;
+      void refreshTranslationModelStatus();
+      setStatus(`[${code}] ${message}`, "warning");
+    });
+
     // Load settings
     try {
       settingsReady = false;
@@ -2109,6 +2261,10 @@
       unModelProgress();
       unModelCompleted();
       unModelFailed();
+      unTranslationModelStarted();
+      unTranslationModelProgress();
+      unTranslationModelCompleted();
+      unTranslationModelFailed();
       clearTimeout(importSuccessTimer);
       clearTimeout(retryAsrNoticeTimer);
       clearInterval(translationProgressDriftTimer);
@@ -2286,12 +2442,19 @@
           {settings}
           {availableModels}
           {modelsStatusMap}
+          {translationModelInfo}
+          {translationModelStatus}
           isDownloading={Boolean(activeModelDownloadJobId)}
           {downloadingModelId}
           {modelDownloadPercent}
           {isDownloadPaused}
           modelStatusLabel={modelStatusLabel}
           modelPathLabel={modelPathLabel}
+          isTranslationDownloading={Boolean(activeTranslationModelDownloadJobId)}
+          translationDownloadPercent={translationModelDownloadPercent}
+          isTranslationDownloadPaused={isTranslationModelDownloadPaused}
+          translationStatusLabel={translationModelStatusLabel}
+          translationPathLabel={translationModelPathLabel}
           {overlayLocked}
           onOverlayVisibleChange={handleOverlayVisibleChange}
           onOverlayLockToggle={handleOverlayLockToggle}
@@ -2303,6 +2466,11 @@
           onResumeDownload={handleResumeModelDownload}
           onSelectModel={handleSelectModel}
           onDeleteModel={handleDeleteModel}
+          onDownloadTranslationModel={handleDownloadTranslationModel}
+          onCancelTranslationDownload={handleCancelTranslationModelDownload}
+          onPauseTranslationDownload={handlePauseTranslationModelDownload}
+          onResumeTranslationDownload={handleResumeTranslationModelDownload}
+          onDeleteTranslationModel={handleDeleteTranslationModel}
           onShortcutChange={(shortcuts) => {
             settings = { ...settings, shortcuts };
           }}

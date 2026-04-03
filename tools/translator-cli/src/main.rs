@@ -13,6 +13,15 @@ const MODEL_DIR_ENV: &str = "MUYU_TRANSLATION_MODEL_DIR";
 const CT2_TRANSLATOR_BIN_ENV: &str = "CT2_TRANSLATOR_BIN";
 const SPM_ENCODE_BIN_ENV: &str = "SPM_ENCODE_BIN";
 const SPM_DECODE_BIN_ENV: &str = "SPM_DECODE_BIN";
+const FAIRSEQ_LANGUAGE_CODES: [&str; 100] = [
+    "af", "am", "ar", "ast", "az", "ba", "be", "bg", "bn", "br", "bs", "ca", "ceb", "cs",
+    "cy", "da", "de", "el", "en", "es", "et", "fa", "ff", "fi", "fr", "fy", "ga", "gd", "gl",
+    "gu", "ha", "he", "hi", "hr", "ht", "hu", "hy", "id", "ig", "ilo", "is", "it", "ja", "jv",
+    "ka", "kk", "km", "kn", "ko", "lb", "lg", "ln", "lo", "lt", "lv", "mg", "mk", "ml", "mn",
+    "mr", "ms", "my", "ne", "nl", "no", "ns", "oc", "or", "pa", "pl", "ps", "pt", "ro", "ru",
+    "sd", "si", "sk", "sl", "so", "sq", "sr", "ss", "su", "sv", "sw", "ta", "th", "tl", "tn",
+    "tr", "uk", "ur", "uz", "vi", "wo", "xh", "yi", "yo", "zh", "zu",
+];
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -118,9 +127,9 @@ fn run() -> Result<TranslationResponse, String> {
         });
     }
 
-    if !matches!(source_language.as_str(), "en" | "ja") {
+    if !FAIRSEQ_LANGUAGE_CODES.contains(&source_language.as_str()) {
         return Err(format!(
-            "当前原生离线翻译仅支持 en/ja -> zh，收到源语言: {source_language}"
+            "M2M100 418M 不支持该源语言代码: {source_language}"
         ));
     }
 
@@ -189,7 +198,7 @@ fn run() -> Result<TranslationResponse, String> {
 
     let cleaned_token_lines = translated_token_lines
         .into_iter()
-        .map(|line| strip_target_prefix_and_eos(&line, target_lang_token))
+        .map(|line| strip_target_prefix_and_eos(&line, &target_lang_token))
         .collect::<Vec<_>>();
     let decoded_lines = decode_lines(&spm_decode, &spm_model_path, &cleaned_token_lines)?;
     if decoded_lines.len() != active_lines.len() {
@@ -222,15 +231,26 @@ fn normalize_language_code(code: &str) -> Result<String, String> {
     if lowered.is_empty() || lowered == "auto" {
         return Err("语言代码不能为空或 auto".to_string());
     }
-    if lowered.starts_with("zh") {
-        return Ok("zh".to_string());
+
+    if FAIRSEQ_LANGUAGE_CODES.contains(&lowered.as_str()) {
+        return Ok(lowered);
     }
-    if lowered.starts_with("en") {
-        return Ok("en".to_string());
+
+    if let Some(mapped) = map_language_alias(&lowered) {
+        return Ok(mapped.to_string());
     }
-    if lowered.starts_with("ja") || lowered.starts_with("jp") || lowered.starts_with("jpn") {
-        return Ok("ja".to_string());
+
+    for separator in ['-', '_'] {
+        if let Some((base, _)) = lowered.split_once(separator) {
+            if FAIRSEQ_LANGUAGE_CODES.contains(&base) {
+                return Ok(base.to_string());
+            }
+            if let Some(mapped) = map_language_alias(base) {
+                return Ok(mapped.to_string());
+            }
+        }
     }
+
     Err(format!("不支持的语言代码: {code}"))
 }
 
@@ -262,13 +282,85 @@ fn contains_chinese(text: &str) -> bool {
         .any(|ch| ('\u{4e00}'..='\u{9fff}').contains(&ch))
 }
 
-fn language_token(language: &str) -> &'static str {
-    match language {
-        "en" => "__en__",
-        "ja" => "__ja__",
-        "zh" => "__zh__",
-        _ => "__en__",
+fn map_language_alias(code: &str) -> Option<&'static str> {
+    match code {
+        "cmn" | "zho" | "chi" => Some("zh"),
+        "eng" => Some("en"),
+        "jpn" | "jp" => Some("ja"),
+        "kor" => Some("ko"),
+        "fra" | "fre" => Some("fr"),
+        "deu" | "ger" => Some("de"),
+        "spa" => Some("es"),
+        "por" => Some("pt"),
+        "rus" => Some("ru"),
+        "ukr" => Some("uk"),
+        "ces" | "cze" => Some("cs"),
+        "nld" | "dut" => Some("nl"),
+        "ron" | "rum" => Some("ro"),
+        "ell" | "gre" => Some("el"),
+        "fas" | "per" => Some("fa"),
+        "heb" | "iw" => Some("he"),
+        "ind" | "in" => Some("id"),
+        "msa" | "may" => Some("ms"),
+        "mya" | "bur" => Some("my"),
+        "fil" => Some("tl"),
+        "cebuano" => Some("ceb"),
+        "jav" | "jw" => Some("jv"),
+        "nob" | "nno" | "nb" | "nn" => Some("no"),
+        "slk" | "slo" => Some("sk"),
+        "srp" => Some("sr"),
+        "hrv" => Some("hr"),
+        "bos" => Some("bs"),
+        "lit" => Some("lt"),
+        "lav" => Some("lv"),
+        "est" => Some("et"),
+        "isl" | "ice" => Some("is"),
+        "gle" => Some("ga"),
+        "cym" | "wel" => Some("cy"),
+        "bel" => Some("be"),
+        "bul" => Some("bg"),
+        "mkd" | "mac" => Some("mk"),
+        "slv" => Some("sl"),
+        "sqi" | "alb" => Some("sq"),
+        "hye" | "arm" => Some("hy"),
+        "kat" | "geo" => Some("ka"),
+        "aze" => Some("az"),
+        "kaz" => Some("kk"),
+        "uzb" => Some("uz"),
+        "tur" => Some("tr"),
+        "vie" => Some("vi"),
+        "tha" => Some("th"),
+        "hin" => Some("hi"),
+        "urd" => Some("ur"),
+        "ben" => Some("bn"),
+        "mar" => Some("mr"),
+        "tam" => Some("ta"),
+        "kan" => Some("kn"),
+        "mal" => Some("ml"),
+        "guj" => Some("gu"),
+        "pan" => Some("pa"),
+        "ori" => Some("or"),
+        "nep" => Some("ne"),
+        "sin" => Some("si"),
+        "khm" => Some("km"),
+        "lao" => Some("lo"),
+        "amh" => Some("am"),
+        "ara" => Some("ar"),
+        "hau" => Some("ha"),
+        "ibo" => Some("ig"),
+        "yor" => Some("yo"),
+        "zul" => Some("zu"),
+        "xho" => Some("xh"),
+        "swa" => Some("sw"),
+        "som" => Some("so"),
+        "afr" => Some("af"),
+        "oci" => Some("oc"),
+        _ => None,
     }
+}
+
+fn language_token(language: &str) -> String {
+    format!("__{language}__")
 }
 
 fn resolve_model_root() -> Result<PathBuf, String> {

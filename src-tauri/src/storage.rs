@@ -1,4 +1,4 @@
-use crate::{media, model, state::AppSettings, store};
+use crate::{media, model, state::AppSettings, store, translation_model};
 use serde::Serialize;
 use std::{fs, path::PathBuf};
 use tauri::{AppHandle, Manager};
@@ -57,6 +57,9 @@ pub fn delete_default_model(app: &AppHandle) -> Result<CleanupResult, String> {
         total.deleted_files += r.deleted_files;
         total.deleted_dirs += r.deleted_dirs;
     }
+    let translation = translation_model::delete_translation_model(app)?;
+    total.deleted_files += translation.deleted_files;
+    total.deleted_dirs += translation.deleted_dirs;
     Ok(total)
 }
 

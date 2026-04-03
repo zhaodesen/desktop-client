@@ -65,13 +65,19 @@ pub fn get_status(app: &AppHandle) -> Result<YtDlpStatus, String> {
     ) {
         if current_path == path {
             "appData".to_string()
-        } else if bundled_path.as_ref().is_some_and(|bundled| bundled == current_path) {
+        } else if bundled_path
+            .as_ref()
+            .is_some_and(|bundled| bundled == current_path)
+        {
             "bundle".to_string()
         } else {
             "path".to_string()
         }
     } else if let Some(current_path) = current_target.as_ref().and_then(command_target_path) {
-        if bundled_path.as_ref().is_some_and(|bundled| bundled == current_path) {
+        if bundled_path
+            .as_ref()
+            .is_some_and(|bundled| bundled == current_path)
+        {
             "bundle".to_string()
         } else {
             "path".to_string()
@@ -81,9 +87,7 @@ pub fn get_status(app: &AppHandle) -> Result<YtDlpStatus, String> {
     };
 
     Ok(YtDlpStatus {
-        current_version: current_target
-            .as_ref()
-            .and_then(read_version_from_target),
+        current_version: current_target.as_ref().and_then(read_version_from_target),
         bundled_version: bundled_path
             .as_ref()
             .map(|path| CommandTarget::File(path.clone()))
@@ -95,9 +99,7 @@ pub fn get_status(app: &AppHandle) -> Result<YtDlpStatus, String> {
             .map(|path| CommandTarget::File(path.clone()))
             .as_ref()
             .and_then(read_version_from_target),
-        current_path: current_target
-            .as_ref()
-            .map(|target| target.display()),
+        current_path: current_target.as_ref().map(|target| target.display()),
         source,
         last_checked_at: state.last_checked_at,
         last_updated_at: state.last_updated_at,
@@ -178,8 +180,10 @@ fn download_latest_binary(
         .send()
         .and_then(|response| response.error_for_status())
         .map_err(|error| format!("下载最新 yt-dlp 失败: {error}"))?;
-    let mut output = File::create(&temp_path).map_err(|error| format!("创建临时文件失败: {error}"))?;
-    copy(&mut response, &mut output).map_err(|error| format!("写入 yt-dlp 更新文件失败: {error}"))?;
+    let mut output =
+        File::create(&temp_path).map_err(|error| format!("创建临时文件失败: {error}"))?;
+    copy(&mut response, &mut output)
+        .map_err(|error| format!("写入 yt-dlp 更新文件失败: {error}"))?;
     drop(output);
 
     ensure_executable(&temp_path)?;
@@ -200,7 +204,8 @@ fn download_latest_binary(
     if target_path.exists() {
         fs::remove_file(&target_path).map_err(|error| format!("替换旧版 yt-dlp 失败: {error}"))?;
     }
-    fs::rename(&temp_path, &target_path).map_err(|error| format!("启用新版 yt-dlp 失败: {error}"))?;
+    fs::rename(&temp_path, &target_path)
+        .map_err(|error| format!("启用新版 yt-dlp 失败: {error}"))?;
     ensure_executable(&target_path)?;
     sign_binary_for_macos(&target_path)?;
 
@@ -209,7 +214,8 @@ fn download_latest_binary(
 
 fn compare_versions(left: &str, right: &str) -> CmpOrdering {
     let parse = |value: &str| {
-        value.split('.')
+        value
+            .split('.')
             .map(|part| part.parse::<u32>().unwrap_or(0))
             .collect::<Vec<_>>()
     };
@@ -285,8 +291,8 @@ fn save_update_state(app: &AppHandle, state: &YtDlpUpdateState) -> Result<(), St
         fs::create_dir_all(parent).map_err(|error| format!("创建 yt-dlp 状态目录失败: {error}"))?;
     }
 
-    let content =
-        serde_json::to_string_pretty(state).map_err(|error| format!("序列化 yt-dlp 状态失败: {error}"))?;
+    let content = serde_json::to_string_pretty(state)
+        .map_err(|error| format!("序列化 yt-dlp 状态失败: {error}"))?;
     fs::write(&path, content).map_err(|error| format!("写入 yt-dlp 状态失败: {error}"))
 }
 

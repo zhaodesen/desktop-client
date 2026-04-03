@@ -258,7 +258,8 @@ fn resolve_model_candidates(
         source: "appData".into(),
     });
 
-    let current_dir = std::env::current_dir().map_err(|error| format!("读取当前目录失败: {error}"))?;
+    let current_dir =
+        std::env::current_dir().map_err(|error| format!("读取当前目录失败: {error}"))?;
     candidates.push(ModelCandidate {
         path: current_dir.join("models").join(file_name),
         source: "project".into(),
@@ -324,7 +325,10 @@ fn download_to_temp_file(
         emit_progress(
             app,
             &job.job_id,
-            &format!("正在使用多连接下载模型 {} (~{} MB)", info.label, info.size_mb),
+            &format!(
+                "正在使用多连接下载模型 {} (~{} MB)",
+                info.label, info.size_mb
+            ),
             Some(2.0),
         )?;
         download_parallel(client, app, job, info, temp_path, metadata)
@@ -893,7 +897,10 @@ fn run_download(
         emit_progress(
             &app,
             &job.job_id,
-            &format!("正在下载模型 {} (~{} MB)，这一步可能需要一点时间", info.label, info.size_mb),
+            &format!(
+                "正在下载模型 {} (~{} MB)，这一步可能需要一点时间",
+                info.label, info.size_mb
+            ),
             Some(2.0),
         )?;
 

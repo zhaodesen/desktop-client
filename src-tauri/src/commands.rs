@@ -13,6 +13,7 @@ use crate::{
     storage::{self, CleanupResult},
     store,
     subtitle::{self, SubtitleCue, SubtitleDocument},
+    translation_model::{self, TranslationModelInfo, TranslationModelStatus},
     window,
     yt_dlp::{self, YtDlpStatus},
 };
@@ -299,6 +300,77 @@ pub fn delete_model(app: AppHandle, model_id: String) -> CommandResponse<Cleanup
     match model::delete_model(&app, &model_id) {
         Ok(result) => CommandResponse::ok(result),
         Err(error) => CommandResponse::err("delete_model_failed", error),
+    }
+}
+
+#[tauri::command]
+pub fn get_translation_model_info() -> CommandResponse<TranslationModelInfo> {
+    CommandResponse::ok(translation_model::get_translation_model_info())
+}
+
+#[tauri::command]
+pub fn get_translation_model_status(app: AppHandle) -> CommandResponse<TranslationModelStatus> {
+    match translation_model::get_translation_model_status(&app) {
+        Ok(status) => CommandResponse::ok(status),
+        Err(error) => CommandResponse::err("translation_model_status_failed", error),
+    }
+}
+
+#[tauri::command]
+pub fn download_translation_model(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> CommandResponse<DownloadModelOutput> {
+    match translation_model::download_translation_model(
+        app,
+        state.active_translation_model_download.clone(),
+    ) {
+        Ok(output) => CommandResponse::ok(output),
+        Err(error) => CommandResponse::err("translation_model_download_failed", error),
+    }
+}
+
+#[tauri::command]
+pub fn cancel_translation_model_download(
+    state: State<'_, AppState>,
+) -> CommandResponse<CancelModelDownloadOutput> {
+    match translation_model::cancel_translation_model_download(
+        state.active_translation_model_download.clone(),
+    ) {
+        Ok(output) => CommandResponse::ok(output),
+        Err(error) => CommandResponse::err("cancel_translation_model_download_failed", error),
+    }
+}
+
+#[tauri::command]
+pub fn pause_translation_model_download(
+    state: State<'_, AppState>,
+) -> CommandResponse<PauseModelDownloadOutput> {
+    match translation_model::pause_translation_model_download(
+        state.active_translation_model_download.clone(),
+    ) {
+        Ok(output) => CommandResponse::ok(output),
+        Err(error) => CommandResponse::err("pause_translation_model_download_failed", error),
+    }
+}
+
+#[tauri::command]
+pub fn resume_translation_model_download(
+    state: State<'_, AppState>,
+) -> CommandResponse<ResumeModelDownloadOutput> {
+    match translation_model::resume_translation_model_download(
+        state.active_translation_model_download.clone(),
+    ) {
+        Ok(output) => CommandResponse::ok(output),
+        Err(error) => CommandResponse::err("resume_translation_model_download_failed", error),
+    }
+}
+
+#[tauri::command]
+pub fn delete_translation_model(app: AppHandle) -> CommandResponse<CleanupResult> {
+    match translation_model::delete_translation_model(&app) {
+        Ok(result) => CommandResponse::ok(result),
+        Err(error) => CommandResponse::err("delete_translation_model_failed", error),
     }
 }
 
