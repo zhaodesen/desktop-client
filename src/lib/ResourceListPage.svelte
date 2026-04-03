@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { onDestroy } from "svelte";
   import { Virtualizer } from "virtua/svelte";
   import { convertFileSrc } from "@tauri-apps/api/core";
   import type { MediaItem } from "../shared/types";
@@ -34,9 +33,7 @@
   }: Props = $props();
 
   let durationLabels = $state<Record<string, string>>({});
-  let addedTooltipId = $state<string | undefined>(undefined);
   let searchQuery = $state("");
-  let tooltipTimer: ReturnType<typeof setTimeout> | undefined;
   const pendingDurationIds = new Set<string>();
 
   const normalizedSearchQuery = $derived(searchQuery.trim().toLocaleLowerCase("zh-CN"));
@@ -95,23 +92,12 @@
 
   function handleAdd(itemId: string) {
     onAddToPlaylist(itemId);
-    addedTooltipId = itemId;
-    clearTimeout(tooltipTimer);
-    tooltipTimer = setTimeout(() => {
-      if (addedTooltipId === itemId) {
-        addedTooltipId = undefined;
-      }
-    }, 1300);
   }
 
   $effect(() => {
     for (const item of items) {
       void resolveDuration(item);
     }
-  });
-
-  onDestroy(() => {
-    clearTimeout(tooltipTimer);
   });
 </script>
 
@@ -221,21 +207,15 @@
 
             <div class="library-side">
               <div class="list-item-actions library-actions">
-                <div class="add-btn-wrap" class:add-btn-wrap-active={addedTooltipId === item.id}>
-                  <button
-                    class="btn btn-sm btn-icon-sm btn-primary-soft"
-                    title="加入播放列表"
-                    onclick={() => handleAdd(item.id)}
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                      <line x1="12" y1="5" x2="12" y2="19"/>
-                      <line x1="5" y1="12" x2="19" y2="12"/>
-                    </svg>
-                  </button>
-                  {#if addedTooltipId === item.id}
-                    <span class="add-tooltip">已添加到播放列表</span>
-                  {/if}
-                </div>
+                <button
+                  class="btn btn-sm btn-icon-sm btn-primary-soft"
+                  title="播放并加入播放列表"
+                  onclick={() => handleAdd(item.id)}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                    <polygon points="8 5 19 12 8 19 8 5"/>
+                  </svg>
+                </button>
 
                 <button
                   class="btn btn-sm btn-ghost"
@@ -487,15 +467,6 @@
     max-width: 32ch;
   }
 
-  .add-btn-wrap {
-    position: relative;
-    display: inline-flex;
-  }
-
-  .add-btn-wrap-active {
-    z-index: var(--z-toast, 100);
-  }
-
   @media (hover: hover) and (pointer: fine) {
     .list-item-actions {
       opacity: 0;
@@ -574,32 +545,6 @@
 
   @keyframes retry-complete-notice-in {
     from { opacity: 0; transform: translateX(-50%) translateY(-4px); }
-    to { opacity: 1; transform: translateX(-50%) translateY(0); }
-  }
-
-  .add-tooltip {
-    position: absolute;
-    bottom: calc(100% + 8px);
-    left: 50%;
-    transform: translateX(-50%);
-    white-space: nowrap;
-    padding: 6px 12px;
-    border-radius: var(--radius-pill);
-    background: var(--bg-glass, var(--bg-raised));
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
-    border: 1px solid var(--border);
-    color: var(--success);
-    font-size: var(--font-2xs);
-    line-height: 1;
-    box-shadow: var(--shadow-md);
-    pointer-events: none;
-    z-index: var(--z-toast, 100);
-    animation: tooltip-in 0.15s ease;
-  }
-
-  @keyframes tooltip-in {
-    from { opacity: 0; transform: translateX(-50%) translateY(4px); }
     to { opacity: 1; transform: translateX(-50%) translateY(0); }
   }
 

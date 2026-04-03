@@ -1433,9 +1433,7 @@
   /* ── Add to playlist ──────────────────────────────────── */
 
   async function handleAddToPlaylist(mediaId: string) {
-    await backend.recordPlayback(mediaId);
-    await refreshLibrary();
-    setStatus("已加入播放列表", "success");
+    await playPlaylistItem(mediaId, true);
   }
 
   /* ── Overlay event handlers ────────────────────────────── */
