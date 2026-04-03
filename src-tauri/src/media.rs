@@ -483,13 +483,15 @@ fn run_yt_dlp_download(
     args: &[String],
     active_import: Arc<Mutex<Option<ExternalProcessState>>>,
 ) -> Result<PathBuf, String> {
-    let mut child = sidecar::build_nice_command(yt_dlp)
-        .args(args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|error| format!("启动 yt-dlp 失败: {error}"))?;
+    let yt_dlp_path = yt_dlp.display();
+    let mut child = sidecar::spawn_command_with_priority(yt_dlp, |command| {
+        command
+            .args(args)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+    })
+        .map_err(|error| format!("启动 yt-dlp 失败（{yt_dlp_path}）: {error}"))?;
     let pid = child.id();
     if let Ok(mut guard) = active_import.lock() {
         *guard = Some(ExternalProcessState::new("在线视频下载", pid));
@@ -516,6 +518,7 @@ fn run_yt_dlp_download(
     let mut last_emitted_percent = 0f32;
     let mut last_progress_emit_at: Option<Instant> = None;
     let mut last_message = "正在下载在线视频音频…".to_string();
+    let mut last_detail_lines: Vec<String> = Vec::new();
 
     for output in rx {
         let line = output.line.trim();
@@ -549,6 +552,7 @@ fn run_yt_dlp_download(
         {
             last_percent = last_percent.max(97.0);
             last_message = "正在提取并整理音频轨道…".to_string();
+            push_download_detail_line(&mut last_detail_lines, line);
             emit_import_progress(app, "downloading", &last_message, Some(last_percent))?;
             continue;
         }
@@ -556,6 +560,7 @@ fn run_yt_dlp_download(
         if line.contains("Merging formats") || line.contains("Fixing") {
             last_percent = last_percent.max(96.0);
             last_message = "正在整理下载结果…".to_string();
+            push_download_detail_line(&mut last_detail_lines, line);
             emit_import_progress(app, "downloading", &last_message, Some(last_percent))?;
             continue;
         }
@@ -563,12 +568,14 @@ fn run_yt_dlp_download(
         if line.contains("Deleting original file") {
             last_percent = last_percent.max(99.0);
             last_message = "正在清理中间文件…".to_string();
+            push_download_detail_line(&mut last_detail_lines, line);
             emit_import_progress(app, "downloading", &last_message, Some(last_percent))?;
             continue;
         }
 
         if line.starts_with("ERROR:") {
             last_message = line.trim_start_matches("ERROR:").trim().to_string();
+            push_download_detail_line(&mut last_detail_lines, &last_message);
             continue;
         }
 
@@ -580,6 +587,12 @@ fn run_yt_dlp_download(
                 || line.contains("login"))
         {
             last_message = line.to_string();
+            push_download_detail_line(&mut last_detail_lines, line);
+            continue;
+        }
+
+        if !output.is_stdout {
+            push_download_detail_line(&mut last_detail_lines, line);
         }
     }
 
@@ -589,7 +602,16 @@ fn run_yt_dlp_download(
             .map_err(|error| format!("等待 yt-dlp 结束失败: {error}"))?;
 
         if !status.success() {
-            return Err(format!("在线视频下载失败: {}", last_message.trim()));
+            let detail = if is_generic_download_status(&last_message) {
+                if last_detail_lines.is_empty() {
+                    format!("exit code: {:?}", status.code())
+                } else {
+                    last_detail_lines.join(" | ")
+                }
+            } else {
+                last_message.trim().to_string()
+            };
+            return Err(format!("在线视频下载失败: {}", detail.trim()));
         }
 
         let Some(downloaded_path) = downloaded_path else {
@@ -748,6 +770,9 @@ fn select_preferred_download_error(previous: String, next: String) -> String {
 
 fn score_download_error(message: &str) -> u8 {
     let lowered = message.to_ascii_lowercase();
+    if is_generic_download_status(message) {
+        return 0;
+    }
     if lowered.contains("could not find")
         && (lowered.contains("cookies database") || lowered.contains("cookies file"))
     {
@@ -767,6 +792,34 @@ fn score_download_error(message: &str) -> u8 {
         return 1;
     }
     0
+}
+
+fn is_generic_download_status(message: &str) -> bool {
+    let trimmed = message.trim();
+    trimmed.is_empty()
+        || trimmed == "正在下载在线视频音频…"
+        || trimmed.starts_with("正在下载在线视频音频… ")
+        || trimmed == "正在提取并整理音频轨道…"
+        || trimmed == "正在整理下载结果…"
+        || trimmed == "正在清理中间文件…"
+        || trimmed == "音频下载完成，正在导入素材…"
+}
+
+fn push_download_detail_line(lines: &mut Vec<String>, line: &str) {
+    let trimmed = line.trim();
+    if trimmed.is_empty()
+        || trimmed.starts_with("[download]")
+        || trimmed.starts_with("WARNING: [generic] Falling back on generic information extractor")
+    {
+        return;
+    }
+    if lines.last().is_some_and(|existing| existing == trimmed) {
+        return;
+    }
+    if lines.len() >= 6 {
+        lines.remove(0);
+    }
+    lines.push(trimmed.to_string());
 }
 
 fn read_yt_dlp_pipe<R: Read + Send + 'static>(
@@ -941,31 +994,32 @@ fn extract_audio_with_ffmpeg(
     source_path: &Path,
     output_path: &Path,
 ) -> Result<(), String> {
-    // 限制 ffmpeg 为 1 线程 + taskpolicy -b (macOS) / nice -n 19 (Linux)
-    // 确保视频提取音频时 UI 不卡
-    let mut child = sidecar::build_nice_command(target)
-        .args([
-            "-y",
-            "-threads",
-            "1",
-            "-i",
-            &source_path.display().to_string(),
-            "-vn",
-            "-ar",
-            "16000",
-            "-ac",
-            "1",
-            "-c:a",
-            "pcm_s16le",
-            "-progress",
-            "pipe:2",
-            "-nostats",
-            &output_path.display().to_string(),
-        ])
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|error| format!("执行 ffmpeg 失败: {error}"))?;
+    // Linux 下继续使用 nice -n 19 降低优先级；macOS 直接启动，避免 taskpolicy 二次 spawn 失败。
+    let target_path = target.display();
+    let mut child = sidecar::spawn_command_with_priority(target, |command| {
+        command
+            .args([
+                "-y",
+                "-threads",
+                "1",
+                "-i",
+                &source_path.display().to_string(),
+                "-vn",
+                "-ar",
+                "16000",
+                "-ac",
+                "1",
+                "-c:a",
+                "pcm_s16le",
+                "-progress",
+                "pipe:2",
+                "-nostats",
+                &output_path.display().to_string(),
+            ])
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped());
+    })
+        .map_err(|error| format!("执行 ffmpeg 失败（{target_path}）: {error}"))?;
 
     let stderr = child
         .stderr

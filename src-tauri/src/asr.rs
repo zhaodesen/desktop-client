@@ -337,28 +337,30 @@ fn run_ffmpeg(
     input: &Path,
     output: &Path,
 ) -> Result<(), String> {
-    // 限制 ffmpeg 为 1 线程 + taskpolicy -b / nice -n 19，与 whisper 策略一致
-    let mut child = sidecar::build_nice_command(target)
-        .args([
-            "-y",
-            "-threads",
-            "1",
-            "-v",
-            "error",
-            "-i",
-            &input.display().to_string(),
-            "-ar",
-            "16000",
-            "-ac",
-            "1",
-            "-c:a",
-            "pcm_s16le",
-            &output.display().to_string(),
-        ])
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|error| format!("执行 ffmpeg 失败: {error}"))?;
+    // Linux 下继续使用 nice -n 19 降低优先级；macOS 直接启动，避免 taskpolicy 二次 spawn 失败。
+    let target_path = target.display();
+    let mut child = sidecar::spawn_command_with_priority(target, |command| {
+        command
+            .args([
+                "-y",
+                "-threads",
+                "1",
+                "-v",
+                "error",
+                "-i",
+                &input.display().to_string(),
+                "-ar",
+                "16000",
+                "-ac",
+                "1",
+                "-c:a",
+                "pcm_s16le",
+                &output.display().to_string(),
+            ])
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped());
+    })
+        .map_err(|error| format!("执行 ffmpeg 失败（{target_path}）: {error}"))?;
 
     let mut stderr = child.stderr.take();
     {
@@ -403,8 +405,8 @@ fn run_whisper(
     subtitle_prefix: &Path,
 ) -> Result<Option<String>, String> {
     // 限制 whisper-cli 线程数为 1：
-    // 即使单线程 100% CPU 也只占一个核心，配合 taskpolicy -b (macOS) 或 nice -n 19 (Linux)
-    // 可以确保 UI 始终流畅。识别速度会慢一些但用户体验远比"程序卡死"好。
+    // 即使单线程 100% CPU 也只占一个核心；Linux 下仍配合 nice -n 19，避免 UI 抢占过高。
+    // macOS 直接启动，避免 taskpolicy 包装导致的 posix_spawn PermissionDenied。
     let whisper_threads = 1;
 
     // 计算 WAV 文件时长，用于解析 whisper 输出中的时间戳计算真实进度
@@ -412,24 +414,26 @@ fn run_whisper(
 
     // 使用 nice -n 19 降低 CPU 调度优先级到最低，确保 UI 流畅
     // 使用 spawn() + stderr 解析替代 output()，实现实时进度回报
-    let mut child = sidecar::build_nice_command(target)
-        .args([
-            "-m",
-            &model_path.display().to_string(),
-            "-f",
-            &wav_path.display().to_string(),
-            "-l",
-            WHISPER_LANGUAGE_MODE,
-            "-t",
-            &whisper_threads.to_string(),
-            "-osrt",
-            "-of",
-            &subtitle_prefix.display().to_string(),
-        ])
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|error| format!("启动 whisper-cli 失败: {error}"))?;
+    let target_path = target.display();
+    let mut child = sidecar::spawn_command_with_priority(target, |command| {
+        command
+            .args([
+                "-m",
+                &model_path.display().to_string(),
+                "-f",
+                &wav_path.display().to_string(),
+                "-l",
+                WHISPER_LANGUAGE_MODE,
+                "-t",
+                &whisper_threads.to_string(),
+                "-osrt",
+                "-of",
+                &subtitle_prefix.display().to_string(),
+            ])
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped());
+    })
+        .map_err(|error| format!("启动 whisper-cli 失败（{target_path}）: {error}"))?;
 
     let stderr = child
         .stderr

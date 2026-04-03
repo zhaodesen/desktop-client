@@ -1,8 +1,11 @@
 use std::{
-    env, fs,
+    env, fs, io,
     path::{Path, PathBuf},
-    process::Command,
+    process::{Child, Command},
 };
+
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use tauri::{path::BaseDirectory, AppHandle, Manager};
 
 #[cfg(windows)]
@@ -197,17 +200,11 @@ pub fn build_command(target: &CommandTarget) -> Command {
 pub fn build_nice_command(target: &CommandTarget) -> Command {
     #[cfg(target_os = "macos")]
     {
-        let mut cmd = Command::new("taskpolicy");
-        cmd.arg("-b");
-        match target {
-            CommandTarget::Program(program) => {
-                cmd.arg(program);
-            }
-            CommandTarget::File(path) => {
-                cmd.arg(path);
-            }
-        }
-        cmd
+        // 直接启动子进程，避免依赖 taskpolicy 包装器。
+        // 线上已出现 "taskpolicy: posix_spawn: Permission denied"，
+        // 但同一可执行文件在终端中可正常被 taskpolicy 启动，说明问题出在
+        // app 运行时上下文下的二次 spawn，而不是 sidecar 本身不可执行。
+        build_command(target)
     }
     #[cfg(all(unix, not(target_os = "macos")))]
     {
@@ -227,6 +224,15 @@ pub fn build_nice_command(target: &CommandTarget) -> Command {
     {
         build_command(target)
     }
+}
+
+pub fn spawn_command_with_priority<F>(target: &CommandTarget, configure: F) -> Result<Child, io::Error>
+where
+    F: Fn(&mut Command),
+{
+    let mut command = build_nice_command(target);
+    configure(&mut command);
+    command.spawn()
 }
 
 pub fn kill_process(pid: u32) -> Result<(), String> {
@@ -313,9 +319,28 @@ fn push_matching_sidecar_paths(paths: &mut Vec<PathBuf>, dir: &Path, name: &str)
             continue;
         };
 
-        if is_matching_sidecar_name(file_name, name) {
+        if is_matching_sidecar_path(&path, file_name, name) {
             push_unique_path(paths, path);
         }
+    }
+}
+
+fn is_matching_sidecar_path(path: &Path, file_name: &str, base_name: &str) -> bool {
+    if !is_matching_sidecar_name(file_name, base_name) {
+        return false;
+    }
+
+    #[cfg(unix)]
+    {
+        fs::metadata(path)
+            .map(|metadata| metadata.permissions().mode() & 0o111 != 0)
+            .unwrap_or(false)
+    }
+
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+        true
     }
 }
 
@@ -326,7 +351,56 @@ fn is_matching_sidecar_name(file_name: &str, base_name: &str) -> bool {
         let prefixed = format!("{base_name}-");
         lowered == exact || (lowered.starts_with(&prefixed) && lowered.ends_with(".exe"))
     } else {
-        file_name == base_name || file_name.starts_with(&format!("{base_name}-"))
+        let has_extension = Path::new(file_name).extension().is_some();
+        !has_extension && (file_name == base_name || file_name.starts_with(&format!("{base_name}-")))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{is_matching_sidecar_name, is_matching_sidecar_path};
+    use std::{fs, path::PathBuf};
+
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn sidecar_name_does_not_match_state_json() {
+        assert!(!is_matching_sidecar_name("yt-dlp-state.json", "yt-dlp"));
+        assert!(!is_matching_sidecar_name("translator-cli-state.json", "translator-cli"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn sidecar_path_requires_executable_bit_on_unix() {
+        let temp_dir = std::env::temp_dir().join(format!("muyu-sidecar-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&temp_dir);
+        fs::create_dir_all(&temp_dir).expect("create temp dir");
+
+        let executable_path = temp_dir.join("yt-dlp");
+        fs::write(&executable_path, b"#!/bin/sh\n").expect("write executable");
+        let mut executable_permissions = fs::metadata(&executable_path)
+            .expect("read executable metadata")
+            .permissions();
+        executable_permissions.set_mode(0o755);
+        fs::set_permissions(&executable_path, executable_permissions).expect("chmod executable");
+
+        let state_path = temp_dir.join("yt-dlp-state.json");
+        fs::write(&state_path, b"{}").expect("write state file");
+        let mut state_permissions = fs::metadata(&state_path)
+            .expect("read state metadata")
+            .permissions();
+        state_permissions.set_mode(0o644);
+        fs::set_permissions(&state_path, state_permissions).expect("chmod state");
+
+        assert!(is_matching_sidecar_path(&executable_path, "yt-dlp", "yt-dlp"));
+        assert!(!is_matching_sidecar_path(
+            &PathBuf::from(&state_path),
+            "yt-dlp-state.json",
+            "yt-dlp",
+        ));
+
+        let _ = fs::remove_dir_all(&temp_dir);
     }
 }
 

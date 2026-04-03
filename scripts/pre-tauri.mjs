@@ -124,7 +124,8 @@ function signMacDynamicLibraries(targetTriple) {
   }
 }
 
-const targetTriple = process.env.TARGET_TRIPLE || detectTargetTriple();
+const targetTriple =
+  process.env.TAURI_ENV_TARGET_TRIPLE || process.env.TARGET_TRIPLE || detectTargetTriple();
 if (!targetTriple) {
   console.error('无法确定当前 Rust target triple。');
   process.exit(1);

@@ -379,16 +379,15 @@ fn request_offline_translation(
     })
     .to_string();
 
-    // 使用 build_nice_command 降低翻译进程 CPU 优先级，避免 UI 卡顿。
-    let mut command = sidecar::build_nice_command(&translator);
-
-    let mut child = command
-        .env(TRANSLATION_MODEL_DIR_ENV, &translation_model_dir)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|error| format!("启动 translator-cli 失败: {error}"))?;
+    let translator_path = translator.display();
+    let mut child = sidecar::spawn_command_with_priority(&translator, |command| {
+        command
+            .env(TRANSLATION_MODEL_DIR_ENV, &translation_model_dir)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+    })
+        .map_err(|error| format!("启动 translator-cli 失败（{translator_path}）: {error}"))?;
     let pid = child.id();
     if let Ok(mut guard) = active_translation_job.lock() {
         *guard = Some(ExternalProcessState::new("字幕翻译", pid));

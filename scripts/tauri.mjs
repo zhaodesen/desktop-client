@@ -1,4 +1,4 @@
-import { readdirSync, rmSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, rmSync, statSync } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
@@ -38,13 +38,13 @@ function signMacBinary(filePath, entitlementsPath) {
   run('codesign', args);
 }
 
-function postprocessMacBuild() {
+function resolveMacBuildContext() {
   if (process.platform !== 'darwin') {
-    return;
+    return null;
   }
 
-  if (args[0] !== 'build') {
-    return;
+  if (args[0] !== 'build' || args.includes('--no-bundle')) {
+    return null;
   }
 
   const profileDir = args.includes('--debug') ? 'debug' : 'release';
@@ -54,17 +54,49 @@ function postprocessMacBuild() {
     ? path.join(rootDir, 'src-tauri', 'target', targetTriple, profileDir)
     : path.join(rootDir, 'src-tauri', 'target', profileDir);
   const bundleDir = path.join(targetBaseDir, 'bundle');
-  const macosDir = path.join(bundleDir, 'macos');
-  const dmgDir = path.join(bundleDir, 'dmg');
-  const entitlementsPath = path.join(rootDir, 'src-tauri', 'entitlements', 'whisper-cli.plist');
 
-  const appName = readdirSync(macosDir).find((entry) => entry.endsWith('.app'));
-  if (!appName) {
+  return {
+    bundleDir,
+    dmgDir: path.join(bundleDir, 'dmg'),
+    macosDir: path.join(bundleDir, 'macos'),
+  };
+}
+
+function prepareMacBuild() {
+  const context = resolveMacBuildContext();
+  if (!context) {
     return;
   }
 
-  const appPath = path.join(macosDir, appName);
+  // 删除旧 bundle 产物，避免 postprocess 误拿到历史 .app / .dmg。
+  rmSync(context.macosDir, { force: true, recursive: true });
+  rmSync(context.dmgDir, { force: true, recursive: true });
+}
+
+function postprocessMacBuild() {
+  const context = resolveMacBuildContext();
+  if (!context) {
+    return;
+  }
+
+  const entitlementsPath = path.join(rootDir, 'src-tauri', 'entitlements', 'whisper-cli.plist');
+
+  if (!existsSync(context.macosDir)) {
+    return;
+  }
+
+  const appNames = readdirSync(context.macosDir).filter((entry) => entry.endsWith('.app'));
+  if (appNames.length === 0) {
+    return;
+  }
+  if (appNames.length > 1) {
+    throw new Error(`检测到多个 macOS App 产物，无法确定当前构建结果：${appNames.join(', ')}`);
+  }
+
+  const [appName] = appNames;
+  const appPath = path.join(context.macosDir, appName);
   const sidecarPaths = [
+    path.join(appPath, 'Contents', 'MacOS', 'ffmpeg'),
     path.join(appPath, 'Contents', 'MacOS', 'whisper-cli'),
     path.join(appPath, 'Contents', 'MacOS', 'yt-dlp'),
     path.join(appPath, 'Contents', 'MacOS', 'translator-cli'),
@@ -78,9 +110,13 @@ function postprocessMacBuild() {
   }
   run('codesign', ['--force', '--sign', '-', appPath]);
 
-  const dmgNames = readdirSync(dmgDir).filter((entry) => entry.endsWith('.dmg'));
+  if (!existsSync(context.dmgDir)) {
+    return;
+  }
+
+  const dmgNames = readdirSync(context.dmgDir).filter((entry) => entry.endsWith('.dmg'));
   for (const dmgName of dmgNames) {
-    const dmgPath = path.join(dmgDir, dmgName);
+    const dmgPath = path.join(context.dmgDir, dmgName);
     rmSync(dmgPath, { force: true });
     run('hdiutil', [
       'create',
@@ -105,5 +141,6 @@ function statSafe(filePath) {
 }
 
 const tauriCommand = process.platform === 'win32' ? 'tauri.cmd' : 'tauri';
+prepareMacBuild();
 run(tauriCommand, args);
 postprocessMacBuild();

@@ -18,7 +18,6 @@
     onGoToResources: () => void;
   }
 
-  type ImportViewState = { type: "default" } | { type: "online"; url: string };
   type ImportStageMeta = {
     id: ImportProgressStage;
     short: string;
@@ -61,8 +60,6 @@
   let onlineUrl = $state("");
   let onlineUrlError = $state<string | undefined>(undefined);
   let isSubmittingOnline = $state(false);
-  let importViewBeforeStart = $state<ImportViewState | undefined>(undefined);
-  let hadActiveImport = $state(false);
   let toastTimer: ReturnType<typeof setTimeout> | undefined;
 
   let showDialog = $derived(showSuccess && !suppressDialog);
@@ -123,24 +120,6 @@
     }
   });
 
-  $effect(() => {
-    if (progress.active) {
-      hadActiveImport = true;
-      return;
-    }
-
-    if (!hadActiveImport) return;
-    hadActiveImport = false;
-
-    const restoreState = importViewBeforeStart;
-    importViewBeforeStart = undefined;
-    if (!importError || !restoreState) return;
-
-    showOnlineDialog = restoreState.type === "online";
-    onlineUrl = restoreState.type === "online" ? restoreState.url : "";
-    onlineUrlError = undefined;
-  });
-
   function getImportErrorHint(error: string | undefined): string | undefined {
     if (!error) return undefined;
 
@@ -191,10 +170,8 @@
   }
 
   async function handleLocalImport() {
-    importViewBeforeStart = { type: "default" };
     try {
       await onImportMedia();
-      importViewBeforeStart = undefined;
     } catch {
       // 具体错误由父组件统一显示在导入页顶部错误条。
     }
@@ -209,12 +186,10 @@
 
     isSubmittingOnline = true;
     onlineUrlError = undefined;
-    importViewBeforeStart = { type: "online", url: trimmedUrl };
     showOnlineDialog = false;
     onlineUrl = "";
     try {
       await onImportOnline(trimmedUrl);
-      importViewBeforeStart = undefined;
     } catch {
       // 具体错误由父组件统一显示在导入页顶部错误条。
     } finally {
