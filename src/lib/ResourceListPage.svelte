@@ -224,7 +224,7 @@
                 >
                   {item.id === retryingMediaId ? "识别中…" : "重新识别"}
                 </button>
-                <button class="btn btn-sm" disabled={!item.subtitlePath} onclick={() => onEditSubtitle(item.id)}>编辑字幕</button>
+                <button class="btn btn-sm" disabled={!item.subtitlePath} onclick={() => onEditSubtitle(item.id)}>编辑</button>
                 <button class="btn btn-sm btn-danger" onclick={() => onDeleteMedia(item.id)}>删除</button>
               </div>
             </div>

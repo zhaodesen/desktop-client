@@ -186,8 +186,8 @@ export const backend = {
   getSubtitleDocument(mediaId: string) {
     return callCommand<SubtitleDocument>("get_subtitle_document", { mediaId });
   },
-  saveSubtitleDocument(mediaId: string, cues: SubtitleCue[]) {
-    return callCommand<SubtitleDocument>("save_subtitle_document", { mediaId, cues });
+  saveSubtitleDocument(mediaId: string, title: string, cues: SubtitleCue[]) {
+    return callCommand<SubtitleDocument>("save_subtitle_document", { mediaId, title, cues });
   },
   translateMediaSubtitle(mediaId: string, sourceLanguage?: string) {
     return callCommand<SubtitleDocument>("translate_media_subtitle", {
@@ -197,6 +197,9 @@ export const backend = {
   },
   recordPlayback(mediaId: string) {
     return callCommand<PlaybackHistoryItem>("record_playback", { mediaId });
+  },
+  prependPlaybackItem(mediaId: string) {
+    return callCommand<PlaybackHistoryItem>("prepend_playback_item", { mediaId });
   },
   removePlaybackItem(mediaId: string) {
     return callCommand<boolean>("remove_playback_item", { mediaId });

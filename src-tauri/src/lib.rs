@@ -165,6 +165,7 @@ pub fn run() {
             commands::get_shutdown_task_summary,
             commands::shutdown_and_exit,
             commands::record_playback,
+            commands::prepend_playback_item,
             commands::remove_playback_item,
             commands::clear_subtitles,
             commands::clear_audio_cache,

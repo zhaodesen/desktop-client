@@ -257,7 +257,71 @@ pub fn update_media_subtitle(
     Ok(item)
 }
 
+pub fn update_media_title(app: &AppHandle, media_id: &str, title: &str) -> Result<MediaItem, String> {
+    let normalized_title = title.trim();
+    if normalized_title.is_empty() {
+        return Err("标题不能为空".to_string());
+    }
+
+    let mut state = load_library_state(app)?;
+    let mut updated: Option<MediaItem> = None;
+
+    for item in &mut state.media_items {
+        if item.id == media_id {
+            item.title = normalized_title.to_string();
+            updated = Some(item.clone());
+        }
+    }
+
+    for entry in &mut state.playback_history {
+        if entry.media_id == media_id {
+            entry.title = normalized_title.to_string();
+        }
+    }
+
+    let item = updated.ok_or_else(|| "未找到对应素材".to_string())?;
+    save_library_state(app, &state)?;
+    Ok(item)
+}
+
 pub fn record_playback(app: &AppHandle, media_id: &str) -> Result<PlaybackHistoryItem, String> {
+    let mut state = load_library_state(app)?;
+    let item = state
+        .media_items
+        .iter()
+        .find(|entry| entry.id == media_id)
+        .cloned()
+        .ok_or_else(|| "未找到对应素材".to_string())?;
+
+    let now = now_millis();
+    if let Some(entry) = state
+        .playback_history
+        .iter_mut()
+        .find(|entry| entry.media_id == media_id)
+    {
+        entry.played_at = now;
+        entry.play_count += 1;
+        entry.subtitle_path = item.subtitle_path.clone();
+        let entry = entry.clone();
+        save_library_state(app, &state)?;
+        return Ok(entry);
+    }
+
+    let entry = PlaybackHistoryItem {
+        media_id: item.id,
+        title: item.title,
+        audio_path: item.audio_path,
+        subtitle_path: item.subtitle_path,
+        played_at: now,
+        play_count: 1,
+    };
+
+    state.playback_history.push(entry.clone());
+    save_library_state(app, &state)?;
+    Ok(entry)
+}
+
+pub fn prepend_playback_item(app: &AppHandle, media_id: &str) -> Result<PlaybackHistoryItem, String> {
     let mut state = load_library_state(app)?;
     let item = state
         .media_items

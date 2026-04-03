@@ -69,6 +69,7 @@ pub fn get_subtitle_document(app: &AppHandle, media_id: &str) -> Result<Subtitle
 pub fn save_subtitle_document(
     app: &AppHandle,
     media_id: &str,
+    title: &str,
     cues: Vec<SubtitleCue>,
 ) -> Result<SubtitleDocument, String> {
     let normalized_cues = normalize_cues(cues);
@@ -84,8 +85,8 @@ pub fn save_subtitle_document(
     .map_err(|error| format!("序列化字幕数据失败: {error}"))?;
 
     fs::write(&subtitle_path, content).map_err(|error| format!("写入字幕文件失败: {error}"))?;
-    let updated_item =
-        media::update_media_subtitle(app, media_id, &subtitle_path.display().to_string())?;
+    media::update_media_subtitle(app, media_id, &subtitle_path.display().to_string())?;
+    let updated_item = media::update_media_title(app, media_id, title)?;
 
     Ok(SubtitleDocument {
         media_id: updated_item.id,
@@ -108,7 +109,7 @@ pub fn translate_media_subtitle(
 
     let translated_cues =
         translate_cues(app, active_translation_job, &document.cues, source_language)?;
-    save_subtitle_document(app, media_id, translated_cues)
+    save_subtitle_document(app, media_id, &document.title, translated_cues)
 }
 
 fn find_media_item(app: &AppHandle, media_id: &str) -> Result<MediaItem, String> {

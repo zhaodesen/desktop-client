@@ -1136,7 +1136,7 @@
     setStatus("已从播放列表移除", "success");
   }
 
-  async function playPlaylistItem(mediaId: string, autoplay = false) {
+  async function playPlaylistItem(mediaId: string, autoplay = false, record = true) {
     if (playlistPlayPromise && playlistPlayTargetId === mediaId) {
       await playlistPlayPromise;
       return;
@@ -1147,7 +1147,7 @@
     playlistPlayTargetId = mediaId;
 
     const task = (async () => {
-      const loaded = await loadMediaById(mediaId, true, requestId);
+      const loaded = await loadMediaById(mediaId, record, requestId);
       if (autoplay && loaded && isLatestMediaLoadRequest(requestId)) {
         await handleTogglePlayback("playlist-autoplay");
       }
@@ -1287,6 +1287,11 @@
     else cue.secondaryText = value;
   }
 
+  function handleSubtitleTitleChange(value: string) {
+    if (!activeSubtitleDocument) return;
+    activeSubtitleDocument.title = value;
+  }
+
   async function saveSubtitleEditor() {
     if (!activeSubtitleDocument) { setStatus("没有可保存的字幕内容", "warning"); return; }
     if (subtitleEditorSaving) return;
@@ -1295,6 +1300,7 @@
     try {
       const saved = await backend.saveSubtitleDocument(
         activeSubtitleDocument.mediaId,
+        activeSubtitleDocument.title.trim() || "未命名素材",
         activeSubtitleDocument.cues,
       );
       activeSubtitleDocument = saved;
@@ -1433,7 +1439,9 @@
   /* ── Add to playlist ──────────────────────────────────── */
 
   async function handleAddToPlaylist(mediaId: string) {
-    await playPlaylistItem(mediaId, true);
+    await backend.prependPlaybackItem(mediaId);
+    await refreshLibrary();
+    await playPlaylistItem(mediaId, true, false);
   }
 
   /* ── Overlay event handlers ────────────────────────────── */
@@ -2497,6 +2505,7 @@
             setActivePage(lastMainPage);
           }}
           onSave={() => void saveSubtitleEditor()}
+          onTitleChange={handleSubtitleTitleChange}
           onCueChange={handleCueChange}
         />
         </div>

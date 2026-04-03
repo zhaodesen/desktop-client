@@ -472,9 +472,10 @@ pub fn get_subtitle_document(
 pub fn save_subtitle_document(
     app: AppHandle,
     media_id: String,
+    title: String,
     cues: Vec<SubtitleCue>,
 ) -> CommandResponse<SubtitleDocument> {
-    match subtitle::save_subtitle_document(&app, &media_id, cues) {
+    match subtitle::save_subtitle_document(&app, &media_id, &title, cues) {
         Ok(document) => CommandResponse::ok(document),
         Err(error) => CommandResponse::err("save_subtitle_document_failed", error),
     }
@@ -526,6 +527,17 @@ pub fn record_playback(app: AppHandle, media_id: String) -> CommandResponse<Play
     match media::record_playback(&app, &media_id) {
         Ok(item) => CommandResponse::ok(item),
         Err(error) => CommandResponse::err("record_playback_failed", error),
+    }
+}
+
+#[tauri::command]
+pub fn prepend_playback_item(
+    app: AppHandle,
+    media_id: String,
+) -> CommandResponse<PlaybackHistoryItem> {
+    match media::prepend_playback_item(&app, &media_id) {
+        Ok(item) => CommandResponse::ok(item),
+        Err(error) => CommandResponse::err("prepend_playback_item_failed", error),
     }
 }
 

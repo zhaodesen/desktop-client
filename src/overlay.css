@@ -30,8 +30,24 @@ body { padding: 12px; background: transparent !important; overflow: hidden; }
 .overlay-shell[data-position="top"] { justify-content: flex-start; }
 
 /* 解锁时显示拖拽手型光标 */
-.overlay-shell[data-locked="false"] { cursor: grab; }
+.overlay-shell[data-locked="false"] {
+  cursor: grab;
+  padding: 12px 14px;
+  border-radius: 18px;
+  background: rgba(0, 0, 0, 0.42);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
 .overlay-shell[data-locked="false"]:active { cursor: grabbing; }
+.overlay-shell[data-locked="true"] {
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
 
 /* ─── 控制栏（右上角） ─── */
 .overlay-controls {
