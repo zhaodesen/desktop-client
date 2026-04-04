@@ -565,6 +565,50 @@
     border-bottom-color: rgba(var(--accent-rgb), 0.48);
   }
 
+  @media (max-width: 1120px) {
+    .about-page {
+      padding: 18px 0;
+    }
+
+    .about-content {
+      width: min(920px, 100%);
+      grid-template-columns: minmax(300px, 1.05fr) minmax(280px, 0.82fr);
+      gap: 20px;
+      padding: 0 14px;
+    }
+
+    .about-copy {
+      max-width: 100%;
+    }
+
+    .about-copy h1 {
+      font-size: clamp(1.88rem, 3.5vw, 2.8rem);
+      margin-bottom: 14px;
+    }
+
+    .about-intro {
+      font-size: 0.94rem;
+      line-height: 1.78;
+    }
+
+    .about-model {
+      min-height: 500px;
+    }
+
+    .model-stage {
+      width: min(360px, 100%);
+    }
+
+    .scene-line {
+      opacity: 0.28;
+    }
+
+    .orbit-c {
+      width: 440px;
+      height: 440px;
+    }
+  }
+
   @keyframes orbitFloat {
     0%, 100% {
       transform: translateY(0) scale(1);

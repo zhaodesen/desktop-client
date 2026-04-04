@@ -2308,6 +2308,7 @@
 
     <section
       class="content"
+      class:content-import={activePage === "import"}
       class:content-player={activePage === "playlist"}
       class:content-resources={activePage === "resources"}
     >

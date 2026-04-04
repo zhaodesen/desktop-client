@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onDestroy, onMount } from "svelte";
   import type { ImportProgress, ImportProgressStage } from "../shared/types";
+  import KineticGridBackground from "./KineticGridBackground.svelte";
 
   interface Props {
     progress: ImportProgress;
@@ -51,8 +52,6 @@
     { id: "translating", short: "翻译", label: "生成中文字幕", description: "继续生成中文翻译字幕。" },
     { id: "done", short: "完成", label: "导入处理完成", description: "素材已经可以去资源列表查看。" },
   ];
-  const SHOWCASE_BAR_BASES = [0.38, 0.62, 0.5, 0.78];
-
   let suppressDialog = $state(false);
   let dialogSuppressChecked = $state(false);
   let showToast = $state(false);
@@ -83,24 +82,6 @@
   });
   let importErrorHint = $derived(getImportErrorHint(importError));
   let progressRatio = $derived(normalizedPercent / 100);
-  let showcaseGlow = $derived(progress.active ? 0.16 + (progressRatio * 0.28) : 0.12);
-  let showcaseBars = $derived.by(() =>
-    SHOWCASE_BAR_BASES.map((base, index) => {
-      const wave = Math.sin((progressRatio * Math.PI * 1.2) + (index * 0.82)) * 0.08;
-      const height = Math.max(
-        0.26,
-        Math.min(0.96, base + (progress.active ? (progressRatio * 0.18) : 0) + wave),
-      );
-      return `${Math.round(height * 100)}%`;
-    }),
-  );
-  let showcaseStyle = $derived(
-    [
-      `--import-progress: ${progressRatio.toFixed(4)}`,
-      `--showcase-glow: ${showcaseGlow.toFixed(4)}`,
-    ].join("; "),
-  );
-
   onMount(() => {
     suppressDialog = localStorage.getItem(SUPPRESS_KEY) === "true";
   });
@@ -233,10 +214,10 @@
 {/if}
 
 <section class="page import-page" data-active="true">
-  <article class="import-hero" data-mode={progress.active ? "active" : "idle"} style={showcaseStyle}>
+  <article class="import-hero" data-mode={progress.active ? "active" : "idle"}>
     <div class="import-bg" aria-hidden="true">
-      <div class="import-orb import-orb-a"></div>
-      <div class="import-orb import-orb-b"></div>
+      <KineticGridBackground active={progress.active} progress={progressRatio} />
+      <div class="import-grid-veil"></div>
     </div>
 
     <div class="import-idle">
@@ -270,58 +251,40 @@
       </p>
     </div>
 
-    <div class="import-card">
-      <div class="import-card-inner">
-        <div class="import-card-shine" aria-hidden="true"></div>
-
-        <div class="import-face-decor" aria-hidden="true">
-          <span class="import-chip">Import</span>
-          <span class="import-skel import-skel-bold"></span>
-          <span class="import-skel"></span>
-          <span class="import-skel import-skel-short"></span>
-          <div class="import-bars">
-            {#each showcaseBars as h}
-              <span style={`height: ${h}`}></span>
-            {/each}
-          </div>
-        </div>
-
-        <div class="import-face-progress" role="status" aria-live="polite">
-          <div class="import-fp-head">
-            <span class="import-badge import-badge-live">正在导入</span>
-            <span class="import-pct">{Math.round(normalizedPercent)}%</span>
-          </div>
-          <div class="import-fp-body">
-            <h3 class="import-stage-label">{stageLabel}</h3>
-            <p class="import-stage-desc">{progressSummary}</p>
-          </div>
-          <div class="import-track">
-            <div class="import-track-fill" style={`width: ${normalizedPercent}%`}></div>
-          </div>
-          <div class="import-steps">
-            {#each IMPORT_STAGES as item, index}
-              <div class="import-step" data-state={getStageState(index)}>
-                <span class="import-step-dot"></span>
-                <span>{item.short}</span>
-              </div>
-            {/each}
-          </div>
-          <p class="import-stage-note">
-            {#if progress.stage === "done"}
-              {successSummary} 可以前往资源列表继续查看。
-            {:else}
-              {activeStageMeta.description}
-            {/if}
-          </p>
-          {#if canCancel}
-            <div class="import-cancel-wrap">
-              <button class="btn btn-ghost btn-sm import-cancel-btn" type="button" onclick={onCancel} disabled={isCancellingAsr}>
-                {#if isCancellingAsr}正在取消…{:else}取消识别{/if}
-              </button>
-            </div>
-          {/if}
-        </div>
+    <div class="import-face-progress" role="status" aria-live="polite">
+      <div class="import-fp-head">
+        <span class="import-badge import-badge-live">正在导入</span>
+        <span class="import-pct">{Math.round(normalizedPercent)}%</span>
       </div>
+      <div class="import-fp-body">
+        <h3 class="import-stage-label">{stageLabel}</h3>
+        <p class="import-stage-desc">{progressSummary}</p>
+      </div>
+      <div class="import-track">
+        <div class="import-track-fill" style={`width: ${normalizedPercent}%`}></div>
+      </div>
+      <div class="import-steps">
+        {#each IMPORT_STAGES as item, index}
+          <div class="import-step" data-state={getStageState(index)}>
+            <span class="import-step-dot"></span>
+            <span>{item.short}</span>
+          </div>
+        {/each}
+      </div>
+      <p class="import-stage-note">
+        {#if progress.stage === "done"}
+          {successSummary} 可以前往资源列表继续查看。
+        {:else}
+          {activeStageMeta.description}
+        {/if}
+      </p>
+      {#if canCancel}
+        <div class="import-cancel-wrap">
+          <button class="btn btn-ghost btn-sm import-cancel-btn" type="button" onclick={onCancel} disabled={isCancellingAsr}>
+            {#if isCancellingAsr}正在取消…{:else}取消识别{/if}
+          </button>
+        </div>
+      {/if}
     </div>
   </article>
 </section>
@@ -418,12 +381,12 @@
     display: flex !important;
     flex-direction: column;
     flex: 1;
-    min-height: calc(100vh - 96px);
+    min-height: 0;
+    height: 100%;
+    overflow: hidden;
   }
 
   .import-hero {
-    --import-progress: 0;
-    --showcase-glow: 0.12;
     flex: 1;
     display: flex;
     flex-direction: column;
@@ -448,56 +411,27 @@
     position: absolute !important;
     inset: 0;
     z-index: 0 !important;
-    pointer-events: none;
+    pointer-events: auto;
     overflow: hidden;
   }
 
-  .import-orb {
+  .import-grid-veil {
     position: absolute;
-    border-radius: 50%;
-    will-change: transform, opacity;
-  }
-
-  .import-orb-a {
-    width: 420px;
-    height: 420px;
-    top: 12%;
-    left: 28%;
-    background: radial-gradient(circle, rgba(var(--accent-rgb), 0.18) 0%, transparent 68%);
-    filter: blur(80px);
-    opacity: 0.6;
-    animation: import-orb-a 14s ease-in-out infinite;
+    inset: 0;
+    pointer-events: none;
+    background:
+      radial-gradient(circle at 50% 38%, rgba(8, 8, 10, 0.08) 0%, rgba(8, 8, 10, 0.34) 42%, rgba(8, 8, 10, 0.72) 100%),
+      linear-gradient(180deg, rgba(8, 8, 10, 0.72) 0%, rgba(8, 8, 10, 0.36) 34%, rgba(8, 8, 10, 0.64) 100%);
     transition:
-      opacity 900ms cubic-bezier(0.4, 0, 0.2, 1) 200ms,
-      filter 900ms cubic-bezier(0.4, 0, 0.2, 1) 200ms,
-      transform 900ms cubic-bezier(0.16, 1, 0.3, 1) 200ms;
+      opacity 700ms cubic-bezier(0.16, 1, 0.3, 1),
+      background 700ms cubic-bezier(0.16, 1, 0.3, 1);
   }
 
-  .import-orb-b {
-    width: 320px;
-    height: 320px;
-    bottom: 14%;
-    right: 24%;
-    background: radial-gradient(circle, rgba(129, 140, 248, 0.14) 0%, transparent 70%);
-    filter: blur(70px);
-    opacity: 0.45;
-    animation: import-orb-b 16s ease-in-out infinite;
-    transition:
-      opacity 900ms cubic-bezier(0.4, 0, 0.2, 1) 200ms,
-      filter 900ms cubic-bezier(0.4, 0, 0.2, 1) 200ms,
-      transform 900ms cubic-bezier(0.16, 1, 0.3, 1) 200ms;
-  }
-
-  .import-hero[data-mode="active"] .import-orb-a {
-    opacity: calc(0.55 + var(--showcase-glow));
-    filter: blur(100px);
-    transform: scale(calc(1.3 + var(--import-progress) * 0.3));
-  }
-
-  .import-hero[data-mode="active"] .import-orb-b {
-    opacity: calc(0.35 + var(--showcase-glow) * 0.6);
-    filter: blur(90px);
-    transform: scale(calc(1.2 + var(--import-progress) * 0.2));
+  .import-hero[data-mode="active"] .import-grid-veil {
+    opacity: 0.84;
+    background:
+      radial-gradient(circle at 50% 38%, rgba(8, 8, 10, 0.04) 0%, rgba(8, 8, 10, 0.18) 40%, rgba(8, 8, 10, 0.54) 100%),
+      linear-gradient(180deg, rgba(8, 8, 10, 0.62) 0%, rgba(8, 8, 10, 0.18) 34%, rgba(8, 8, 10, 0.54) 100%);
   }
 
   /* ═══════════════════════════════════════════
@@ -536,176 +470,17 @@
   }
 
   /* ═══════════════════════════════════════════
-     Step 2 — Card grows to 50% and centers
-     ═══════════════════════════════════════════ */
-  .import-card {
-    margin-top: 36px;
-    animation: import-card-float 7s ease-in-out infinite;
-    /* REVERSE: margin returns */
-    transition: margin-top 420ms cubic-bezier(0.32, 0.72, 0, 1) 220ms;
-  }
-
-  .import-hero[data-mode="active"] .import-card {
-    margin-top: 0;
-    animation: none;
-    /* FORWARD: margin→0 after copy starts collapsing */
-    transition: margin-top 420ms cubic-bezier(0.32, 0.72, 0, 1) 160ms;
-  }
-
-  .import-card-inner {
-    position: relative;
-    width: 340px;
-    height: 220px;
-    border-radius: 24px;
-    overflow: hidden;
-    background:
-      linear-gradient(180deg, rgba(255, 255, 255, 0.045), transparent 40%),
-      linear-gradient(180deg, rgba(23, 27, 39, 0.97), rgba(11, 14, 21, 0.97));
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    box-shadow:
-      0 20px 60px rgba(0, 0, 0, 0.28),
-      0 0 0 1px rgba(255, 255, 255, 0.03);
-    transform: translateZ(0);
-    -webkit-transform: translateZ(0);
-    backface-visibility: hidden;
-    -webkit-backface-visibility: hidden;
-    will-change: width, height;
-    /* REVERSE: shrink back */
-    transition:
-      width 440ms cubic-bezier(0.32, 0.72, 0, 1) 220ms,
-      height 440ms cubic-bezier(0.32, 0.72, 0, 1) 220ms,
-      border-radius 440ms cubic-bezier(0.32, 0.72, 0, 1) 220ms,
-      box-shadow 500ms cubic-bezier(0.4, 0, 0.2, 1) 220ms;
-  }
-
-  .import-hero[data-mode="active"] .import-card-inner {
-    width: min(580px, calc((100vw - var(--sidebar-w, 220px)) * 0.52));
-    height: min(450px, 50vh);
-    border-radius: 28px;
-    box-shadow:
-      0 32px 80px rgba(0, 0, 0, 0.36),
-      0 0 0 1px rgba(255, 255, 255, 0.06),
-      0 0 80px rgba(var(--accent-rgb), calc(0.04 + var(--import-progress) * 0.12));
-    /* FORWARD: grow after copy starts fading */
-    transition:
-      width 440ms cubic-bezier(0.32, 0.72, 0, 1) 160ms,
-      height 440ms cubic-bezier(0.32, 0.72, 0, 1) 160ms,
-      border-radius 440ms cubic-bezier(0.32, 0.72, 0, 1) 160ms,
-      box-shadow 500ms cubic-bezier(0.4, 0, 0.2, 1) 160ms;
-  }
-
-  /* Card light sweep */
-  .import-card-shine {
-    position: absolute;
-    inset: -18% -34%;
-    z-index: 3;
-    background:
-      linear-gradient(
-        112deg,
-        transparent 36%,
-        rgba(255, 255, 255, 0.02) 43%,
-        rgba(255, 255, 255, 0.18) 50%,
-        rgba(255, 255, 255, 0.04) 57%,
-        transparent 66%
-      );
-    transform: translateX(-130%) skewX(-18deg);
-    mix-blend-mode: screen;
-    pointer-events: none;
-    animation: import-sweep 7s ease-in-out infinite;
-  }
-
-  /* ═══════════════════════════════════════════
-     Decorative face — fades with copy block
-     ═══════════════════════════════════════════ */
-  .import-face-decor {
-    position: absolute;
-    inset: 0;
-    z-index: 1;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    padding: 22px;
-    /* REVERSE: reappear with card shrink */
-    transition:
-      opacity 300ms cubic-bezier(0.4, 0, 0.2, 1) 280ms,
-      filter 300ms cubic-bezier(0.4, 0, 0.2, 1) 280ms;
-  }
-
-  .import-hero[data-mode="active"] .import-face-decor {
-    opacity: 0;
-    filter: blur(8px);
-    pointer-events: none;
-    /* FORWARD: fade out immediately with copy */
-    transition:
-      opacity 240ms cubic-bezier(0.4, 0, 0.2, 1) 0ms,
-      filter 240ms cubic-bezier(0.4, 0, 0.2, 1) 0ms;
-  }
-
-  .import-chip {
-    display: inline-flex;
-    align-items: center;
-    width: fit-content;
-    padding: 6px 10px;
-    border-radius: 999px;
-    background: rgba(var(--accent-rgb), 0.14);
-    border: 1px solid rgba(var(--accent-rgb), 0.18);
-    color: var(--accent);
-    font-size: var(--font-2xs);
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-  }
-
-  .import-skel {
-    display: block;
-    height: 10px;
-    border-radius: 999px;
-    background: rgba(255, 255, 255, 0.08);
-  }
-
-  .import-skel-bold {
-    width: 52%;
-    height: 14px;
-    background: rgba(255, 255, 255, 0.88);
-  }
-
-  .import-skel-short {
-    width: 66%;
-  }
-
-  .import-bars {
-    margin-top: auto;
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    align-items: end;
-    gap: 10px;
-    min-height: 72px;
-  }
-
-  .import-bars span {
-    display: block;
-    border-radius: 14px 14px 10px 10px;
-    background: linear-gradient(180deg, rgba(var(--accent-rgb), 0.86), rgba(var(--accent-rgb), 0.28));
-    animation: import-bars-pulse 2.8s ease-in-out infinite;
-    transition: height 420ms cubic-bezier(0.22, 1, 0.36, 1);
-  }
-
-  .import-bars span:nth-child(1) { height: 46%; animation-delay: -0.8s; }
-  .import-bars span:nth-child(2) { height: 74%; animation-delay: -1.4s; }
-  .import-bars span:nth-child(3) { height: 58%; animation-delay: -0.4s; }
-  .import-bars span:nth-child(4) { height: 86%; animation-delay: -1.9s; }
-
-  /* ═══════════════════════════════════════════
      Step 3 — Progress face (last in, first out)
      ═══════════════════════════════════════════ */
   .import-face-progress {
-    position: absolute;
-    inset: 0;
-    z-index: 2;
+    position: relative;
+    z-index: 1;
     display: flex;
     flex-direction: column;
     gap: 14px;
-    padding: 28px 30px;
+    width: min(760px, calc(100vw - 96px));
+    margin-top: 36px;
+    padding: 0;
     text-align: left;
     opacity: 0;
     transform: translateY(10px);
@@ -723,11 +498,11 @@
     transform: translateY(0);
     filter: blur(0);
     pointer-events: auto;
-    /* FORWARD: appear LAST — after card finishes growing (~400ms) */
+    /* FORWARD: appear after idle block fades */
     transition:
-      opacity 400ms cubic-bezier(0.4, 0, 0.2, 1) 420ms,
-      transform 400ms cubic-bezier(0.16, 1, 0.3, 1) 420ms,
-      filter 400ms cubic-bezier(0.4, 0, 0.2, 1) 420ms;
+      opacity 400ms cubic-bezier(0.4, 0, 0.2, 1) 260ms,
+      transform 400ms cubic-bezier(0.16, 1, 0.3, 1) 260ms,
+      filter 400ms cubic-bezier(0.4, 0, 0.2, 1) 260ms;
   }
 
   .import-fp-head {
@@ -1062,34 +837,6 @@
   /* ═══════════════════════════════════════════
      Keyframes
      ═══════════════════════════════════════════ */
-  @keyframes import-card-float {
-    0%, 100% { translate: 0 0; }
-    50% { translate: 0 -7px; }
-  }
-
-  @keyframes import-orb-a {
-    0%, 100% { transform: translate(0, 0) scale(1); }
-    33% { transform: translate(20px, -15px) scale(1.06); }
-    66% { transform: translate(-12px, 10px) scale(0.97); }
-  }
-
-  @keyframes import-orb-b {
-    0%, 100% { transform: translate(0, 0) scale(1); }
-    33% { transform: translate(-18px, 12px) scale(1.04); }
-    66% { transform: translate(14px, -10px) scale(0.95); }
-  }
-
-  @keyframes import-sweep {
-    0%, 12% { transform: translateX(-130%) skewX(-18deg); opacity: 0; }
-    24% { opacity: 0.9; }
-    46%, 100% { transform: translateX(118%) skewX(-18deg); opacity: 0; }
-  }
-
-  @keyframes import-bars-pulse {
-    0%, 100% { filter: brightness(0.95); transform: scaleY(0.96); }
-    50% { filter: brightness(1.08); transform: scaleY(1.02); }
-  }
-
   @keyframes import-shimmer {
     0% { background-position: 200% 0; }
     100% { background-position: -200% 0; }
@@ -1119,17 +866,14 @@
      Responsive
      ═══════════════════════════════════════════ */
   @media (max-width: 900px) {
-    .import-page { min-height: calc(100vh - 80px); }
+    .import-page { min-height: 0; }
     .import-toast, .import-dialog, .import-online-dialog { left: 50%; }
 
-    .import-hero[data-mode="active"] .import-card-inner {
-      width: min(520px, calc(100vw - 60px));
-      height: min(420px, 52vh);
-    }
+    .import-face-progress { width: min(680px, calc(100vw - 60px)); }
   }
 
   @media (max-width: 640px) {
-    .import-page { min-height: calc(100vh - 72px); }
+    .import-page { min-height: 0; }
     .import-hero { padding: 28px 22px; }
 
     .import-actions,
@@ -1141,14 +885,11 @@
 
     .import-fp-head { align-items: flex-start; }
 
-    .import-card-inner { width: 260px; height: 180px; }
-
-    .import-hero[data-mode="active"] .import-card-inner {
+    .import-face-progress {
       width: min(460px, calc(100vw - 32px));
-      height: min(400px, 55vh);
+      margin-top: 28px;
+      gap: 12px;
     }
-
-    .import-face-progress { padding: 20px; gap: 12px; }
 
     .import-steps { gap: 6px; }
     .import-step { padding: 5px 10px; }
@@ -1165,20 +906,27 @@
      ═══════════════════════════════════════════ */
   @media (prefers-reduced-motion: reduce) {
     .import-idle,
-    .import-card,
-    .import-card-inner,
-    .import-face-decor,
     .import-face-progress,
-    .import-orb,
     .import-track-fill,
     .import-toast,
     .import-dialog,
     .import-dialog-backdrop,
     .import-badge-live::before,
-    .import-bars span,
     .import-step {
       animation: none !important;
       transition-duration: 0ms !important;
     }
+  }
+
+  :global([data-theme="light"]) .import-grid-veil {
+    background:
+      radial-gradient(circle at 50% 38%, rgba(255, 255, 255, 0.14) 0%, rgba(244, 241, 236, 0.52) 42%, rgba(235, 230, 223, 0.86) 100%),
+      linear-gradient(180deg, rgba(250, 248, 244, 0.82) 0%, rgba(248, 245, 240, 0.4) 34%, rgba(236, 231, 224, 0.78) 100%);
+  }
+
+  :global([data-theme="light"]) .import-hero[data-mode="active"] .import-grid-veil {
+    background:
+      radial-gradient(circle at 50% 38%, rgba(255, 255, 255, 0.1) 0%, rgba(246, 242, 236, 0.34) 40%, rgba(230, 224, 216, 0.72) 100%),
+      linear-gradient(180deg, rgba(248, 246, 242, 0.72) 0%, rgba(248, 245, 240, 0.2) 34%, rgba(232, 227, 219, 0.68) 100%);
   }
 </style>
