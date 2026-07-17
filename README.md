@@ -1,343 +1,60 @@
-# muyu
+# Muyu
 
-基于 `Tauri 2 + Rust + Vanilla TypeScript` 的跨平台桌面悬浮字幕播放器，当前已经支持：
+A cross-platform floating subtitle player for local audio, language practice, and fully offline transcription.
 
-- 导入本地音频
-- 导入 `.srt` / `.vtt` 字幕
-- 悬浮字幕窗显示
-- 单句循环
-- 本地离线字幕生成：`ffmpeg + whisper-cli`
+[English](./README.md) | [简体中文](./README.zh-CN.md)
 
-## 本地运行
+## Features
+
+- Import local audio files
+- Load `.srt` and `.vtt` subtitle files
+- Display subtitles in a floating desktop window
+- Loop a single subtitle line for focused listening practice
+- Generate subtitles locally with `ffmpeg` and `whisper-cli`
+- Download the default Whisper model from inside the app
+- Package platform sidecars for macOS and Windows releases
+
+## Tech Stack
+
+Tauri 2 · Rust · Svelte 5 · TypeScript · Vite · ffmpeg · whisper.cpp · yt-dlp
+
+## Getting Started
+
+### Prerequisites
+
+- Node.js and npm
+- Rust stable
+- `ffmpeg`, `whisper-cli`, and `yt-dlp`, either on `PATH` or prepared as Tauri sidecars
+- A compatible Whisper model such as `ggml-base.bin`
+
+### Development
 
 ```bash
-cd /Users/zhaodesen/Desktop/desktop-client
-. "$HOME/.cargo/env"
 npm install
 npm run tauri dev
 ```
 
-Windows 下如果 `src-tauri/binaries` 缺少当前目标平台的 sidecar，`npm run tauri dev` / `npm run tauri build` 现在会先自动调用 [prepare-sidecars-windows.ps1](/Users/zhaodesen/Desktop/desktop-client/scripts/prepare-sidecars-windows.ps1) 补齐：
+The application checks environment variables, local development paths, and bundled sidecars when resolving offline tools. Supported overrides are `FFMPEG_BIN`, `WHISPER_CLI_BIN`, `YT_DLP_BIN`, and `WHISPER_MODEL_PATH`.
 
-- `ffmpeg-x86_64-pc-windows-msvc.exe`
-- `whisper-cli-x86_64-pc-windows-msvc.exe`
-- `yt-dlp-x86_64-pc-windows-msvc.exe`
-
-如果你已经在本机准备好了可执行文件，也可以直接复用运行时环境变量：
-
-- `FFMPEG_BIN`
-- `WHISPER_CLI_BIN`
-- `YT_DLP_BIN`
-
-## 离线识别依赖
-
-当前离线识别会按下面顺序查找依赖。正式版会优先使用打包进去的 sidecar：
-
-### `ffmpeg`
-
-- 环境变量 `FFMPEG_BIN`
-- `PATH` 中的 `ffmpeg`
-- 项目目录下的 `./bin/ffmpeg`
-- 项目目录下的 `./src-tauri/binaries/ffmpeg`
-
-### `whisper-cli`
-
-- 环境变量 `WHISPER_CLI_BIN`
-- `PATH` 中的 `whisper-cli`
-- 项目目录下的 `./bin/whisper-cli`
-- 项目目录下的 `./src-tauri/binaries/whisper-cli`
-
-### `yt-dlp`
-
-- 环境变量 `YT_DLP_BIN`
-- `PATH` 中的 `yt-dlp`
-- 项目目录下的 `./bin/yt-dlp`
-- 项目目录下的 `./src-tauri/binaries/yt-dlp`
-
-正式版请把平台对应的二进制放到：
+## Offline Transcription Flow
 
 ```text
-src-tauri/binaries/
+Import audio
+  → convert to 16 kHz mono WAV with ffmpeg
+  → transcribe locally with whisper-cli
+  → generate SRT
+  → load subtitles into the player
 ```
 
-并遵守 Tauri 的 `externalBin` 命名规则，例如 macOS Apple Silicon：
-
-```text
-src-tauri/binaries/ffmpeg-aarch64-apple-darwin
-src-tauri/binaries/whisper-cli-aarch64-apple-darwin
-src-tauri/binaries/yt-dlp-aarch64-apple-darwin
-```
-
-macOS Intel：
-
-```text
-src-tauri/binaries/ffmpeg-x86_64-apple-darwin
-src-tauri/binaries/whisper-cli-x86_64-apple-darwin
-src-tauri/binaries/yt-dlp-x86_64-apple-darwin
-```
-
-Windows：
-
-```text
-src-tauri/binaries/ffmpeg-x86_64-pc-windows-msvc.exe
-src-tauri/binaries/whisper-cli-x86_64-pc-windows-msvc.exe
-src-tauri/binaries/yt-dlp-x86_64-pc-windows-msvc.exe
-```
-
-Linux：
-
-```text
-src-tauri/binaries/ffmpeg-x86_64-unknown-linux-gnu
-src-tauri/binaries/whisper-cli-x86_64-unknown-linux-gnu
-src-tauri/binaries/yt-dlp-x86_64-unknown-linux-gnu
-```
-
-### Whisper 模型
-
-模型文件默认查找：
-
-- 环境变量 `WHISPER_MODEL_PATH`
-- `应用数据目录/models/ggml-base.bin`
-- 项目目录下的 `./models/ggml-base.bin`
-- 项目目录下的 `./src-tauri/models/ggml-base.bin`
-
-推荐先使用：
-
-```text
-./models/ggml-base.bin
-```
-
-应用内也已经支持直接下载默认 `base` 模型。
-
-## 推荐的最小本地准备
-
-macOS / Linux 准备 sidecar：
-
-```bash
-cd /Users/zhaodesen/Desktop/desktop-client
-FFMPEG_SOURCE=/absolute/path/to/ffmpeg ./scripts/build-sidecars.sh
-./scripts/verify-sidecars.sh
-```
-
-Windows 本地开发可以直接运行：
-
-```powershell
-cd /Users/zhaodesen/Desktop/desktop-client
-npm run tauri dev
-```
-
-首次运行时如果缺少 sidecar，会自动执行准备脚本。若要复用你本机已有的二进制，可以先设置：
-
-```powershell
-$env:FFMPEG_BIN="C:\absolute\path\to\ffmpeg.exe"
-$env:WHISPER_CLI_BIN="C:\absolute\path\to\whisper-cli.exe"
-$env:YT_DLP_BIN="C:\absolute\path\to\yt-dlp.exe"
-```
-
-然后准备模型：
-
-```bash
-mkdir -p /Users/zhaodesen/Desktop/desktop-client/models
-```
-
-再选择其一：
-
-- 把 Whisper 模型放到 [models/ggml-base.bin](/Users/zhaodesen/Desktop/desktop-client/models/ggml-base.bin)
-- 或直接在应用内下载默认 `base` 模型
-
-更完整的发布规范见：
-- [sidecar-release.md](/Users/zhaodesen/Desktop/desktop-client/docs/sidecar-release.md)
-
-## 当前离线识别流程
-
-```text
-导入音频
-→ 点击“生成字幕”
-→ Rust 启动后台任务
-→ ffmpeg 转 16k 单声道 wav
-→ whisper-cli 输出 srt
-→ 主窗口自动加载生成的字幕
-```
-
-## 已验证
-
-以下命令已经通过：
+## Build and Release
 
 ```bash
 npm run build
 cargo check --manifest-path src-tauri/Cargo.toml
 ```
 
-## 上传到 GitHub
+GitHub Actions can build Apple Silicon, Intel macOS, and Windows x64 packages from version tags. Platform signing is optional and configured through repository secrets. See [`docs/sidecar-release.md`](./docs/sidecar-release.md) for the sidecar release process.
 
-如果你还没有远程仓库，可以先在 GitHub 上创建一个空仓库，然后在本地执行：
+## Security and Privacy
 
-```bash
-cd /Users/zhaodesen/Desktop/desktop-client
-git remote add origin <你的 GitHub 仓库地址>
-git push -u origin master
-```
-
-如果已经有远程仓库，只需要：
-
-```bash
-cd /Users/zhaodesen/Desktop/desktop-client
-git push -u origin master
-```
-
-## GitHub Actions 自动打包
-
-项目已添加工作流：
-
-- [release.yml](/Users/zhaodesen/Desktop/desktop-client/.github/workflows/release.yml)
-
-触发方式：
-
-- 推送版本标签：`v0.1.0`、`v0.2.0` 这类 tag
-- 或在 GitHub Actions 页面手动执行 `Release Desktop App`
-
-当前工作流会自动构建：
-
-- macOS Apple Silicon：`aarch64-apple-darwin`
-- macOS Intel：`x86_64-apple-darwin`
-- Windows x64：`x86_64-pc-windows-msvc`
-
-构建过程中还会自动完成：
-
-- 校验仓库内置 sidecar 是否齐全
-- 如果已配置 secrets，macOS 使用 `Developer ID Application` 证书签名，并提交公证
-- 如果已配置 secrets，Windows 使用 `.pfx` 证书签名
-
-构建完成后，安装包会保存在当前 workflow 的 `Artifacts` 中，你可以在 GitHub Actions 对应任务页面下载。
-
-### 发版命令
-
-现在推荐直接用单命令发版，脚本会自动：
-
-- 读取最新 `v*` tag
-- 默认按 `patch` 递增版本号
-- 同步版本文件
-- 自动提交 `release: v<version>`
-- 推送当前分支
-- 创建并推送对应 tag
-
-执行方式：
-
-```bash
-cd /Users/zhaodesen/Desktop/desktop-client
-npm run release:version
-```
-
-如果你要升 `minor` 或 `major`：
-
-```bash
-npm run release:version -- minor
-npm run release:version -- major
-```
-
-脚本要求工作区必须是干净的；如果有未提交改动，会直接中止，避免把无关内容带进 release commit。
-
-如果你只想手动同步版本号，也可以继续使用：
-
-- [package.json](/Users/zhaodesen/Desktop/desktop-client/package.json)
-- [src-tauri/tauri.conf.json](/Users/zhaodesen/Desktop/desktop-client/src-tauri/tauri.conf.json)
-
-手工流程如下：
-
-```bash
-cd /Users/zhaodesen/Desktop/desktop-client
-npm run set-version -- 0.1.12
-git add .
-git commit -m "release: v0.1.12"
-git push origin master
-npm run tag:version
-```
-
-注意：
-
-- 用 `npm run set-version -- <版本号>` 只会更新真正需要同步的版本文件。
-- 用 `npm run tag:version` 会读取 [package.json](/Users/zhaodesen/Desktop/desktop-client/package.json) 里的 `version`，自动创建并推送 `v<version>` tag。
-- 不要对 [src-tauri/Cargo.lock](/Users/zhaodesen/Desktop/desktop-client/src-tauri/Cargo.lock) 做全局字符串替换，否则会把第三方依赖版本一并改坏。
-
-### 重要说明
-
-- GitHub Actions 不再依赖你手工把各平台 sidecar 提前提交到仓库；工作流会按目标平台自动准备。
-- Windows 本地 `tauri dev/build` 也不再要求你先手工往 `src-tauri/binaries` 填 sidecar；缺失时会自动准备，或优先复用 `FFMPEG_BIN` / `WHISPER_CLI_BIN` / `YT_DLP_BIN`。
-- 不配置签名 secrets 也可以正常发布安装包。
-- macOS 默认启用 `ad-hoc signing`，可降低 Apple Silicon 设备上的安装拦截概率，但仍不等于正式签名或公证。
-- 没有签名时，macOS 首次打开可能需要右键打开或在系统设置里手动放行，Windows 也可能提示未知发布者。
-- 如果你想减少系统安全提示，再去 GitHub 仓库 `Settings -> Secrets and variables -> Actions` 中配置签名密钥。
-
-### macOS 首次打开说明
-
-如果你下载的是未签名或未公证的 `dmg`，macOS 可能提示“无法验证开发者”或直接建议移入废纸篓。可以按下面顺序处理：
-
-1. 把应用从 `dmg` 拖到 `Applications`
-2. 在“应用程序”里对 App 右键，选择“打开”
-3. 如果仍被拦截，打开：
-   `系统设置 -> 隐私与安全性`
-4. 在底部点击“仍要打开”
-
-如果还是被拦截，可以执行：
-
-```bash
-xattr -dr com.apple.quarantine "/Applications/muyu.app"
-```
-
-然后再次尝试打开。
-
-### 必填 GitHub Secrets
-
-#### macOS 签名与公证
-
-- `APPLE_CERTIFICATE`
-  - Base64 编码后的 `Developer ID Application` 证书 `.p12`
-- `APPLE_CERTIFICATE_PASSWORD`
-  - 导出 `.p12` 时设置的密码
-- `APPLE_ID`
-  - Apple Developer 登录邮箱
-- `APPLE_PASSWORD`
-  - Apple 专用 app-specific password
-- `APPLE_TEAM_ID`
-  - Apple Developer Team ID
-- `KEYCHAIN_PASSWORD`
-  - CI 临时 keychain 密码，可自定义一个强密码
-
-#### Apple 侧需要提前准备的内容
-
-- Apple Developer 会员账号
-- `Developer ID Application` 证书
-- 导出的 `.p12` 文件和导出密码
-- Apple 账号的 `app-specific password`
-- 你的 `Apple Team ID`
-
-#### Apple 准备步骤
-
-1. 登录 Apple Developer
-2. 创建或下载 `Developer ID Application` 证书
-3. 在“钥匙串访问”中导出为 `.p12`
-4. 为导出的 `.p12` 设置密码
-5. 在 Apple 账户安全页生成 `app-specific password`
-6. 记录你的 `Team ID`
-7. 把 `.p12` 转成 Base64 后填入 GitHub Secrets
-
-#### Windows 签名
-
-- `WINDOWS_CERTIFICATE`
-  - Base64 编码后的代码签名证书 `.pfx`
-- `WINDOWS_CERTIFICATE_PASSWORD`
-  - 导出 `.pfx` 时设置的密码
-
-### 证书转换命令
-
-#### macOS `.p12` 转 Base64
-
-```bash
-base64 -i developer-id-application.p12 | pbcopy
-```
-
-#### Windows `.pfx` 转 Base64
-
-```bash
-base64 -i codesign-certificate.pfx | pbcopy
-```
+Transcription runs locally. Audio and subtitle content do not need to be uploaded to a remote service.
