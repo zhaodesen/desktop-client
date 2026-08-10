@@ -33,7 +33,7 @@
 
 - 将翻译运行时从“Python 工程”降为“原生 sidecar + 模型文件”
 - 降低 CI 和代码签名复杂度
-- 让打包逻辑与现有 `ffmpeg / whisper-cli / yt-dlp` 的 sidecar 体系保持一致
+- 让打包逻辑与现有 `ffmpeg / whisper-cli` 的 sidecar 体系保持一致
 
 ## 3. 为什么考虑 CTranslate2
 

@@ -98,7 +98,6 @@ function postprocessMacBuild() {
   const sidecarPaths = [
     path.join(appPath, 'Contents', 'MacOS', 'ffmpeg'),
     path.join(appPath, 'Contents', 'MacOS', 'whisper-cli'),
-    path.join(appPath, 'Contents', 'MacOS', 'yt-dlp'),
     path.join(appPath, 'Contents', 'MacOS', 'translator-cli'),
     path.join(appPath, 'Contents', 'MacOS', 'ct2-translator'),
     path.join(appPath, 'Contents', 'MacOS', 'spm_encode'),

@@ -55,7 +55,6 @@
     "externalBin": [
       "binaries/ffmpeg",
       "binaries/whisper-cli",
-      "binaries/yt-dlp",
       "binaries/translator-cli",
       "binaries/ct2-translator",
       "binaries/spm_encode",

@@ -52,7 +52,6 @@ import type {
   TranslationModelDownloadCompletedPayload,
   TranslationModelInfo,
   TranslationModelStatus,
-  YtDlpStatus,
   ShutdownCleanupOutput,
   ShutdownTaskSummary,
   StartAsrJobInput,
@@ -163,12 +162,6 @@ export const backend = {
   deleteTranslationModel() {
     return callCommand<CleanupResult>("delete_translation_model");
   },
-  getYtDlpStatus() {
-    return callCommand<YtDlpStatus>("get_yt_dlp_status");
-  },
-  updateYtDlp() {
-    return callCommand<YtDlpStatus>("update_yt_dlp");
-  },
   getLibraryState() {
     return callCommand<LibraryState>("get_library_state");
   },
@@ -177,9 +170,6 @@ export const backend = {
   },
   importMedia(sourcePath: string) {
     return callCommand<MediaItem>("import_media", { sourcePath });
-  },
-  importOnlineMedia(url: string) {
-    return callCommand<MediaItem>("import_online_media", { url });
   },
   deleteMedia(mediaId: string) {
     return callCommand<boolean>("delete_media", { mediaId });

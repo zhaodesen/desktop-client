@@ -16,7 +16,6 @@ use crate::{
     subtitle::{self, SubtitleCue, SubtitleDocument},
     translation_model::{self, TranslationModelInfo, TranslationModelStatus},
     window,
-    yt_dlp::{self, YtDlpStatus},
 };
 use tauri::{async_runtime, AppHandle, Manager, State};
 
@@ -396,24 +395,6 @@ pub fn delete_translation_model(app: AppHandle) -> CommandResponse<CleanupResult
 }
 
 #[tauri::command]
-pub fn get_yt_dlp_status(app: AppHandle) -> CommandResponse<YtDlpStatus> {
-    match yt_dlp::get_status(&app) {
-        Ok(status) => CommandResponse::ok(status),
-        Err(error) => CommandResponse::err("yt_dlp_status_failed", error),
-    }
-}
-
-#[tauri::command]
-pub async fn update_yt_dlp(app: AppHandle) -> CommandResponse<YtDlpStatus> {
-    let app_handle = app.clone();
-
-    match run_blocking_task(move || yt_dlp::force_update(&app_handle)).await {
-        Ok(status) => CommandResponse::ok(status),
-        Err(error) => CommandResponse::err("yt_dlp_update_failed", error),
-    }
-}
-
-#[tauri::command]
 pub fn get_library_state(app: AppHandle) -> CommandResponse<LibraryState> {
     match media::get_library_state(&app) {
         Ok(state) => CommandResponse::ok(state),
@@ -440,21 +421,6 @@ pub async fn import_media(app: AppHandle, source_path: String) -> CommandRespons
     {
         Ok(item) => CommandResponse::ok(item),
         Err(error) => CommandResponse::err("import_media_failed", error),
-    }
-}
-
-#[tauri::command]
-pub async fn import_online_media(app: AppHandle, url: String) -> CommandResponse<MediaItem> {
-    let app_handle = app.clone();
-    let active_online_import = app.state::<AppState>().active_online_import.clone();
-
-    match run_blocking_task(move || {
-        media::import_online_media(&app_handle, &url, active_online_import)
-    })
-    .await
-    {
-        Ok(item) => CommandResponse::ok(item),
-        Err(error) => CommandResponse::err("import_online_media_failed", error),
     }
 }
 

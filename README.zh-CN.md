@@ -16,7 +16,7 @@
 
 ## 技术栈
 
-Tauri 2 · Rust · Svelte 5 · TypeScript · Vite · ffmpeg · whisper.cpp · yt-dlp
+Tauri 2 · Rust · Svelte 5 · TypeScript · Vite · ffmpeg · whisper.cpp
 
 ## 快速开始
 
@@ -24,7 +24,7 @@ Tauri 2 · Rust · Svelte 5 · TypeScript · Vite · ffmpeg · whisper.cpp · yt
 
 - Node.js 与 npm
 - Rust stable
-- `ffmpeg`、`whisper-cli` 和 `yt-dlp`，可放入 `PATH` 或准备为 Tauri sidecar
+- `ffmpeg` 和 `whisper-cli`，可放入 `PATH` 或准备为 Tauri sidecar
 - 兼容的 Whisper 模型，例如 `ggml-base.bin`
 
 ### 本地开发
@@ -34,7 +34,7 @@ npm install
 npm run tauri dev
 ```
 
-应用会依次从环境变量、本地开发路径和打包 sidecar 中查找离线工具。可使用 `FFMPEG_BIN`、`WHISPER_CLI_BIN`、`YT_DLP_BIN` 与 `WHISPER_MODEL_PATH` 指定路径。
+应用会依次从环境变量、本地开发路径和打包 sidecar 中查找离线工具。可使用 `FFMPEG_BIN`、`WHISPER_CLI_BIN` 与 `WHISPER_MODEL_PATH` 指定路径。
 
 ## 离线转写流程
 

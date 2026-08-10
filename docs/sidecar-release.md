@@ -6,13 +6,12 @@
 
 - 不依赖系统 `ffmpeg`
 - 不依赖系统 `whisper-cli`
-- 不依赖系统 `yt-dlp`
 - 通过 Tauri `externalBin` 将二进制随应用一起打包
 
 当前配置已经在 [tauri.conf.json](/Users/zhaodesen/Desktop/desktop-client/src-tauri/tauri.conf.json) 中启用：
 
 ```json
-"externalBin": ["binaries/ffmpeg", "binaries/whisper-cli", "binaries/yt-dlp"]
+"externalBin": ["binaries/ffmpeg", "binaries/whisper-cli"]
 ```
 
 根据 Tauri 官方文档，外部二进制必须遵守：
@@ -31,7 +30,6 @@ binary-name{-target-triple}{.system-extension}
 ```text
 src-tauri/binaries/ffmpeg-aarch64-apple-darwin
 src-tauri/binaries/whisper-cli-aarch64-apple-darwin
-src-tauri/binaries/yt-dlp-aarch64-apple-darwin
 ```
 
 ### macOS Intel
@@ -39,7 +37,6 @@ src-tauri/binaries/yt-dlp-aarch64-apple-darwin
 ```text
 src-tauri/binaries/ffmpeg-x86_64-apple-darwin
 src-tauri/binaries/whisper-cli-x86_64-apple-darwin
-src-tauri/binaries/yt-dlp-x86_64-apple-darwin
 ```
 
 ### Windows
@@ -47,7 +44,6 @@ src-tauri/binaries/yt-dlp-x86_64-apple-darwin
 ```text
 src-tauri/binaries/ffmpeg-x86_64-pc-windows-msvc.exe
 src-tauri/binaries/whisper-cli-x86_64-pc-windows-msvc.exe
-src-tauri/binaries/yt-dlp-x86_64-pc-windows-msvc.exe
 ```
 
 ### Linux
@@ -55,7 +51,6 @@ src-tauri/binaries/yt-dlp-x86_64-pc-windows-msvc.exe
 ```text
 src-tauri/binaries/ffmpeg-x86_64-unknown-linux-gnu
 src-tauri/binaries/whisper-cli-x86_64-unknown-linux-gnu
-src-tauri/binaries/yt-dlp-x86_64-unknown-linux-gnu
 ```
 
 ## 获取策略
@@ -64,13 +59,11 @@ Windows 本地开发和构建现在会在缺失 sidecar 时自动调用 [prepare
 
 - `ffmpeg-x86_64-pc-windows-msvc.exe`
 - `whisper-cli-x86_64-pc-windows-msvc.exe`
-- `yt-dlp-x86_64-pc-windows-msvc.exe`
 
 如果机器上已经有现成的原生可执行文件，也可以直接复用这些运行时环境变量：
 
 - `FFMPEG_BIN`
 - `WHISPER_CLI_BIN`
-- `YT_DLP_BIN`
 
 ## 1. whisper-cli
 
@@ -130,27 +123,6 @@ FFMPEG_SOURCE=/absolute/path/to/ffmpeg ./scripts/build-sidecars.sh
 FFMPEG_BIN=/absolute/path/to/ffmpeg ./scripts/build-sidecars.sh
 ```
 
-## 3. yt-dlp
-
-`yt-dlp` 直接使用官方发布的预编译二进制即可。
-
-官方仓库：
-- [yt-dlp/yt-dlp](https://github.com/yt-dlp/yt-dlp)
-
-当前脚本默认会按目标平台下载官方 standalone 二进制：
-
-- macOS：`yt-dlp_macos`
-- Windows x64：`yt-dlp.exe`
-- Linux x64：`yt-dlp_linux`
-
-如果你要使用自定义文件，也可以显式传入 `YT_DLP_SOURCE`，但它必须是官方 standalone 二进制，不要传 `brew`、`pip`、`uv tool` 安装出来的包装脚本。
-
-也可以直接复用运行时变量：
-
-```bash
-YT_DLP_BIN=/absolute/path/to/yt-dlp ./scripts/build-sidecars.sh
-```
-
 ## 发布前检查
 
 准备好 sidecar 后，执行：
@@ -164,8 +136,7 @@ cd /Users/zhaodesen/Desktop/desktop-client
 
 - 当前平台对应的 `ffmpeg` 是否存在
 - 当前平台对应的 `whisper-cli` 是否存在
-- 当前平台对应的 `yt-dlp` 是否存在
-- 三个二进制是否都能执行
+- 两个二进制是否都能执行
 
 ## 构建流程建议
 

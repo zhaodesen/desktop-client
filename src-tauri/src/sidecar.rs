@@ -366,7 +366,7 @@ mod tests {
 
     #[test]
     fn sidecar_name_does_not_match_state_json() {
-        assert!(!is_matching_sidecar_name("yt-dlp-state.json", "yt-dlp"));
+        assert!(!is_matching_sidecar_name("model-state.json", "model"));
         assert!(!is_matching_sidecar_name("translator-cli-state.json", "translator-cli"));
     }
 
@@ -377,7 +377,7 @@ mod tests {
         let _ = fs::remove_dir_all(&temp_dir);
         fs::create_dir_all(&temp_dir).expect("create temp dir");
 
-        let executable_path = temp_dir.join("yt-dlp");
+        let executable_path = temp_dir.join("model");
         fs::write(&executable_path, b"#!/bin/sh\n").expect("write executable");
         let mut executable_permissions = fs::metadata(&executable_path)
             .expect("read executable metadata")
@@ -385,7 +385,7 @@ mod tests {
         executable_permissions.set_mode(0o755);
         fs::set_permissions(&executable_path, executable_permissions).expect("chmod executable");
 
-        let state_path = temp_dir.join("yt-dlp-state.json");
+        let state_path = temp_dir.join("model-state.json");
         fs::write(&state_path, b"{}").expect("write state file");
         let mut state_permissions = fs::metadata(&state_path)
             .expect("read state metadata")
@@ -393,11 +393,11 @@ mod tests {
         state_permissions.set_mode(0o644);
         fs::set_permissions(&state_path, state_permissions).expect("chmod state");
 
-        assert!(is_matching_sidecar_path(&executable_path, "yt-dlp", "yt-dlp"));
+        assert!(is_matching_sidecar_path(&executable_path, "model", "model"));
         assert!(!is_matching_sidecar_path(
             &PathBuf::from(&state_path),
-            "yt-dlp-state.json",
-            "yt-dlp",
+            "model-state.json",
+            "model",
         ));
 
         let _ = fs::remove_dir_all(&temp_dir);

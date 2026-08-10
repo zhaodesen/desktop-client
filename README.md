@@ -16,7 +16,7 @@ A cross-platform floating subtitle player for local audio, language practice, an
 
 ## Tech Stack
 
-Tauri 2 · Rust · Svelte 5 · TypeScript · Vite · ffmpeg · whisper.cpp · yt-dlp
+Tauri 2 · Rust · Svelte 5 · TypeScript · Vite · ffmpeg · whisper.cpp
 
 ## Getting Started
 
@@ -24,7 +24,7 @@ Tauri 2 · Rust · Svelte 5 · TypeScript · Vite · ffmpeg · whisper.cpp · yt
 
 - Node.js and npm
 - Rust stable
-- `ffmpeg`, `whisper-cli`, and `yt-dlp`, either on `PATH` or prepared as Tauri sidecars
+- `ffmpeg` and `whisper-cli`, either on `PATH` or prepared as Tauri sidecars
 - A compatible Whisper model such as `ggml-base.bin`
 
 ### Development
@@ -34,7 +34,7 @@ npm install
 npm run tauri dev
 ```
 
-The application checks environment variables, local development paths, and bundled sidecars when resolving offline tools. Supported overrides are `FFMPEG_BIN`, `WHISPER_CLI_BIN`, `YT_DLP_BIN`, and `WHISPER_MODEL_PATH`.
+The application checks environment variables, local development paths, and bundled sidecars when resolving offline tools. Supported overrides are `FFMPEG_BIN`, `WHISPER_CLI_BIN`, and `WHISPER_MODEL_PATH`.
 
 ## Offline Transcription Flow
 

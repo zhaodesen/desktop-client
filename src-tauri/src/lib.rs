@@ -11,7 +11,6 @@ mod store;
 mod subtitle;
 mod translation_model;
 mod window;
-mod yt_dlp;
 
 use state::{AppSettings, AppState};
 use std::sync::atomic::Ordering;
@@ -153,12 +152,9 @@ pub fn run() {
             commands::pause_translation_model_download,
             commands::resume_translation_model_download,
             commands::delete_translation_model,
-            commands::get_yt_dlp_status,
-            commands::update_yt_dlp,
             commands::get_library_state,
             commands::probe_media_path,
             commands::import_media,
-            commands::import_online_media,
             commands::delete_media,
             commands::update_media_subtitle,
             commands::get_subtitle_document,

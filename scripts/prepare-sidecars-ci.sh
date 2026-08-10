@@ -10,7 +10,6 @@ WHISPER_CPP_REF="${WHISPER_CPP_REF:-master}"
 TARGET_TRIPLE="${1:-}"
 FFMPEG_SOURCE="${FFMPEG_SOURCE:-${FFMPEG_BIN:-}}"
 WHISPER_CLI_SOURCE="${WHISPER_CLI_SOURCE:-${WHISPER_CLI_BIN:-}}"
-YT_DLP_SOURCE="${YT_DLP_SOURCE:-${YT_DLP_BIN:-}}"
 
 if [[ -z "$TARGET_TRIPLE" ]]; then
   echo "Usage: scripts/prepare-sidecars-ci.sh <target-triple>" >&2
@@ -30,59 +29,12 @@ target_suffix() {
 
 FFMPEG_TARGET_PATH="$BIN_DIR/$(target_suffix ffmpeg)"
 WHISPER_TARGET_PATH="$BIN_DIR/$(target_suffix whisper-cli)"
-YT_DLP_TARGET_PATH="$BIN_DIR/$(target_suffix yt-dlp)"
-YT_DLP_DOWNLOAD_URL="${YT_DLP_DOWNLOAD_URL:-}"
 
 require_command() {
   command -v "$1" >/dev/null 2>&1 || {
     echo "Missing required command: $1" >&2
     exit 1
   }
-}
-
-default_yt_dlp_download_url() {
-  if [[ -n "$YT_DLP_DOWNLOAD_URL" ]]; then
-    printf "%s" "$YT_DLP_DOWNLOAD_URL"
-    return
-  fi
-
-  case "$TARGET_TRIPLE" in
-    aarch64-apple-darwin|x86_64-apple-darwin)
-      printf "%s" "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos"
-      ;;
-    x86_64-pc-windows-msvc)
-      printf "%s" "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
-      ;;
-    aarch64-pc-windows-msvc)
-      printf "%s" "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_arm64.exe"
-      ;;
-    x86_64-unknown-linux-gnu)
-      printf "%s" "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux"
-      ;;
-    aarch64-unknown-linux-gnu)
-      printf "%s" "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux_aarch64"
-      ;;
-    *)
-      printf "%s" ""
-      ;;
-  esac
-}
-
-validate_yt_dlp_candidate() {
-  local candidate="$1"
-  local description
-
-  if ! command -v file >/dev/null 2>&1; then
-    return
-  fi
-
-  description="$(file -b "$candidate" || true)"
-  case "$description" in
-    *"script text executable"*|*"ASCII text"*|*"Unicode text"*)
-      echo "yt-dlp candidate is not a standalone binary: $candidate ($description)" >&2
-      exit 1
-      ;;
-  esac
 }
 
 ensure_whisper_source() {
@@ -163,31 +115,6 @@ install_ffmpeg() {
   echo "Prepared ffmpeg sidecar: $FFMPEG_TARGET_PATH"
 }
 
-install_yt_dlp() {
-  if [[ -n "$YT_DLP_SOURCE" ]]; then
-    if [[ ! -f "$YT_DLP_SOURCE" ]]; then
-      echo "YT_DLP_SOURCE does not exist: $YT_DLP_SOURCE" >&2
-      exit 1
-    fi
-
-    cp "$YT_DLP_SOURCE" "$YT_DLP_TARGET_PATH"
-  else
-    local download_url
-    download_url="$(default_yt_dlp_download_url)"
-    if [[ -z "$download_url" ]]; then
-      echo "Unsupported target for yt-dlp sidecar preparation: $TARGET_TRIPLE" >&2
-      exit 1
-    fi
-
-    require_command curl
-    curl -L --fail --retry 3 -o "$YT_DLP_TARGET_PATH" "$download_url"
-  fi
-
-  chmod +x "$YT_DLP_TARGET_PATH" || true
-  validate_yt_dlp_candidate "$YT_DLP_TARGET_PATH"
-  echo "Prepared yt-dlp sidecar: $YT_DLP_TARGET_PATH"
-}
-
 build_whisper_cli() {
   if [[ -n "$WHISPER_CLI_SOURCE" ]]; then
     if [[ ! -f "$WHISPER_CLI_SOURCE" ]]; then
@@ -230,17 +157,14 @@ verify_sidecars() {
   if [[ "$TARGET_TRIPLE" == *windows* ]]; then
     "$WHISPER_TARGET_PATH" --help > /dev/null
     "$FFMPEG_TARGET_PATH" -version > /dev/null
-    "$YT_DLP_TARGET_PATH" --help > /dev/null
   else
     "$WHISPER_TARGET_PATH" --help >/dev/null 2>&1
     "$FFMPEG_TARGET_PATH" -version >/dev/null 2>&1
-    "$YT_DLP_TARGET_PATH" --help >/dev/null 2>&1
   fi
 }
 
 echo "Preparing CI sidecars for: $TARGET_TRIPLE"
 install_ffmpeg
-install_yt_dlp
 build_whisper_cli
 verify_sidecars
 echo "CI sidecar preparation passed."

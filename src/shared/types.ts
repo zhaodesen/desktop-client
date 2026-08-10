@@ -174,7 +174,7 @@ export type AsrStartedPayload = {
 };
 
 export type ImportMediaProgressPayload = {
-  stage: "downloading" | "copying" | "extracting" | "registering";
+  stage: "copying" | "extracting" | "registering";
   message: string;
   percent: number | null;
 };
@@ -238,18 +238,6 @@ export type TranslationModelStatus = {
   downloadUrl: string;
 };
 
-export type YtDlpStatus = {
-  currentVersion?: string;
-  bundledVersion?: string;
-  overrideVersion?: string;
-  currentPath?: string;
-  source: string;
-  lastCheckedAt?: number;
-  lastUpdatedAt?: number;
-  lastError?: string;
-  updateSupported: boolean;
-};
-
 export type AllModelsStatus = {
   models: ModelStatus[];
 };
@@ -309,7 +297,6 @@ export type RemovePlaybackItemInput = {
 };
 
 export type ImportProgressStage =
-  | "downloading"
   | "importing"
   | "preparing"
   | "recognizing"

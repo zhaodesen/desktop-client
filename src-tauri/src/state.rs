@@ -139,7 +139,6 @@ pub struct AppState {
     pub active_asr_job: Arc<Mutex<Option<AsrJobState>>>,
     pub active_model_download: Arc<Mutex<Option<ModelDownloadState>>>,
     pub active_translation_model_download: Arc<Mutex<Option<ModelDownloadState>>>,
-    pub active_online_import: Arc<Mutex<Option<ExternalProcessState>>>,
     pub active_translation_job: Arc<Mutex<Option<ExternalProcessState>>>,
     pub shutdown_confirmed: Arc<AtomicBool>,
 }
@@ -151,7 +150,6 @@ impl AppState {
             active_asr_job: Arc::new(Mutex::new(None)),
             active_model_download: Arc::new(Mutex::new(None)),
             active_translation_model_download: Arc::new(Mutex::new(None)),
-            active_online_import: Arc::new(Mutex::new(None)),
             active_translation_job: Arc::new(Mutex::new(None)),
             shutdown_confirmed: Arc::new(AtomicBool::new(false)),
         }

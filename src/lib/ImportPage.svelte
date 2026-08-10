@@ -12,7 +12,6 @@
     canCancel: boolean;
     isCancellingAsr: boolean;
     onImportMedia: () => Promise<void> | void;
-    onImportOnline: (url: string) => Promise<void> | void;
     onCancel: () => void;
     onDismissError: () => void;
     onImportSuccessClose: () => void;
@@ -35,7 +34,6 @@
     canCancel,
     isCancellingAsr,
     onImportMedia,
-    onImportOnline,
     onCancel,
     onDismissError,
     onImportSuccessClose,
@@ -45,7 +43,6 @@
   const SUPPRESS_KEY = "import_suppress_dialog";
 
   const IMPORT_STAGES: ImportStageMeta[] = [
-    { id: "downloading", short: "下载", label: "下载在线视频", description: "从链接拉取媒体到本机。" },
     { id: "importing", short: "导入", label: "整理媒体素材", description: "写入资源库并准备处理。" },
     { id: "preparing", short: "检查", label: "检查模型与依赖", description: "确认识别环境已经就绪。" },
     { id: "recognizing", short: "识别", label: "离线识别字幕", description: "在本机完成语音转写。" },
@@ -55,10 +52,6 @@
   let suppressDialog = $state(false);
   let dialogSuppressChecked = $state(false);
   let showToast = $state(false);
-  let showOnlineDialog = $state(false);
-  let onlineUrl = $state("");
-  let onlineUrlError = $state<string | undefined>(undefined);
-  let isSubmittingOnline = $state(false);
   let toastTimer: ReturnType<typeof setTimeout> | undefined;
 
   let showDialog = $derived(showSuccess && !suppressDialog);
@@ -80,7 +73,6 @@
     }
     return "素材已导入，双语字幕已生成完毕。";
   });
-  let importErrorHint = $derived(getImportErrorHint(importError));
   let progressRatio = $derived(normalizedPercent / 100);
   onMount(() => {
     suppressDialog = localStorage.getItem(SUPPRESS_KEY) === "true";
@@ -101,21 +93,6 @@
     }
   });
 
-  function getImportErrorHint(error: string | undefined): string | undefined {
-    if (!error) return undefined;
-
-    const lowered = error.toLowerCase();
-    const isBilibiliError =
-      lowered.includes("bilibili")
-      || lowered.includes("b23.tv")
-      || error.includes("B 站")
-      || error.includes("浏览器 Cookie");
-
-    if (!isBilibiliError) return undefined;
-
-    return "可先在本机浏览器里登录一次 B 站，再回到这里重试。应用会自动尝试读取浏览器 Cookie。";
-  }
-
   function saveSuppress() {
     if (!dialogSuppressChecked) return;
     suppressDialog = true;
@@ -133,11 +110,6 @@
     dialogSuppressChecked = false;
     onImportSuccessClose();
     onGoToResources();
-  }
-
-  function openOnlineDialog() {
-    showOnlineDialog = true;
-    onlineUrlError = undefined;
   }
 
   function getStageState(index: number): "done" | "active" | "pending" {
@@ -158,37 +130,6 @@
     }
   }
 
-  async function handleOnlineImportSubmit() {
-    const trimmedUrl = onlineUrl.trim();
-    if (!trimmedUrl) {
-      onlineUrlError = "请输入在线视频地址";
-      return;
-    }
-
-    isSubmittingOnline = true;
-    onlineUrlError = undefined;
-    showOnlineDialog = false;
-    onlineUrl = "";
-    try {
-      await onImportOnline(trimmedUrl);
-    } catch {
-      // 具体错误由父组件统一显示在导入页顶部错误条。
-    } finally {
-      isSubmittingOnline = false;
-    }
-  }
-
-  function handleOnlineInputKeydown(event: KeyboardEvent) {
-    if (event.key !== "Enter" || isSubmittingOnline) return;
-    event.preventDefault();
-    void handleOnlineImportSubmit();
-  }
-
-  function handleCloseOnlineDialog() {
-    if (isSubmittingOnline) return;
-    showOnlineDialog = false;
-    onlineUrlError = undefined;
-  }
 </script>
 
 {#if importError}
@@ -200,9 +141,6 @@
     </svg>
     <div class="import-error-copy">
       <span class="import-error-msg">{importError}</span>
-      {#if importErrorHint}
-        <div class="import-error-hint">{importErrorHint}</div>
-      {/if}
     </div>
     <button class="import-error-close" type="button" onclick={onDismissError} aria-label="关闭错误">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -223,7 +161,7 @@
     <div class="import-idle">
       <h2 class="import-title">导入素材</h2>
       <p class="import-desc">
-        支持本地音视频与在线视频链接。导入后会自动完成离线识别和中文字幕生成。
+        支持本地音视频文件。导入后会自动完成离线识别和中文字幕生成。
       </p>
 
       <div class="import-actions">
@@ -235,19 +173,10 @@
           </svg>
           选择本地文件
         </button>
-        <button class="btn btn-outline btn-lg" type="button" onclick={openOnlineDialog}>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M5 12h14" />
-            <path d="m12 5 7 7-7 7" />
-            <path d="M5 5h.01" />
-            <path d="M5 19h.01" />
-          </svg>
-          导入在线视频
-        </button>
       </div>
 
       <p class="import-note">
-        支持 MP4、MOV、MKV、MP3、WAV、M4A 等常见格式。长视频建议优先本地导入，公开链接适合直接拉取。
+        支持 MP4、MOV、MKV、MP3、WAV、M4A 等常见格式。
       </p>
     </div>
 
@@ -303,38 +232,6 @@
         全部完成，双语字幕已生成
       {/if}
     </span>
-  </div>
-{/if}
-
-{#if showOnlineDialog}
-  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-  <div class="import-dialog-backdrop" role="presentation" onclick={handleCloseOnlineDialog}></div>
-  <div class="import-dialog import-online-dialog" role="dialog" aria-modal="true" aria-labelledby="online-dialog-title">
-    <h3 id="online-dialog-title" class="import-dialog-title">导入在线视频</h3>
-    <p class="import-dialog-tip">
-      部分站点、私有链接或带校验参数的 URL 可能不支持。如果下载失败，建议先手动保存到本地后再导入。
-    </p>
-
-    <label class="online-input-block">
-      <input
-        type="url"
-        placeholder="请输入视频网址"
-        bind:value={onlineUrl}
-        disabled={isSubmittingOnline}
-        onkeydown={handleOnlineInputKeydown}
-      />
-    </label>
-
-    {#if onlineUrlError}
-      <div class="online-input-error">{onlineUrlError}</div>
-    {/if}
-
-    <div class="import-dialog-actions">
-      <button class="btn btn-ghost btn-sm" type="button" onclick={handleCloseOnlineDialog} disabled={isSubmittingOnline}>取消</button>
-      <button class="btn btn-primary btn-sm" type="button" onclick={() => { void handleOnlineImportSubmit(); }} disabled={isSubmittingOnline}>
-        开始导入
-      </button>
-    </div>
   </div>
 {/if}
 
@@ -721,16 +618,6 @@
 
   .import-error-msg { min-width: 0; word-break: break-word; }
 
-  .import-error-hint {
-    padding: 10px 12px;
-    border-radius: var(--radius-md);
-    background: rgba(248, 113, 113, 0.08);
-    border: 1px solid var(--danger-border);
-    color: var(--danger);
-    font-size: var(--font-xs);
-    line-height: 1.55;
-  }
-
   .import-error-close {
     width: 30px;
     height: 30px;
@@ -809,8 +696,6 @@
     animation: import-dialog-enter 400ms cubic-bezier(0.16, 1, 0.3, 1) 60ms both;
   }
 
-  .import-online-dialog { width: 460px; align-items: stretch; text-align: left; }
-
   .import-dialog-check {
     width: 58px;
     height: 58px;
@@ -827,12 +712,6 @@
   .import-dialog-suppress { display: flex; align-items: center; gap: 8px; font-size: var(--font-xs); color: var(--text-dim); cursor: pointer; user-select: none; }
   .import-dialog-suppress input { cursor: pointer; accent-color: var(--accent); }
   .import-dialog-actions { width: 100%; display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
-  .import-dialog-tip { font-size: var(--font-xs); }
-
-  .online-input-block { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; font-size: var(--font-xs); color: var(--text-secondary); }
-  .online-input-block input { width: 100%; padding: 12px 14px; border-radius: 16px; border: 1px solid var(--border); background: var(--bg-inset); color: var(--text-primary); font: inherit; transition: border-color var(--transition-fast), background var(--transition-fast), box-shadow var(--transition-fast); }
-  .online-input-block input:focus-visible { background: var(--bg-surface); }
-  .online-input-error { font-size: var(--font-xs); color: var(--danger); margin-top: -2px; }
 
   /* ═══════════════════════════════════════════
      Keyframes
@@ -867,7 +746,7 @@
      ═══════════════════════════════════════════ */
   @media (max-width: 900px) {
     .import-page { min-height: 0; }
-    .import-toast, .import-dialog, .import-online-dialog { left: 50%; }
+    .import-toast, .import-dialog { left: 50%; }
 
     .import-face-progress { width: min(680px, calc(100vw - 60px)); }
   }
@@ -895,7 +774,7 @@
     .import-step { padding: 5px 10px; }
     .import-cancel-btn { width: 100%; }
 
-    .import-dialog, .import-online-dialog {
+    .import-dialog {
       width: min(460px, calc(100vw - 24px));
       padding: 24px 20px 18px;
     }

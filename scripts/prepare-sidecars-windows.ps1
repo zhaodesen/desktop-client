@@ -11,8 +11,6 @@ $WhisperDir = if ($env:WHISPER_CPP_DIR) { $env:WHISPER_CPP_DIR } else { Join-Pat
 $WhisperRef = if ($env:WHISPER_CPP_REF) { $env:WHISPER_CPP_REF } else { "master" }
 $FfmpegSource = if ($env:FFMPEG_SOURCE) { $env:FFMPEG_SOURCE } elseif ($env:FFMPEG_BIN) { $env:FFMPEG_BIN } else { "" }
 $WhisperCliSource = if ($env:WHISPER_CLI_SOURCE) { $env:WHISPER_CLI_SOURCE } elseif ($env:WHISPER_CLI_BIN) { $env:WHISPER_CLI_BIN } else { "" }
-$YtDlpSource = if ($env:YT_DLP_SOURCE) { $env:YT_DLP_SOURCE } elseif ($env:YT_DLP_BIN) { $env:YT_DLP_BIN } else { "" }
-$YtDlpDownloadUrl = if ($env:YT_DLP_DOWNLOAD_URL) { $env:YT_DLP_DOWNLOAD_URL } else { "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe" }
 $WhisperReleaseApiUrl = if ($env:WHISPER_RELEASE_API_URL) { $env:WHISPER_RELEASE_API_URL } else { "https://api.github.com/repos/ggml-org/whisper.cpp/releases/latest" }
 
 New-Item -ItemType Directory -Force -Path $BinDir | Out-Null
@@ -25,7 +23,6 @@ function Resolve-TargetName {
 
 $FfmpegTargetPath = Join-Path $BinDir (Resolve-TargetName "ffmpeg")
 $WhisperTargetPath = Join-Path $BinDir (Resolve-TargetName "whisper-cli")
-$YtDlpTargetPath = Join-Path $BinDir (Resolve-TargetName "yt-dlp")
 
 function Find-Ffmpeg {
   if ($FfmpegSource) {
@@ -56,13 +53,6 @@ function Find-Ffmpeg {
   return $null
 }
 
-function Install-YtDlp {
-  param([string]$TargetPath)
-
-  Write-Host "Downloading yt-dlp from $YtDlpDownloadUrl"
-  Invoke-WebRequest -Uri $YtDlpDownloadUrl -OutFile $TargetPath
-}
-
 function Test-PortableExecutable {
   param([string]$Path)
 
@@ -83,22 +73,6 @@ function Test-PortableExecutable {
   finally {
     $stream.Dispose()
   }
-}
-
-function Resolve-YtDlpSource {
-  if (-not $YtDlpSource) {
-    return $null
-  }
-
-  if (-not (Test-Path $YtDlpSource)) {
-    throw "YT_DLP_SOURCE does not exist: $YtDlpSource"
-  }
-
-  if (-not (Test-PortableExecutable $YtDlpSource)) {
-    throw "YT_DLP_SOURCE must point to a standalone yt-dlp .exe, not a wrapper script or shim."
-  }
-
-  return (Resolve-Path $YtDlpSource).Path
 }
 
 function Resolve-WhisperCliSource {
@@ -212,24 +186,6 @@ if (-not $ffmpeg) {
 
 Copy-Item $ffmpeg $FfmpegTargetPath -Force
 
-$ytDlp = Resolve-YtDlpSource
-if (-not $ytDlp) {
-  Install-YtDlp -TargetPath $YtDlpTargetPath
-  $ytDlp = $YtDlpTargetPath
-}
-
-if (-not $ytDlp) {
-  throw "Cannot locate yt-dlp after installation."
-}
-
-if (-not (Test-PortableExecutable $ytDlp)) {
-  throw "yt-dlp binary is not a standalone Windows executable: $ytDlp"
-}
-
-if ((Resolve-Path $ytDlp).Path -ne (Resolve-Path $YtDlpTargetPath -ErrorAction SilentlyContinue | ForEach-Object { $_.Path })) {
-  Copy-Item $ytDlp $YtDlpTargetPath -Force
-}
-
 if ($resolvedWhisper = Resolve-WhisperCliSource) {
   Copy-Item $resolvedWhisper $WhisperTargetPath -Force
 } else {
@@ -293,11 +249,5 @@ if ($ffmpegExitCode -ne 0) {
   throw "ffmpeg verification failed with exit code $ffmpegExitCode."
 }
 
-$ytDlpExitCode = Get-ExecutableExitCode -FilePath $YtDlpTargetPath -Arguments @("--help")
-if ($ytDlpExitCode -ne 0) {
-  throw "yt-dlp verification failed with exit code $ytDlpExitCode."
-}
-
 Write-Host "Prepared whisper sidecar: $WhisperTargetPath"
 Write-Host "Prepared ffmpeg sidecar: $FfmpegTargetPath"
-Write-Host "Prepared yt-dlp sidecar: $YtDlpTargetPath"

@@ -57,7 +57,7 @@ function runCommand(command, args) {
 }
 
 function verifyBundledSidecars(targetTriple) {
-  const expected = ['ffmpeg', 'whisper-cli', 'yt-dlp', 'translator-cli', 'ct2-translator', 'spm_encode', 'spm_decode'].map((name) =>
+  const expected = ['ffmpeg', 'whisper-cli', 'translator-cli', 'ct2-translator', 'spm_encode', 'spm_decode'].map((name) =>
     path.join(binariesDir, targetSidecarName(name, targetTriple)),
   );
   if (targetTriple.includes('windows')) {

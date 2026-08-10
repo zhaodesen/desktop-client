@@ -182,7 +182,6 @@
   let retryAsrCompletedMessage = $state<string | undefined>(undefined);
   let retryAsrNoticeTimer: ReturnType<typeof setTimeout> | undefined;
   let retryAsrProgressDriftTimer: ReturnType<typeof setInterval> | undefined;
-  let activeImportSource = $state<"local" | "online" | undefined>(undefined);
   let showFirstRunOnboarding = $state(false);
   let onboardingStep = $state<"select-model" | "downloading" | "ready">("select-model");
   let onboardingSelectedModelId = $state<string | undefined>(undefined);
@@ -236,8 +235,7 @@
   let mediaLoadRequestId = 0;
   let playlistPlayPromise: Promise<void> | null = null;
   let playlistPlayTargetId: string | undefined;
-  type ImportSource = "local" | "online";
-  type ImportBackendStage = "downloading" | "copying" | "extracting" | "registering";
+  type ImportBackendStage = "copying" | "extracting" | "registering";
 
   function scheduleProgressUpdate(next: ImportProgress) {
     const baseline = Math.max(
@@ -372,22 +370,16 @@
     return start + (normalized / 100) * (end - start);
   }
 
-  function getImportProgressSource(source = activeImportSource): ImportSource {
-    return source === "online" ? "online" : "local";
+  function getImportSettledPercent() {
+    return 24;
   }
 
-  function getImportSettledPercent(source = activeImportSource) {
-    return getImportProgressSource(source) === "online" ? 60 : 24;
+  function getPreparingOverallPercent() {
+    return 30;
   }
 
-  function getPreparingOverallPercent(source = activeImportSource) {
-    return getImportProgressSource(source) === "online" ? 66 : 30;
-  }
-
-  function getRecognizingOverallPercent(percent: number | null | undefined, source = activeImportSource) {
-    return getImportProgressSource(source) === "online"
-      ? mapProgressRange(72, 88, percent, 72)
-      : mapProgressRange(36, 88, percent, 36);
+  function getRecognizingOverallPercent(percent: number | null | undefined) {
+    return mapProgressRange(36, 88, percent, 36);
   }
 
   function getWritingOverallPercent() {
@@ -401,20 +393,7 @@
   function getImportStageOverallPercent(
     stage: ImportBackendStage,
     percent: number | null | undefined,
-    source = activeImportSource,
   ) {
-    if (stage === "downloading") {
-      return getImportProgressSource(source) === "online"
-        ? mapProgressRange(4, 52, percent, 10)
-        : 0;
-    }
-
-    if (getImportProgressSource(source) === "online") {
-      if (stage === "copying") return mapProgressRange(52, 58, percent, 54);
-      if (stage === "extracting") return mapProgressRange(52, 58, percent, 55);
-      return percent != null ? 60 : 58;
-    }
-
     if (stage === "copying") return mapProgressRange(6, 16, percent, 10);
     if (stage === "extracting") return mapProgressRange(16, 24, percent, 20);
     return percent != null ? 24 : 22;
@@ -1259,8 +1238,7 @@
 
   /* ── Import handlers ───────────────────────────────────── */
 
-  function beginImportFlow(source: "local" | "online", initialMessage: string) {
-    activeImportSource = source;
+  function beginImportFlow(initialMessage: string) {
     importError = undefined;
     importSuccessKind = "bilingual";
     showImportSuccess = false;
@@ -1269,9 +1247,9 @@
     resetScheduledProgressUpdate();
     importProgress = {
       active: true,
-      stage: source === "online" ? "downloading" : "importing",
+      stage: "importing",
       message: initialMessage,
-      percent: source === "online" ? 4 : 6,
+      percent: 6,
     };
   }
 
@@ -1280,7 +1258,6 @@
     resetScheduledProgressUpdate();
     clearTimeout(importSuccessTimer);
     importProgress = { ...IMPORT_IDLE };
-    activeImportSource = undefined;
     isCancellingAsr = false;
   }
 
@@ -1301,7 +1278,7 @@
     });
     if (!selected || Array.isArray(selected)) return;
 
-    beginImportFlow("local", "正在导入媒体文件…");
+    beginImportFlow("正在导入媒体文件…");
     try {
       await waitForNextPaint();
       const media = await backend.importMedia(selected);
@@ -1309,7 +1286,7 @@
         active: true,
         stage: "importing",
         message: "媒体导入成功，准备生成字幕…",
-        percent: getImportSettledPercent("local"),
+        percent: getImportSettledPercent(),
       };
       importSuccessName = media.title;
       await refreshLibrary();
@@ -1323,30 +1300,6 @@
       console.error(err);
       importError = formatError(err);
       resetImportFlowState();
-    }
-  }
-
-  async function handleImportOnlineMedia(url: string) {
-    beginImportFlow("online", "正在准备在线视频下载…");
-    try {
-      await waitForNextPaint();
-      const media = await backend.importOnlineMedia(url);
-      importProgress = {
-        active: true,
-        stage: "importing",
-        message: "在线视频已导入，准备生成字幕…",
-        percent: getImportSettledPercent("online"),
-      };
-      importSuccessName = media.title;
-      await refreshLibrary();
-      await startAutoAsr(media);
-    } catch (err) {
-      console.error(err);
-      importError = formatError(err);
-      resetImportFlowState();
-      throw err;
-    } finally {
-      // no-op: startup and settings no longer probe yt-dlp status
     }
   }
 
@@ -1845,17 +1798,6 @@
     const unImportProgress = await importEvents.onProgress(({ stage, message, percent }) => {
       if (!importProgress.active) return;
 
-      if (stage === "downloading") {
-        if (activeImportSource !== "online") return;
-        scheduleProgressUpdate({
-          active: true,
-          stage: "downloading",
-          message,
-          percent: Math.round(getImportStageOverallPercent(stage, percent, "online")),
-        });
-        return;
-      }
-
       scheduleProgressUpdate({
         active: true,
         stage: "importing",
@@ -2020,7 +1962,6 @@
           clearTimeout(importSuccessTimer);
           importSuccessTimer = setTimeout(() => {
             showImportSuccess = true;
-            activeImportSource = undefined;
           }, 550);
         }
       } catch (err) {
@@ -2323,7 +2264,6 @@
           canCancel={Boolean(activeAsrJobId) && importProgress.stage !== "done"}
           {isCancellingAsr}
           onImportMedia={handleImportMedia}
-          onImportOnline={handleImportOnlineMedia}
           onCancel={() => { void handleCancelAsr(); }}
           onDismissError={() => { importError = undefined; }}
           onImportSuccessClose={closeImportSuccess}

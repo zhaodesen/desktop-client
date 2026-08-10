@@ -45,15 +45,6 @@ pub fn list_active_tasks(state: &AppState) -> Vec<String> {
     }
 
     if state
-        .active_online_import
-        .lock()
-        .map(|guard| guard.is_some())
-        .unwrap_or(false)
-    {
-        tasks.push("在线视频下载".to_string());
-    }
-
-    if state
         .active_model_download
         .lock()
         .map(|guard| guard.is_some())
@@ -132,13 +123,6 @@ pub fn prepare_for_exit(app: &AppHandle, state: &AppState) -> ShutdownCleanupOut
         }
     }
 
-    if let Ok(mut guard) = state.active_online_import.lock() {
-        if let Some(task) = guard.take() {
-            let _ = sidecar::kill_process(task.pid);
-            cancelled_tasks.push(task.label.to_string());
-        }
-    }
-
     if let Ok(guard) = state.active_model_download.lock() {
         if let Some(task) = guard.as_ref() {
             task.preserve_temp_on_cancel.store(true, Ordering::SeqCst);
@@ -179,11 +163,6 @@ fn wait_for_shutdown_cleanup(state: &AppState) {
             .lock()
             .map(|guard| guard.is_none())
             .unwrap_or(true);
-        let import_done = state
-            .active_online_import
-            .lock()
-            .map(|guard| guard.is_none())
-            .unwrap_or(true);
         let model_done = state
             .active_model_download
             .lock()
@@ -200,7 +179,7 @@ fn wait_for_shutdown_cleanup(state: &AppState) {
             .map(|guard| guard.is_none())
             .unwrap_or(true);
 
-        if translation_done && import_done && model_done && translation_model_done && asr_done {
+        if translation_done && model_done && translation_model_done && asr_done {
             break;
         }
 
